@@ -42,10 +42,10 @@ class SdkGenerator
         );
 
         // Data DTOs and Resources for each schema
-        $modelNames = array_keys($schemas);
+        $primaryModelNames = [];
 
         foreach ($schemas as $modelName => $context) {
-            // Data DTO
+            // Data DTO — generated for all schemas (primary and dependency-only)
             $dataClassName = $modelName.'Data';
             $files["data_{$modelName}"] = new GeneratedFile(
                 path: "src/Data/{$dataClassName}.php",
@@ -56,28 +56,32 @@ class SdkGenerator
                 ),
             );
 
-            // Resource
-            $resourceClassName = $modelName.'Resource';
-            $files["resource_{$modelName}"] = new GeneratedFile(
-                path: "src/Resources/{$resourceClassName}.php",
-                content: (new SdkResourceGenerator)->generate(
-                    $context->table,
-                    $resourceNamespace,
-                    $dataNamespace,
-                    $modelName,
-                    $context->customActions,
-                ),
-            );
+            // Resource — only for primary schemas (not dependency-only)
+            if (! $context->isDependencyOnly) {
+                $primaryModelNames[] = $modelName;
+
+                $resourceClassName = $modelName.'Resource';
+                $files["resource_{$modelName}"] = new GeneratedFile(
+                    path: "src/Resources/{$resourceClassName}.php",
+                    content: (new SdkResourceGenerator)->generate(
+                        $context->table,
+                        $resourceNamespace,
+                        $dataNamespace,
+                        $modelName,
+                        $context->customActions,
+                    ),
+                );
+            }
         }
 
-        // Client
+        // Client — only references primary schemas
         $files['client'] = new GeneratedFile(
             path: "src/{$clientClassName}.php",
             content: (new SdkClientGenerator)->generate(
                 $namespace,
                 $clientClassName,
                 $resourceNamespace,
-                $modelNames,
+                $primaryModelNames,
             ),
         );
 

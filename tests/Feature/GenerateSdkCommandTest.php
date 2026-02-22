@@ -79,6 +79,8 @@ class GenerateSdkCommandTest extends TestCase
         $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
         $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
         $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
     }
 
     // ─── Basic generation ──────────────────────────────────────────
@@ -278,6 +280,131 @@ class GenerateSdkCommandTest extends TestCase
         $content = $this->files->get($outputPath.'/src/AcmeClient.php');
         $this->assertStringNotContainsString('// marker', $content);
         $this->assertStringContainsString('class AcmeClient', $content);
+    }
+
+    // ─── Dependency resolution ─────────────────────────────────────
+
+    public function test_generates_dependency_data_dtos_for_child_relationships(): void
+    {
+        $this->generateApiForPost();
+
+        $outputPath = base_path('packages/test-sdk');
+        $this->trackDir($outputPath);
+
+        $this->artisan('schema:generate-sdk', [
+            '--schema-path' => [dirname(__DIR__).'/Fixtures/Schemas'],
+            '--path' => 'packages/test-sdk',
+            '--name' => 'acme/test-sdk',
+            '--namespace' => 'Acme\\TestSdk',
+            '--client' => 'AcmeClient',
+        ])->assertSuccessful();
+
+        // PostSchema has HasMany(Comment), BelongsToMany(Tag)
+        // Dependency Data DTOs should be generated
+        $this->assertFileExists($outputPath.'/src/Data/CommentData.php');
+        $this->assertFileExists($outputPath.'/src/Data/TagData.php');
+    }
+
+    public function test_dependency_data_dtos_contain_valid_php(): void
+    {
+        $this->generateApiForPost();
+
+        $outputPath = base_path('packages/test-sdk');
+        $this->trackDir($outputPath);
+
+        $this->artisan('schema:generate-sdk', [
+            '--schema-path' => [dirname(__DIR__).'/Fixtures/Schemas'],
+            '--path' => 'packages/test-sdk',
+            '--name' => 'acme/test-sdk',
+            '--namespace' => 'Acme\\TestSdk',
+            '--client' => 'AcmeClient',
+        ])->assertSuccessful();
+
+        $commentContent = $this->files->get($outputPath.'/src/Data/CommentData.php');
+        $this->assertStringContainsString('class CommentData', $commentContent);
+        $this->assertStringContainsString('namespace Acme\\TestSdk\\Data;', $commentContent);
+        $this->assertStringContainsString('fromArray', $commentContent);
+
+        $tagContent = $this->files->get($outputPath.'/src/Data/TagData.php');
+        $this->assertStringContainsString('class TagData', $tagContent);
+        $this->assertStringContainsString('namespace Acme\\TestSdk\\Data;', $tagContent);
+    }
+
+    public function test_dependency_schemas_do_not_get_sdk_resources(): void
+    {
+        $this->generateApiForPost();
+
+        $outputPath = base_path('packages/test-sdk');
+        $this->trackDir($outputPath);
+
+        $this->artisan('schema:generate-sdk', [
+            '--schema-path' => [dirname(__DIR__).'/Fixtures/Schemas'],
+            '--path' => 'packages/test-sdk',
+            '--name' => 'acme/test-sdk',
+            '--namespace' => 'Acme\\TestSdk',
+            '--client' => 'AcmeClient',
+        ])->assertSuccessful();
+
+        // Dependency schemas should NOT have SDK Resources (no CRUD endpoints)
+        $this->assertFileDoesNotExist($outputPath.'/src/Resources/CommentResource.php');
+        $this->assertFileDoesNotExist($outputPath.'/src/Resources/TagResource.php');
+
+        // Primary schema should still have its Resource
+        $this->assertFileExists($outputPath.'/src/Resources/PostResource.php');
+    }
+
+    public function test_dependency_schemas_not_in_client_accessors(): void
+    {
+        $this->generateApiForPost();
+
+        $outputPath = base_path('packages/test-sdk');
+        $this->trackDir($outputPath);
+
+        $this->artisan('schema:generate-sdk', [
+            '--schema-path' => [dirname(__DIR__).'/Fixtures/Schemas'],
+            '--path' => 'packages/test-sdk',
+            '--name' => 'acme/test-sdk',
+            '--namespace' => 'Acme\\TestSdk',
+            '--client' => 'AcmeClient',
+        ])->assertSuccessful();
+
+        $clientContent = $this->files->get($outputPath.'/src/AcmeClient.php');
+
+        // Primary schema should have a client accessor
+        $this->assertStringContainsString('public function posts(): PostResource', $clientContent);
+
+        // Dependency schemas should NOT have client accessors
+        $this->assertStringNotContainsString('CommentResource', $clientContent);
+        $this->assertStringNotContainsString('TagResource', $clientContent);
+        $this->assertStringNotContainsString('comments()', $clientContent);
+        $this->assertStringNotContainsString('tags()', $clientContent);
+    }
+
+    public function test_dependency_data_dtos_include_schema_columns(): void
+    {
+        $this->generateApiForPost();
+
+        $outputPath = base_path('packages/test-sdk');
+        $this->trackDir($outputPath);
+
+        $this->artisan('schema:generate-sdk', [
+            '--schema-path' => [dirname(__DIR__).'/Fixtures/Schemas'],
+            '--path' => 'packages/test-sdk',
+            '--name' => 'acme/test-sdk',
+            '--namespace' => 'Acme\\TestSdk',
+            '--client' => 'AcmeClient',
+        ])->assertSuccessful();
+
+        // CommentSchema columns: id, body, user_id, commentable_type, commentable_id, timestamps
+        $commentContent = $this->files->get($outputPath.'/src/Data/CommentData.php');
+        $this->assertStringContainsString('$id', $commentContent);
+        $this->assertStringContainsString('$body', $commentContent);
+
+        // TagSchema columns: id, name, slug, timestamps
+        $tagContent = $this->files->get($outputPath.'/src/Data/TagData.php');
+        $this->assertStringContainsString('$id', $tagContent);
+        $this->assertStringContainsString('$name', $tagContent);
+        $this->assertStringContainsString('$slug', $tagContent);
     }
 
     // ─── Custom actions ───────────────────────────────────────────

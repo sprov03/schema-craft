@@ -5,6 +5,7 @@ namespace SchemaCraft\Console;
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
+use SchemaCraft\Generator\DependencyResolver;
 use SchemaCraft\Generator\Sdk\ControllerActionScanner;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
 use SchemaCraft\Generator\Sdk\SdkSchemaContext;
@@ -47,6 +48,9 @@ class GenerateSdkCommand extends Command
         }
 
         $this->components->info('Found '.count($schemas).' API schema(s): '.implode(', ', array_keys($schemas)));
+
+        // Resolve dependency schemas (related models that need Data DTOs)
+        $schemas = $this->resolveDependencySchemas($schemas);
 
         // Generate SDK files
         $stubsPath = $this->resolveStubsPath();
@@ -121,6 +125,44 @@ class GenerateSdkCommand extends Command
         }
 
         return $schemas;
+    }
+
+    /**
+     * Resolve dependency schemas for all primary schemas.
+     *
+     * Walks the relationship tree to find models referenced by child
+     * relationships (HasMany, HasOne, etc.) that need Data DTOs in the SDK.
+     *
+     * @param  array<string, SdkSchemaContext>  $schemas
+     * @return array<string, SdkSchemaContext>
+     */
+    private function resolveDependencySchemas(array $schemas): array
+    {
+        $resolver = new DependencyResolver;
+        $dependencySchemas = [];
+
+        foreach ($schemas as $modelName => $context) {
+            $deps = $resolver->resolveDependencies($context->table);
+
+            foreach ($deps as $depModelName => $depTable) {
+                if (! isset($schemas[$depModelName]) && ! isset($dependencySchemas[$depModelName])) {
+                    $dependencySchemas[$depModelName] = new SdkSchemaContext(
+                        table: $depTable,
+                        isDependencyOnly: true,
+                    );
+                }
+            }
+
+            foreach ($resolver->getWarnings() as $warning) {
+                $this->components->warn($warning);
+            }
+        }
+
+        if (! empty($dependencySchemas)) {
+            $this->components->info('Resolved '.count($dependencySchemas).' dependency schema(s): '.implode(', ', array_keys($dependencySchemas)));
+        }
+
+        return array_merge($schemas, $dependencySchemas);
     }
 
     private function resolveModelName(string $schemaClass): string

@@ -7,7 +7,11 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
 use SchemaCraft\Generator\Api\ApiCodeGenerator;
 use SchemaCraft\Generator\Api\ApiFileWriter;
+use SchemaCraft\Generator\Api\GeneratedFile;
+use SchemaCraft\Generator\Api\ResourceGenerator;
+use SchemaCraft\Generator\DependencyResolver;
 use SchemaCraft\Scanner\SchemaScanner;
+use SchemaCraft\Scanner\TableDefinition;
 
 class GenerateApiCommand extends Command
 {
@@ -47,6 +51,10 @@ class GenerateApiCommand extends Command
 
         $generatedFiles = $generator->generate($table, $modelName);
 
+        // Resolve dependency schemas and generate their Resources
+        $dependencyFiles = $this->resolveDependencyResources($table);
+        $generatedFiles = array_merge($generatedFiles, $dependencyFiles);
+
         $hasSkipped = false;
 
         foreach ($generatedFiles as $key => $file) {
@@ -61,7 +69,9 @@ class GenerateApiCommand extends Command
 
             $files->ensureDirectoryExists(dirname($absolutePath));
             $files->put($absolutePath, $file->content);
-            $this->components->info("Created [{$absolutePath}]");
+
+            $label = str_starts_with($key, 'dependency_resource_') ? ' (dependency)' : '';
+            $this->components->info("Created [{$absolutePath}]{$label}");
         }
 
         if ($hasSkipped) {
@@ -141,6 +151,40 @@ class GenerateApiCommand extends Command
         $this->components->info("Updated [{$servicePath}] with [{$actionName}] method.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Resolve dependency schemas and generate Resource-only files for them.
+     *
+     * Walks the relationship tree to find models referenced by child
+     * relationships that need Resource classes in the API layer.
+     *
+     * @return array<string, GeneratedFile>
+     */
+    private function resolveDependencyResources(
+        TableDefinition $table,
+        string $resourceNamespace = 'App\\Resources',
+    ): array {
+        $resolver = new DependencyResolver;
+        $deps = $resolver->resolveDependencies($table);
+        $files = [];
+
+        foreach ($deps as $depModelName => $depTable) {
+            $files["dependency_resource_{$depModelName}"] = new GeneratedFile(
+                path: "app/Resources/{$depModelName}Resource.php",
+                content: (new ResourceGenerator)->generate($depTable, $resourceNamespace),
+            );
+        }
+
+        foreach ($resolver->getWarnings() as $warning) {
+            $this->components->warn($warning);
+        }
+
+        if (! empty($deps)) {
+            $this->components->info('Resolved '.count($deps).' dependency resource(s): '.implode(', ', array_keys($deps)));
+        }
+
+        return $files;
     }
 
     private function resolveSchemaClass(string $input): string
