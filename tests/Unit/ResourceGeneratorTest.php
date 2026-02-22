@@ -53,6 +53,48 @@ class ResourceGeneratorTest extends TestCase
         $this->assertStringContainsString('namespace App\Http\Resources;', $code);
     }
 
+    // ─── @mixin annotation ──────────────────────────────────────
+
+    public function test_includes_mixin_annotation_for_model(): void
+    {
+        $table = (new SchemaScanner(PostSchema::class))->scan();
+        $code = $this->generator->generate($table);
+
+        $this->assertStringContainsString('/**', $code);
+        $this->assertStringContainsString(' * @mixin Post', $code);
+        $this->assertStringContainsString(' */', $code);
+    }
+
+    public function test_mixin_annotation_appears_before_class(): void
+    {
+        $table = (new SchemaScanner(PostSchema::class))->scan();
+        $code = $this->generator->generate($table);
+
+        $mixinPos = strpos($code, '@mixin Post');
+        $classPos = strpos($code, 'class PostResource extends JsonResource');
+        $this->assertNotFalse($mixinPos);
+        $this->assertNotFalse($classPos);
+        $this->assertLessThan($classPos, $mixinPos, '@mixin should appear before the class declaration');
+    }
+
+    public function test_imports_model_class(): void
+    {
+        $table = (new SchemaScanner(PostSchema::class))->scan();
+        $code = $this->generator->generate($table);
+
+        // PostSchema lives in SchemaCraft\Tests\Fixtures\Schemas — model is in SchemaCraft\Tests\Fixtures\Models
+        $this->assertStringContainsString('use SchemaCraft\Tests\Fixtures\Models\Post;', $code);
+    }
+
+    public function test_user_schema_has_mixin_annotation(): void
+    {
+        $table = (new SchemaScanner(UserSchema::class))->scan();
+        $code = $this->generator->generate($table);
+
+        $this->assertStringContainsString('@mixin User', $code);
+        $this->assertStringContainsString('use SchemaCraft\Tests\Fixtures\Models\User;', $code);
+    }
+
     // ─── Imports ────────────────────────────────────────────────
 
     public function test_imports_json_resource(): void

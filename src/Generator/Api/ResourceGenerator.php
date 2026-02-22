@@ -26,16 +26,19 @@ class ResourceGenerator
         TableDefinition $table,
         string $resourceNamespace = 'App\\Resources',
         string $resourceSuffix = 'Resource',
+        string $modelNamespace = 'App\\Models',
     ): string {
         $modelName = $this->resolveModelName($table);
         $resourceName = $modelName.$resourceSuffix;
+        $modelFqcn = $this->resolveModelFqcn($table, $modelNamespace);
 
-        $imports = $this->buildImports($table, $resourceNamespace);
+        $imports = $this->buildImports($table, $resourceNamespace, $modelFqcn);
         $fields = $this->buildFields($table);
 
         return $this->render(
             namespace: $resourceNamespace,
             resourceName: $resourceName,
+            modelClass: $modelName,
             imports: $imports,
             fields: $fields,
         );
@@ -44,12 +47,16 @@ class ResourceGenerator
     /**
      * @return string[]
      */
-    private function buildImports(TableDefinition $table, string $resourceNamespace): array
+    private function buildImports(TableDefinition $table, string $resourceNamespace, ?string $modelFqcn): array
     {
         $imports = [
             'Illuminate\Http\Request',
             'Illuminate\Http\Resources\Json\JsonResource',
         ];
+
+        if ($modelFqcn !== null) {
+            $imports[] = $modelFqcn;
+        }
 
         foreach ($table->relationships as $rel) {
             if ($rel->type === 'belongsTo') {
@@ -172,6 +179,7 @@ class ResourceGenerator
     private function render(
         string $namespace,
         string $resourceName,
+        string $modelClass,
         array $imports,
         array $fields,
     ): string {
@@ -186,6 +194,9 @@ class ResourceGenerator
         }
 
         $lines[] = '';
+        $lines[] = '/**';
+        $lines[] = " * @mixin {$modelClass}";
+        $lines[] = ' */';
         $lines[] = "class {$resourceName} extends JsonResource";
         $lines[] = '{';
         $lines[] = '    public function toArray(Request $request): array';
@@ -214,5 +225,36 @@ class ResourceGenerator
         }
 
         return $baseName;
+    }
+
+    /**
+     * Derive the model FQCN from the schema class or fall back to the given namespace.
+     *
+     * e.g., App\Schemas\PostSchema → App\Models\Post
+     */
+    private function resolveModelFqcn(TableDefinition $table, string $modelNamespace): ?string
+    {
+        $schemaClass = $table->schemaClass;
+        $namespace = Str::beforeLast($schemaClass, '\\');
+        $className = class_basename($schemaClass);
+        $modelName = Str::beforeLast($className, 'Schema');
+
+        if ($modelName === $className) {
+            return null;
+        }
+
+        // Try convention: replace Schemas namespace with Models
+        $modelNs = preg_replace('/\\\\Schemas$/', '\\Models', $namespace);
+
+        if ($modelNs !== $namespace) {
+            $candidate = $modelNs.'\\'.$modelName;
+
+            if (class_exists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        // Fall back to the provided model namespace
+        return $modelNamespace.'\\'.$modelName;
     }
 }
