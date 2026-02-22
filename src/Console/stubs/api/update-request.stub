@@ -1,0 +1,16 @@
+<?php
+
+namespace {{ requestNamespace }};
+
+use {{ schemaFqcn }};
+use Illuminate\Foundation\Http\FormRequest;
+
+class {{ requestClass }} extends FormRequest
+{
+    public function rules(): array
+    {
+        return {{ schemaClass }}::updateRules([
+{{ ruleFields }}
+        ])->toArray();
+    }
+}

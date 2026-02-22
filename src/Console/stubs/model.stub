@@ -1,0 +1,16 @@
+<?php
+
+namespace {{ namespace }};
+
+{{ softDeletesImport }}
+use App\Models\BaseModel;
+use {{ schemaFqcn }};
+
+/**
+ * @mixin {{ schemaClass }}
+ */
+class {{ class }} extends BaseModel
+{
+{{ softDeletesTrait }}
+    protected static string $schema = {{ schemaClass }}::class;
+}

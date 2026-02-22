@@ -1,0 +1,16 @@
+<?php
+
+namespace {{ namespace }};
+
+{{ idImports }}
+use SchemaCraft\Schema;
+use SchemaCraft\Traits\TimestampsSchema;
+{{ softDeletesImport }}
+
+class {{ class }} extends Schema
+{
+    use TimestampsSchema;
+{{ softDeletesTrait }}
+
+{{ idProperty }}
+}

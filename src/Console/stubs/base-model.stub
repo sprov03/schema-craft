@@ -1,0 +1,10 @@
+<?php
+
+namespace App\Models;
+
+use SchemaCraft\SchemaModel;
+
+abstract class BaseModel extends SchemaModel
+{
+    //
+}

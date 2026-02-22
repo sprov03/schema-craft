@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SchemaCraft Visualizer</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #334155;
+            --accent: #818cf8;
+            --accent-dim: rgba(129, 140, 248, 0.15);
+            --error: #f87171;
+            --error-dim: rgba(248, 113, 113, 0.15);
+            --warning: #fbbf24;
+            --warning-dim: rgba(251, 191, 36, 0.15);
+            --info: #60a5fa;
+            --info-dim: rgba(96, 165, 250, 0.15);
+            --success: #4ade80;
+            --success-dim: rgba(74, 222, 128, 0.15);
+            --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+            --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --radius: 8px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        [data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #e2e8f0;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --border: #cbd5e1;
+            --accent: #6366f1;
+            --accent-dim: rgba(99, 102, 241, 0.1);
+            --error: #ef4444;
+            --error-dim: rgba(239, 68, 68, 0.1);
+            --warning: #f59e0b;
+            --warning-dim: rgba(245, 158, 11, 0.1);
+            --info: #3b82f6;
+            --info-dim: rgba(59, 130, 246, 0.1);
+            --success: #22c55e;
+            --success-dim: rgba(34, 197, 94, 0.1);
+            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        /* ── Header ─────────────────────────────────────── */
+        header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 24px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        header h1 { font-size: 16px; font-weight: 700; color: var(--accent); letter-spacing: -0.3px; }
+        .tab-nav { display: flex; gap: 4px; margin-left: 24px; }
+        .tab-btn {
+            padding: 6px 16px; border: none; border-radius: var(--radius);
+            background: transparent; color: var(--text-secondary);
+            font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s;
+        }
+        .tab-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        .tab-btn.active { background: var(--accent-dim); color: var(--accent); }
+        .header-actions { margin-left: auto; }
+        .theme-toggle {
+            padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+            background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer;
+        }
+        .theme-toggle:hover { border-color: var(--text-muted); }
+
+        /* ── Loading ────────────────────────────────────── */
+        #loading {
+            display: flex; align-items: center; justify-content: center;
+            height: calc(100vh - 49px); color: var(--text-muted); font-size: 14px;
+        }
+        #loading[hidden] { display: none; }
+        .spinner {
+            width: 20px; height: 20px; border: 2px solid var(--border);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin 0.6s linear infinite; margin-right: 10px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Health Tab ─────────────────────────────────── */
+        #health-tab { padding: 24px; max-width: 900px; margin: 0 auto; }
+        .summary-bar { display: flex; gap: 16px; margin-bottom: 24px; }
+        .stat-card {
+            flex: 1; padding: 16px; background: var(--bg-secondary);
+            border: 1px solid var(--border); border-radius: var(--radius);
+        }
+        .stat-card .stat-value { font-size: 28px; font-weight: 700; line-height: 1; }
+        .stat-card .stat-label {
+            font-size: 12px; color: var(--text-secondary); margin-top: 4px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .stat-card.issues .stat-value { color: var(--warning); }
+        .stat-card.issues.zero .stat-value { color: var(--success); }
+
+        .section-title {
+            font-size: 13px; font-weight: 600; color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;
+        }
+
+        .issue-card {
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 16px; margin-bottom: 8px;
+        }
+        .issue-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .severity-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .severity-dot.error { background: var(--error); }
+        .severity-dot.warning { background: var(--warning); }
+        .severity-dot.info { background: var(--info); }
+        .issue-message { font-size: 14px; }
+        .issue-schemas { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+        .schema-pill {
+            padding: 2px 10px; background: var(--bg-tertiary); border-radius: 12px;
+            font-size: 12px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+        }
+        .schema-pill:hover { color: var(--accent); background: var(--accent-dim); }
+        .fix-block {
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 6px; padding: 12px; position: relative;
+        }
+        .fix-code {
+            font-family: var(--font-mono); font-size: 12px; white-space: pre-wrap;
+            color: var(--text-secondary); line-height: 1.6;
+        }
+        .copy-btn {
+            position: absolute; top: 8px; right: 8px; padding: 4px 10px;
+            border: 1px solid var(--border); border-radius: 4px;
+            background: var(--bg-secondary); color: var(--text-secondary);
+            font-size: 11px; cursor: pointer; transition: all 0.15s;
+        }
+        .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .copy-btn.copied { border-color: var(--success); color: var(--success); }
+
+        .apply-actions { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+        .apply-btn {
+            padding: 4px 12px; border: 1px solid var(--success); border-radius: 4px;
+            background: var(--success-dim); color: var(--success);
+            font-size: 11px; cursor: pointer; transition: all 0.15s;
+        }
+        .apply-btn:hover { background: var(--success); color: var(--bg-primary); }
+        .apply-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .apply-btn.applied { background: var(--success); color: var(--bg-primary); }
+        .apply-btn.errored { border-color: var(--error); color: var(--error); background: var(--error-dim); }
+
+        .healthy-section { margin-top: 24px; }
+        .healthy-section summary {
+            font-size: 13px; font-weight: 600; color: var(--text-secondary);
+            cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .healthy-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .healthy-chip {
+            padding: 6px 14px; background: var(--success-dim); border: 1px solid transparent;
+            border-radius: 6px; font-size: 13px; color: var(--success);
+        }
+
+        /* ── Explorer Tab ───────────────────────────────── */
+        #explorer-tab { display: flex; height: calc(100vh - 49px); }
+        #explorer-tab[hidden] { display: none; }
+        .explorer-sidebar {
+            width: 240px; min-width: 240px; background: var(--bg-secondary);
+            border-right: 1px solid var(--border); display: flex; flex-direction: column;
+        }
+        .sidebar-search { padding: 12px; border-bottom: 1px solid var(--border); }
+        .sidebar-search input {
+            width: 100%; padding: 8px 12px; border: 1px solid var(--border);
+            border-radius: 6px; background: var(--bg-primary); color: var(--text-primary);
+            font-size: 13px; outline: none;
+        }
+        .sidebar-search input:focus { border-color: var(--accent); }
+        .sidebar-search input::placeholder { color: var(--text-muted); }
+        .model-list { flex: 1; overflow-y: auto; list-style: none; }
+        .model-list-item {
+            padding: 10px 16px; cursor: pointer; border-bottom: 1px solid var(--border);
+            transition: background 0.1s;
+        }
+        .model-list-item:hover { background: var(--bg-tertiary); }
+        .model-list-item.active { background: var(--accent-dim); }
+        .model-list-item.loaded { border-left: 3px solid var(--accent); }
+        .model-name { font-size: 13px; font-weight: 500; }
+        .model-table-name { font-size: 11px; color: var(--text-muted); }
+
+        .explorer-canvas {
+            flex: 1; position: relative; overflow: hidden;
+            background: radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0);
+            background-size: 32px 32px;
+        }
+        .explorer-empty {
+            position: absolute; inset: 0; display: flex; align-items: center;
+            justify-content: center; color: var(--text-muted); font-size: 14px;
+        }
+        #relationship-svg {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 0;
+        }
+        #schema-cards { position: absolute; inset: 0; z-index: 1; }
+
+        .schema-card {
+            position: absolute; width: 280px; background: var(--bg-secondary);
+            border: 1px solid var(--border); border-radius: var(--radius);
+            box-shadow: var(--shadow); z-index: 1; user-select: none;
+        }
+        .schema-card.highlighted { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .card-header {
+            display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+            border-bottom: 1px solid var(--border); cursor: grab;
+        }
+        .card-header:active { cursor: grabbing; }
+        .card-title { font-size: 13px; font-weight: 600; flex: 1; }
+        .table-badge {
+            padding: 1px 8px; background: var(--bg-tertiary); border-radius: 4px;
+            font-size: 11px; font-family: var(--font-mono); color: var(--text-muted);
+        }
+        .load-all-btn {
+            padding: 3px 8px; border: 1px solid var(--border); border-radius: 4px;
+            background: transparent; color: var(--text-secondary); font-size: 11px;
+            cursor: pointer; white-space: nowrap;
+        }
+        .load-all-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .close-card-btn {
+            padding: 2px 6px; border: none; background: transparent;
+            color: var(--text-muted); font-size: 14px; cursor: pointer; line-height: 1;
+        }
+        .close-card-btn:hover { color: var(--error); }
+
+        .card-relationships { padding: 8px 14px; }
+        .rel-item { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; }
+        .rel-type-badge {
+            padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0;
+        }
+        .rel-type-badge.belongsTo { background: var(--info-dim); color: var(--info); }
+        .rel-type-badge.hasMany, .rel-type-badge.hasOne { background: var(--success-dim); color: var(--success); }
+        .rel-type-badge.belongsToMany { background: var(--warning-dim); color: var(--warning); }
+        .rel-type-badge.morphTo, .rel-type-badge.morphMany, .rel-type-badge.morphOne, .rel-type-badge.morphToMany {
+            background: var(--accent-dim); color: var(--accent);
+        }
+        .rel-name { color: var(--text-primary); flex: 1; }
+        .rel-target { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+        .load-btn {
+            padding: 2px 6px; border: 1px solid var(--border); border-radius: 3px;
+            background: transparent; color: var(--text-muted); font-size: 10px;
+            cursor: pointer; flex-shrink: 0;
+        }
+        .load-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .load-btn.loaded { border-color: var(--success); color: var(--success); cursor: default; }
+
+        .card-columns { border-top: 1px solid var(--border); padding: 0; }
+        .card-columns summary { padding: 8px 14px; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+        .card-columns summary:hover { color: var(--text-primary); }
+        .column-list { list-style: none; padding: 0 14px 10px; }
+        .column-item { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 12px; }
+        .col-name { font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); }
+        .col-type { font-size: 10px; color: var(--text-muted); }
+        .col-badge { padding: 0 4px; border-radius: 3px; font-size: 9px; font-weight: 600; text-transform: uppercase; }
+        .col-badge.pk { background: var(--warning-dim); color: var(--warning); }
+        .col-badge.nullable { background: var(--info-dim); color: var(--info); }
+        .col-badge.unique { background: var(--accent-dim); color: var(--accent); }
+        .col-badge.indexed { background: var(--success-dim); color: var(--success); }
+
+        .no-rels { padding: 8px 14px; font-size: 12px; color: var(--text-muted); }
+
+        /* SVG line styles */
+        .rel-line { stroke-width: 2; fill: none; }
+        .rel-line.solid { stroke: var(--accent); stroke-opacity: 0.5; }
+        .rel-line.dashed { stroke: var(--warning); stroke-opacity: 0.5; stroke-dasharray: 6 4; }
+        .rel-line.dotted { stroke: var(--info); stroke-opacity: 0.5; stroke-dasharray: 2 4; }
+        .rel-line-label { font-size: 10px; font-family: var(--font-sans); fill: var(--text-muted); }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>SchemaCraft</h1>
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="health">Health</button>
+            <button class="tab-btn" data-tab="explorer">Explorer</button>
+        </nav>
+        <div class="header-actions">
+            <button class="theme-toggle" id="theme-toggle">Light</button>
+        </div>
+    </header>
+
+    <div id="loading"><div class="spinner"></div>Loading schemas...</div>
+
+    <section id="health-tab" hidden></section>
+
+    <section id="explorer-tab" hidden>
+        <div class="explorer-sidebar">
+            <div class="sidebar-search">
+                <input type="search" id="model-search" placeholder="Search schemas...">
+            </div>
+            <ul class="model-list" id="model-list"></ul>
+        </div>
+        <div class="explorer-canvas" id="explorer-canvas">
+            <div class="explorer-empty" id="explorer-empty">Select a schema from the sidebar to start exploring</div>
+            <svg id="relationship-svg"></svg>
+            <div id="schema-cards"></div>
+        </div>
+    </section>
+
+    <script>
+    (function() {
+        'use strict';
+
+        let schemaData = null;
+        let activeTab = 'health';
+        let explorerState = { loaded: new Map(), selected: null };
+        let dragState = null;
+
+        async function init() {
+            try {
+                const resp = await fetch('/_schema-craft/api/schema');
+                schemaData = await resp.json();
+                document.getElementById('loading').hidden = true;
+                renderHealthTab();
+                document.getElementById('health-tab').hidden = false;
+                renderModelList();
+                bindEvents();
+            } catch (e) {
+                document.getElementById('loading').innerHTML =
+                    '<span style="color:var(--error)">Failed to load schema data: ' + escapeHtml(e.message) + '</span>';
+            }
+        }
+
+        function bindEvents() {
+            document.querySelectorAll('.tab-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
+            });
+            document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+            document.getElementById('model-search').addEventListener('input', function(e) { filterModelList(e.target.value); });
+            document.getElementById('explorer-canvas').addEventListener('mousedown', onCanvasMouseDown);
+            document.addEventListener('mousemove', onCanvasMouseMove);
+            document.addEventListener('mouseup', onCanvasMouseUp);
+        }
+
+        function switchTab(tab) {
+            activeTab = tab;
+            document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); });
+            document.getElementById('health-tab').hidden = tab !== 'health';
+            document.getElementById('explorer-tab').hidden = tab !== 'explorer';
+        }
+
+        function toggleTheme() {
+            var html = document.documentElement;
+            var next = html.dataset.theme === 'dark' ? 'light' : 'dark';
+            html.dataset.theme = next;
+            document.getElementById('theme-toggle').textContent = next === 'dark' ? 'Light' : 'Dark';
+        }
+
+        // ── Health Tab ─────────────────────────────────────
+        function renderHealthTab() {
+            var container = document.getElementById('health-tab');
+            var s = schemaData.summary;
+
+            var issues = deduplicateIssues(schemaData.issues);
+            var groups = { error: [], warning: [], info: [] };
+            issues.forEach(function(i) { if (groups[i.severity]) groups[i.severity].push(i); });
+
+            var allIssueSchemas = new Set();
+            issues.forEach(function(i) { i.affectedSchemas.forEach(function(s) { allIssueSchemas.add(s); }); });
+            var healthySchemas = Object.keys(schemaData.schemas).filter(function(s) { return !allIssueSchemas.has(s); });
+
+            var html = '<div class="summary-bar">' +
+                '<div class="stat-card"><div class="stat-value">' + s.modelCount + '</div><div class="stat-label">Models</div></div>' +
+                '<div class="stat-card"><div class="stat-value">' + s.relationshipCount + '</div><div class="stat-label">Relationships</div></div>' +
+                '<div class="stat-card issues ' + (issues.length === 0 ? 'zero' : '') + '"><div class="stat-value">' + issues.length + '</div><div class="stat-label">Issues</div></div>' +
+                '</div>';
+
+            if (issues.length > 0) {
+                html += '<div class="section-title">Issues</div>';
+                ['error', 'warning', 'info'].forEach(function(sev) {
+                    groups[sev].forEach(function(issue) { html += renderIssueCard(issue); });
+                });
+            }
+
+            if (healthySchemas.length > 0) {
+                html += '<details class="healthy-section"><summary>Healthy Models (' + healthySchemas.length + ')</summary>' +
+                    '<div class="healthy-list">' + healthySchemas.map(function(s) { return '<span class="healthy-chip">' + shortName(s) + '</span>'; }).join('') + '</div></details>';
+            }
+
+            container.innerHTML = html;
+            bindHealthEvents();
+        }
+
+        function deduplicateIssues(issues) {
+            var seen = new Set();
+            return issues.filter(function(i) {
+                var key = i.check + '::' + i.affectedSchemas.slice().sort().join(',');
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        }
+
+        function renderIssueCard(issue) {
+            var schemas = issue.affectedSchemas.map(function(s) {
+                return '<span class="schema-pill" data-schema="' + escapeAttr(s) + '">' + shortName(s) + '</span>';
+            }).join('');
+
+            var fixHtml = '';
+            if (issue.suggestedFix) {
+                fixHtml = '<div class="fix-block"><button class="copy-btn" data-copy="' + escapeAttr(issue.suggestedFix) + '">Copy</button>' +
+                    '<code class="fix-code">' + escapeHtml(issue.suggestedFix) + '</code></div>';
+            }
+
+            var applyHtml = '';
+            if (issue.applyData) {
+                applyHtml = '<div class="apply-actions">';
+                if (issue.applyData.ambiguousTypes) {
+                    issue.applyData.ambiguousTypes.forEach(function(type) {
+                        var data = JSON.stringify({
+                            schemaClass: issue.applyData.schemaClass,
+                            relationshipType: type,
+                            relatedModel: issue.applyData.relatedModel,
+                            morphName: issue.applyData.morphName || null
+                        });
+                        var label = type.charAt(0).toUpperCase() + type.slice(1);
+                        applyHtml += '<button class="apply-btn" data-apply=\'' + escapeAttr(data) + '\'>Apply as ' + label + '</button>';
+                    });
+                } else {
+                    var data = JSON.stringify({
+                        schemaClass: issue.applyData.schemaClass,
+                        relationshipType: issue.applyData.relationshipType,
+                        relatedModel: issue.applyData.relatedModel,
+                        morphName: issue.applyData.morphName || null
+                    });
+                    applyHtml += '<button class="apply-btn" data-apply=\'' + escapeAttr(data) + '\'>Apply Fix</button>';
+                }
+                applyHtml += '</div>';
+            }
+
+            return '<div class="issue-card"><div class="issue-header"><span class="severity-dot ' + issue.severity + '"></span>' +
+                '<span class="issue-message">' + escapeHtml(issue.message) + '</span></div>' +
+                '<div class="issue-schemas">' + schemas + '</div>' + fixHtml + applyHtml + '</div>';
+        }
+
+        function applyRelationship(btn) {
+            var data = JSON.parse(btn.dataset.apply);
+            var originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Applying...';
+
+            fetch('/_schema-craft/api/apply-relationship', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(data)
+            }).then(function(resp) { return resp.json(); }).then(function(result) {
+                if (result.success) {
+                    btn.classList.add('applied');
+                    btn.textContent = 'Applied!';
+                    setTimeout(function() {
+                        fetch('/_schema-craft/api/schema').then(function(r) { return r.json(); }).then(function(d) {
+                            schemaData = d;
+                            renderHealthTab();
+                            document.getElementById('health-tab').hidden = false;
+                            renderModelList();
+                        });
+                    }, 1000);
+                } else {
+                    btn.classList.add('errored');
+                    btn.textContent = result.message || 'Error';
+                    btn.disabled = false;
+                }
+            }).catch(function() {
+                btn.classList.add('errored');
+                btn.textContent = 'Network error';
+                btn.disabled = false;
+            });
+        }
+
+        function bindHealthEvents() {
+            document.querySelectorAll('.schema-pill').forEach(function(pill) {
+                pill.addEventListener('click', function() {
+                    switchTab('explorer');
+                    loadSchemaIntoExplorer(pill.dataset.schema);
+                });
+            });
+            document.querySelectorAll('.copy-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    navigator.clipboard.writeText(btn.dataset.copy).then(function() {
+                        btn.classList.add('copied');
+                        btn.textContent = 'Copied!';
+                        setTimeout(function() { btn.classList.remove('copied'); btn.textContent = 'Copy'; }, 1500);
+                    });
+                });
+            });
+            document.querySelectorAll('.apply-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() { applyRelationship(btn); });
+            });
+        }
+
+        // ── Explorer: Model List ───────────────────────────
+        function renderModelList() {
+            var list = document.getElementById('model-list');
+            var keys = Object.keys(schemaData.schemas).sort(function(a, b) { return shortName(a).localeCompare(shortName(b)); });
+
+            list.innerHTML = keys.map(function(key) {
+                var s = schemaData.schemas[key];
+                return '<li class="model-list-item" data-schema="' + escapeAttr(key) + '">' +
+                    '<div class="model-name">' + shortName(key) + '</div>' +
+                    '<div class="model-table-name">' + escapeHtml(s.tableName) + '</div></li>';
+            }).join('');
+
+            list.querySelectorAll('.model-list-item').forEach(function(item) {
+                item.addEventListener('click', function() { loadSchemaIntoExplorer(item.dataset.schema); });
+            });
+        }
+
+        function filterModelList(query) {
+            var q = query.toLowerCase();
+            document.querySelectorAll('.model-list-item').forEach(function(item) {
+                var name = item.querySelector('.model-name').textContent.toLowerCase();
+                var table = item.querySelector('.model-table-name').textContent.toLowerCase();
+                item.hidden = !(name.includes(q) || table.includes(q));
+            });
+        }
+
+        function updateSidebarState() {
+            document.querySelectorAll('.model-list-item').forEach(function(item) {
+                item.classList.toggle('loaded', explorerState.loaded.has(item.dataset.schema));
+                item.classList.toggle('active', item.dataset.schema === explorerState.selected);
+            });
+        }
+
+        // ── Explorer: Canvas ───────────────────────────────
+        function loadSchemaIntoExplorer(schemaClass) {
+            if (!schemaData.schemas[schemaClass]) return;
+
+            document.getElementById('explorer-empty').hidden = true;
+            explorerState.selected = schemaClass;
+
+            if (!explorerState.loaded.has(schemaClass)) {
+                explorerState.loaded.set(schemaClass, calculatePosition(schemaClass));
+            }
+
+            renderExplorerCards();
+            drawRelationshipLines();
+            updateSidebarState();
+
+            var card = document.querySelector('.schema-card[data-schema="' + CSS.escape(schemaClass) + '"]');
+            if (card) {
+                card.classList.add('highlighted');
+                setTimeout(function() { card.classList.remove('highlighted'); }, 1000);
+            }
+        }
+
+        function loadAllRelated(schemaClass) {
+            var schema = schemaData.schemas[schemaClass];
+            if (!schema) return;
+
+            schema.relationships.forEach(function(rel) {
+                if (rel.relatedSchema && !explorerState.loaded.has(rel.relatedSchema)) {
+                    explorerState.loaded.set(rel.relatedSchema, calculatePosition(rel.relatedSchema, schemaClass));
+                }
+            });
+
+            renderExplorerCards();
+            drawRelationshipLines();
+            updateSidebarState();
+        }
+
+        function removeSchemaFromExplorer(schemaClass) {
+            explorerState.loaded.delete(schemaClass);
+            if (explorerState.selected === schemaClass) {
+                var iter = explorerState.loaded.keys();
+                var next = iter.next();
+                explorerState.selected = next.done ? null : next.value;
+            }
+            if (explorerState.loaded.size === 0) document.getElementById('explorer-empty').hidden = false;
+
+            renderExplorerCards();
+            drawRelationshipLines();
+            updateSidebarState();
+        }
+
+        function calculatePosition(schemaClass, fromSchemaClass) {
+            var canvas = document.getElementById('explorer-canvas');
+            var rect = canvas.getBoundingClientRect();
+
+            if (explorerState.loaded.size === 0) {
+                return { x: Math.max(20, (rect.width / 2) - 140), y: 40 };
+            }
+
+            if (fromSchemaClass && explorerState.loaded.has(fromSchemaClass)) {
+                var from = explorerState.loaded.get(fromSchemaClass);
+                var fromSchema = schemaData.schemas[fromSchemaClass];
+                var loadedCount = 0;
+                if (fromSchema) {
+                    fromSchema.relationships.forEach(function(r) {
+                        if (r.relatedSchema && (explorerState.loaded.has(r.relatedSchema) || r.relatedSchema === schemaClass)) loadedCount++;
+                    });
+                }
+                var angle = ((loadedCount - 1) / Math.max(loadedCount, 1)) * Math.PI * 1.5 - Math.PI * 0.75;
+                var radius = 320;
+                return {
+                    x: Math.max(20, Math.min(rect.width - 300, from.x + Math.cos(angle) * radius)),
+                    y: Math.max(20, Math.min(rect.height - 200, from.y + Math.sin(angle) * radius))
+                };
+            }
+
+            var maxY = 0;
+            explorerState.loaded.forEach(function(pos) { maxY = Math.max(maxY, pos.y); });
+            return { x: 40, y: maxY + 250 };
+        }
+
+        function renderExplorerCards() {
+            var container = document.getElementById('schema-cards');
+            var html = '';
+
+            explorerState.loaded.forEach(function(pos, schemaClass) {
+                var schema = schemaData.schemas[schemaClass];
+                if (!schema) return;
+
+                var relsHtml = '';
+                if (schema.relationships.length === 0) {
+                    relsHtml = '<div class="no-rels">No relationships</div>';
+                } else {
+                    relsHtml = '<div class="card-relationships">';
+                    schema.relationships.forEach(function(rel) {
+                        var targetShort = rel.relatedSchema ? shortName(rel.relatedSchema) : rel.relatedModel.split('\\').pop();
+                        var isLoaded = rel.relatedSchema && explorerState.loaded.has(rel.relatedSchema);
+                        var btnClass = isLoaded ? 'load-btn loaded' : 'load-btn';
+                        var btnText = isLoaded ? 'Loaded' : 'Load';
+                        var btnAttr = (!isLoaded && rel.relatedSchema) ? ' data-load="' + escapeAttr(rel.relatedSchema) + '" data-from="' + escapeAttr(schemaClass) + '"' : '';
+
+                        relsHtml += '<div class="rel-item">' +
+                            '<span class="rel-type-badge ' + rel.type + '">' + rel.type + '</span>' +
+                            '<span class="rel-name">' + escapeHtml(rel.name) + '</span>' +
+                            '<span class="rel-target">' + escapeHtml(targetShort) + '</span>' +
+                            (rel.relatedSchema ? '<button class="' + btnClass + '"' + btnAttr + '>' + btnText + '</button>' : '') +
+                            '</div>';
+                    });
+                    relsHtml += '</div>';
+                }
+
+                var colsHtml = '';
+                if (schema.columns.length > 0) {
+                    colsHtml = '<details class="card-columns"><summary>Columns (' + schema.columns.length + ')</summary><ul class="column-list">';
+                    schema.columns.forEach(function(col) {
+                        var badges = '';
+                        if (col.primary) badges += '<span class="col-badge pk">PK</span>';
+                        if (col.nullable) badges += '<span class="col-badge nullable">null</span>';
+                        if (col.unique) badges += '<span class="col-badge unique">uniq</span>';
+                        if (col.index && !col.primary) badges += '<span class="col-badge indexed">idx</span>';
+                        colsHtml += '<li class="column-item"><span class="col-name">' + escapeHtml(col.name) + '</span>' +
+                            '<span class="col-type">' + escapeHtml(col.type) + '</span>' + badges + '</li>';
+                    });
+                    colsHtml += '</ul></details>';
+                }
+
+                var loadAllBtn = schema.relationships.length > 0 ?
+                    '<button class="load-all-btn" data-loadall="' + escapeAttr(schemaClass) + '">Load All</button>' : '';
+
+                html += '<div class="schema-card" data-schema="' + escapeAttr(schemaClass) + '" style="transform:translate(' + pos.x + 'px,' + pos.y + 'px)">' +
+                    '<div class="card-header" data-drag="' + escapeAttr(schemaClass) + '">' +
+                    '<span class="card-title">' + shortName(schemaClass) + '</span>' +
+                    '<span class="table-badge">' + escapeHtml(schema.tableName) + '</span>' +
+                    loadAllBtn +
+                    '<button class="close-card-btn" data-close="' + escapeAttr(schemaClass) + '">&times;</button>' +
+                    '</div>' + relsHtml + colsHtml + '</div>';
+            });
+
+            container.innerHTML = html;
+
+            container.querySelectorAll('.load-btn[data-load]').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    explorerState.loaded.set(btn.dataset.load, calculatePosition(btn.dataset.load, btn.dataset.from));
+                    renderExplorerCards();
+                    drawRelationshipLines();
+                    updateSidebarState();
+                });
+            });
+            container.querySelectorAll('.load-all-btn').forEach(function(btn) {
+                btn.addEventListener('click', function(e) { e.stopPropagation(); loadAllRelated(btn.dataset.loadall); });
+            });
+            container.querySelectorAll('.close-card-btn').forEach(function(btn) {
+                btn.addEventListener('click', function(e) { e.stopPropagation(); removeSchemaFromExplorer(btn.dataset.close); });
+            });
+        }
+
+        // ── Explorer: SVG Lines ────────────────────────────
+        function drawRelationshipLines() {
+            var svg = document.getElementById('relationship-svg');
+            svg.innerHTML = '';
+            var canvas = document.getElementById('explorer-canvas');
+            var drawn = new Set();
+
+            explorerState.loaded.forEach(function(_, schemaClass) {
+                var schema = schemaData.schemas[schemaClass];
+                if (!schema) return;
+
+                var sourceEl = canvas.querySelector('.schema-card[data-schema="' + CSS.escape(schemaClass) + '"]');
+                if (!sourceEl) return;
+
+                schema.relationships.forEach(function(rel) {
+                    if (!rel.relatedSchema || !explorerState.loaded.has(rel.relatedSchema)) return;
+
+                    var pairKey = [schemaClass, rel.relatedSchema].sort().join('::') + '::' + rel.name;
+                    if (drawn.has(pairKey)) return;
+                    drawn.add(pairKey);
+
+                    var targetEl = canvas.querySelector('.schema-card[data-schema="' + CSS.escape(rel.relatedSchema) + '"]');
+                    if (!targetEl) return;
+
+                    var sPos = explorerState.loaded.get(schemaClass);
+                    var tPos = explorerState.loaded.get(rel.relatedSchema);
+
+                    var sx = sPos.x + sourceEl.offsetWidth / 2;
+                    var sy = sPos.y + sourceEl.offsetHeight / 2;
+                    var tx = tPos.x + targetEl.offsetWidth / 2;
+                    var ty = tPos.y + targetEl.offsetHeight / 2;
+
+                    var lineClass = 'solid';
+                    if (rel.type === 'belongsToMany') lineClass = 'dashed';
+                    if (rel.type.indexOf('morph') === 0) lineClass = 'dotted';
+
+                    var dx = tx - sx;
+                    var dy = ty - sy;
+                    var cx = sx + dx * 0.5;
+                    var cy = sy + dy * 0.5 - Math.min(Math.abs(dx) * 0.15, 40);
+
+                    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    path.setAttribute('d', 'M ' + sx + ' ' + sy + ' Q ' + cx + ' ' + cy + ' ' + tx + ' ' + ty);
+                    path.setAttribute('class', 'rel-line ' + lineClass);
+                    svg.appendChild(path);
+
+                    var label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    label.setAttribute('x', sx + dx * 0.5);
+                    label.setAttribute('y', cy - 6);
+                    label.setAttribute('class', 'rel-line-label');
+                    label.setAttribute('text-anchor', 'middle');
+                    label.textContent = rel.name + ' (' + rel.type + ')';
+                    svg.appendChild(label);
+                });
+            });
+        }
+
+        // ── Explorer: Drag ─────────────────────────────────
+        function onCanvasMouseDown(e) {
+            var header = e.target.closest('[data-drag]');
+            if (!header) return;
+            var sc = header.dataset.drag;
+            var pos = explorerState.loaded.get(sc);
+            if (!pos) return;
+            dragState = { schemaClass: sc, startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y };
+            e.preventDefault();
+        }
+
+        function onCanvasMouseMove(e) {
+            if (!dragState) return;
+            var newX = Math.max(0, dragState.origX + (e.clientX - dragState.startX));
+            var newY = Math.max(0, dragState.origY + (e.clientY - dragState.startY));
+            explorerState.loaded.set(dragState.schemaClass, { x: newX, y: newY });
+            var card = document.querySelector('.schema-card[data-schema="' + CSS.escape(dragState.schemaClass) + '"]');
+            if (card) card.style.transform = 'translate(' + newX + 'px,' + newY + 'px)';
+            drawRelationshipLines();
+        }
+
+        function onCanvasMouseUp() { dragState = null; }
+
+        // ── Helpers ────────────────────────────────────────
+        function shortName(fqcn) { return fqcn.split('\\').pop(); }
+
+        function escapeHtml(str) {
+            var div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function escapeAttr(str) {
+            return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    })();
+    </script>
+</body>
+</html>

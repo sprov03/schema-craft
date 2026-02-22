@@ -1,0 +1,58 @@
+<?php
+
+namespace {{ controllerNamespace }};
+
+use App\Http\Controllers\Controller;
+use {{ modelFqcn }};
+use {{ serviceFqcn }};
+use {{ resourceFqcn }};
+use {{ createRequestFqcn }};
+use {{ updateRequestFqcn }};
+use Illuminate\Support\Facades\Route;
+
+class {{ controllerClass }} extends Controller
+{
+    public static function apiRoutes(): void
+    {
+        Route::get('{{ routePrefix }}', [{{ controllerClass }}::class, 'getCollection']);
+        Route::get('{{ routePrefix }}/{{{ routeParam }}}', [{{ controllerClass }}::class, 'get']);
+        Route::post('{{ routePrefix }}', [{{ controllerClass }}::class, 'create']);
+        Route::put('{{ routePrefix }}/{{{ routeParam }}}', [{{ controllerClass }}::class, 'update']);
+        Route::delete('{{ routePrefix }}/{{{ routeParam }}}', [{{ controllerClass }}::class, 'delete']);
+    }
+
+    public function getCollection(): \Illuminate\Http\Resources\Json\AnonymousResourceCollection
+    {
+        return {{ resourceClass }}::collection({{ modelClass }}::query()->get());
+    }
+
+    public function get({{ modelClass }} ${{ modelVariable }}): {{ resourceClass }}
+    {
+        return new {{ resourceClass }}(${{ modelVariable }});
+    }
+
+    public function create({{ createRequestClass }} $request): {{ resourceClass }}
+    {
+        ${{ modelVariable }} = {{ serviceClass }}::create(
+            ...$request->validated()
+        );
+
+        return new {{ resourceClass }}(${{ modelVariable }});
+    }
+
+    public function update({{ updateRequestClass }} $request, {{ modelClass }} ${{ modelVariable }}): {{ resourceClass }}
+    {
+        ${{ modelVariable }}->Service()->update(
+            ...$request->validated()
+        );
+
+        return new {{ resourceClass }}(${{ modelVariable }}->fresh());
+    }
+
+    public function delete({{ modelClass }} ${{ modelVariable }}): \Illuminate\Http\JsonResponse
+    {
+        ${{ modelVariable }}->Service()->delete();
+
+        return response()->json(null, 204);
+    }
+}

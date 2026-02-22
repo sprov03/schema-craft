@@ -1,0 +1,34 @@
+{
+    "name": "schema-craft/schema-craft",
+    "description": "Code-first, type-safe Eloquent models that drive your entire Laravel stack.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "illuminate/database": "^12.0",
+        "illuminate/support": "^12.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^10.0",
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "SchemaCraft\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "SchemaCraft\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "SchemaCraft\\SchemaCraftServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

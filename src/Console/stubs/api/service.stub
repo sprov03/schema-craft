@@ -1,0 +1,40 @@
+<?php
+
+namespace {{ serviceNamespace }};
+
+use {{ modelFqcn }};
+
+class {{ serviceClass }}
+{
+    private {{ modelClass }} ${{ modelVariable }};
+
+    public function __construct({{ modelClass }} ${{ modelVariable }})
+    {
+        $this->{{ modelVariable }} = ${{ modelVariable }};
+    }
+
+    public static function create({{ createParams }}): {{ modelClass }}
+    {
+        ${{ modelVariable }} = new {{ modelClass }}();
+
+{{ createAssignments }}
+
+        ${{ modelVariable }}->save();
+
+        return ${{ modelVariable }};
+    }
+
+    public function update({{ updateParams }}): {{ modelClass }}
+    {
+{{ updateAssignments }}
+
+        $this->{{ modelVariable }}->save();
+
+        return $this->{{ modelVariable }};
+    }
+
+    public function delete(): void
+    {
+        $this->{{ modelVariable }}->delete();
+    }
+}
