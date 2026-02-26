@@ -4,6 +4,7 @@ namespace SchemaCraft;
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use SchemaCraft\Console\CreateApiCommand;
 use SchemaCraft\Console\GenerateApiCommand;
 use SchemaCraft\Console\GenerateSdkCommand;
 use SchemaCraft\Console\InstallCommand;
@@ -18,7 +19,9 @@ class SchemaCraftServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        $this->mergeConfigFrom(
+            __DIR__.'/../config/schema-craft.php', 'schema-craft'
+        );
     }
 
     public function boot(): void
@@ -29,6 +32,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->commands([
+                CreateApiCommand::class,
                 GenerateApiCommand::class,
                 GenerateSdkCommand::class,
                 InstallCommand::class,
@@ -38,6 +42,10 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 SchemaMigrateCommand::class,
                 SchemaStatusCommand::class,
             ]);
+
+            $this->publishes([
+                __DIR__.'/../config/schema-craft.php' => config_path('schema-craft.php'),
+            ], 'schema-craft-config');
 
             $this->publishes([
                 __DIR__.'/Console/stubs/api' => base_path('stubs/schema-craft/api'),

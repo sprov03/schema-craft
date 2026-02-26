@@ -1,6 +1,7 @@
 {
     "name": "{{ packageName }}",
     "description": "API client SDK for {{ clientName }}",
+    "version": "{{ version }}",
     "type": "library",
     "require": {
         "php": "^8.2",

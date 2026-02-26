@@ -1,0 +1,13 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+
+/*
+|--------------------------------------------------------------------------
+| {{ apiName }} API Routes
+|--------------------------------------------------------------------------
+|
+| Routes registered here are loaded by the application and assigned
+| the "{{ prefix }}" URL prefix and the configured middleware.
+|
+*/

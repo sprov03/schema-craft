@@ -176,6 +176,32 @@ class SdkGeneratorTest extends TestCase
         $this->assertStringContainsString('class MyAppClient', $files['client']->content);
     }
 
+    public function test_version_appears_in_composer_json(): void
+    {
+        $schemas = $this->makeSchemas();
+
+        $files = $this->generator->generate(
+            schemas: $schemas,
+            packageName: 'acme/my-sdk',
+            namespace: 'Acme\\Sdk',
+            clientClassName: 'AcmeClient',
+            version: '2.5.0',
+        );
+
+        $content = $files['composer.json']->content;
+        $this->assertStringContainsString('"version": "2.5.0"', $content);
+    }
+
+    public function test_version_defaults_to_0_1_0(): void
+    {
+        $schemas = $this->makeSchemas();
+
+        $files = $this->generator->generate($schemas);
+
+        $content = $files['composer.json']->content;
+        $this->assertStringContainsString('"version": "0.1.0"', $content);
+    }
+
     public function test_resource_uses_data_namespace(): void
     {
         $schemas = $this->makeSchemas();

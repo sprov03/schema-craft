@@ -24,6 +24,7 @@ class SdkGenerator
         string $namespace = 'MyApp\\Sdk',
         string $clientClassName = 'MyAppClient',
         string $stubsPath = '',
+        string $version = '0.1.0',
     ): array {
         $dataNamespace = $namespace.'\\Data';
         $resourceNamespace = $namespace.'\\Resources';
@@ -32,7 +33,7 @@ class SdkGenerator
         // composer.json
         $files['composer.json'] = new GeneratedFile(
             path: 'composer.json',
-            content: $this->generateComposerJson($packageName, $namespace, $clientClassName, $stubsPath),
+            content: $this->generateComposerJson($packageName, $namespace, $clientClassName, $stubsPath, $version),
         );
 
         // SdkConnector
@@ -93,6 +94,7 @@ class SdkGenerator
         string $namespace,
         string $clientClassName,
         string $stubsPath,
+        string $version,
     ): string {
         $stubFile = $stubsPath !== '' ? $stubsPath.'/sdk/composer.json.stub' : '';
 
@@ -105,8 +107,8 @@ class SdkGenerator
         $escapedNamespace = str_replace('\\', '\\\\', $namespace);
 
         return str_replace(
-            ['{{ packageName }}', '{{ clientName }}', '{{ namespace }}'],
-            [$packageName, $clientClassName, $escapedNamespace],
+            ['{{ packageName }}', '{{ clientName }}', '{{ namespace }}', '{{ version }}'],
+            [$packageName, $clientClassName, $escapedNamespace, $version],
             $stub,
         );
     }

@@ -32,12 +32,48 @@ class GenerateApiCommandTest extends TestCase
             }
         }
 
+        // Clean up generated factory files
+        $factoryDir = database_path('factories');
+        if (is_dir($factoryDir)) {
+            foreach ($this->files->files($factoryDir) as $file) {
+                $this->files->delete($file);
+            }
+        }
+
+        // Clean up generated model test files
+        $testUnitDir = base_path('tests/Unit');
+        if (is_dir($testUnitDir)) {
+            foreach ($this->files->glob($testUnitDir.'/*ModelTest.php') as $file) {
+                $this->files->delete($file);
+            }
+        }
+
+        // Clean up generated controller test files
+        $ctrlTestDirs = [
+            base_path('tests/Feature/Controllers'),
+            base_path('tests/Feature/Controllers/PartnerApi'),
+        ];
+        foreach ($ctrlTestDirs as $dir) {
+            if (is_dir($dir)) {
+                foreach ($this->files->glob($dir.'/*ControllerTest.php') as $file) {
+                    $this->files->delete($file);
+                }
+            }
+        }
+
         // Clean up empty directories
         $dirs = [
             app_path('Http/Controllers/Api'),
+            app_path('Http/Controllers/PartnerApi'),
             app_path('Models/Services'),
+            app_path('Services/PartnerApi'),
             app_path('Http/Requests'),
+            app_path('Http/Requests/PartnerApi'),
             app_path('Resources'),
+            app_path('Resources/PartnerApi'),
+            database_path('factories'),
+            base_path('tests/Feature/Controllers/PartnerApi'),
+            base_path('tests/Feature/Controllers'),
         ];
 
         foreach ($dirs as $dir) {
@@ -412,6 +448,85 @@ class GenerateApiCommandTest extends TestCase
         $this->assertCount(1, $resourceFiles, 'Only CategoryResource should exist in Resources dir');
     }
 
+    // ─── --api flag ────────────────────────────────────────────────
+
+    public function test_api_option_generates_files_in_custom_namespaces(): void
+    {
+        config()->set('schema-craft.apis.partner', [
+            'namespaces' => [
+                'controller' => 'App\\Http\\Controllers\\PartnerApi',
+                'service' => 'App\\Services\\PartnerApi',
+                'request' => 'App\\Http\\Requests\\PartnerApi',
+                'resource' => 'App\\Resources\\PartnerApi',
+            ],
+        ]);
+
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\CategorySchema',
+            '--api' => 'partner',
+        ])->assertSuccessful();
+
+        $expectedFiles = [
+            app_path('Http/Controllers/PartnerApi/CategoryController.php'),
+            app_path('Services/PartnerApi/CategoryService.php'),
+            app_path('Http/Requests/PartnerApi/CreateCategoryRequest.php'),
+            app_path('Http/Requests/PartnerApi/UpdateCategoryRequest.php'),
+            app_path('Resources/PartnerApi/CategoryResource.php'),
+        ];
+
+        foreach ($expectedFiles as $file) {
+            $this->trackFile($file);
+            $this->assertFileExists($file, "Expected file {$file} to be created");
+        }
+
+        // Verify the controller uses the partner namespace
+        $content = $this->files->get(app_path('Http/Controllers/PartnerApi/CategoryController.php'));
+        $this->assertStringContainsString('namespace App\\Http\\Controllers\\PartnerApi;', $content);
+    }
+
+    public function test_api_option_uses_custom_resource_namespace_for_dependencies(): void
+    {
+        config()->set('schema-craft.apis.partner', [
+            'namespaces' => [
+                'controller' => 'App\\Http\\Controllers\\PartnerApi',
+                'service' => 'App\\Services\\PartnerApi',
+                'request' => 'App\\Http\\Requests\\PartnerApi',
+                'resource' => 'App\\Resources\\PartnerApi',
+            ],
+        ]);
+
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--api' => 'partner',
+        ])->assertSuccessful();
+
+        // Track all files
+        $this->trackFile(app_path('Http/Controllers/PartnerApi/PostController.php'));
+        $this->trackFile(app_path('Services/PartnerApi/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/PartnerApi/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/PartnerApi/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PartnerApi/PostResource.php'));
+        $this->trackFile(app_path('Resources/PartnerApi/CommentResource.php'));
+        $this->trackFile(app_path('Resources/PartnerApi/TagResource.php'));
+
+        // Dependency resources should be in the partner namespace
+        $commentContent = $this->files->get(app_path('Resources/PartnerApi/CommentResource.php'));
+        $this->assertStringContainsString('namespace App\\Resources\\PartnerApi;', $commentContent);
+
+        $tagContent = $this->files->get(app_path('Resources/PartnerApi/TagResource.php'));
+        $this->assertStringContainsString('namespace App\\Resources\\PartnerApi;', $tagContent);
+    }
+
+    public function test_api_option_fails_for_invalid_api_name(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--api' => 'nonexistent',
+        ]);
+    }
+
     // ─── --action flag ────────────────────────────────────────────
 
     public function test_action_fails_without_existing_api(): void
@@ -462,5 +577,314 @@ class GenerateApiCommandTest extends TestCase
         $this->assertFileExists(app_path('Http/Requests/ArchivePostRequest.php'));
         $requestContent = $this->files->get(app_path('Http/Requests/ArchivePostRequest.php'));
         $this->assertStringContainsString('class ArchivePostRequest extends FormRequest', $requestContent);
+    }
+
+    // ─── Factory generation ──────────────────────────────────────
+
+    public function test_generates_factory_by_default(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $factoryPath = database_path('factories/PostFactory.php');
+        $this->assertFileExists($factoryPath, 'Factory file should be generated by default');
+    }
+
+    public function test_no_factory_flag_skips_factory(): void
+    {
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--no-factory' => true,
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $factoryPath = database_path('factories/PostFactory.php');
+        $this->assertFileDoesNotExist($factoryPath, 'Factory file should not be generated with --no-factory');
+    }
+
+    public function test_generated_factory_has_correct_structure(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $factoryPath = database_path('factories/PostFactory.php');
+        $content = $this->files->get($factoryPath);
+
+        $this->assertStringContainsString('namespace Database\Factories;', $content);
+        $this->assertStringContainsString('class PostFactory', $content);
+        $this->assertStringContainsString('public static function makeDefault(array $data = []): Post', $content);
+        $this->assertStringContainsString('public static function createDefault(array $data = []): Post', $content);
+        $this->assertStringContainsString('public static function createDefaults(int $number, array $data = []): Collection', $content);
+    }
+
+    public function test_generated_factory_is_valid_php(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $factoryPath = database_path('factories/PostFactory.php');
+
+        exec("php -l {$factoryPath} 2>&1", $output, $exitCode);
+        $this->assertEquals(0, $exitCode, "Generated factory has syntax errors:\n".implode("\n", $output));
+    }
+
+    public function test_generated_factory_includes_belongs_to_auto_association(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $factoryPath = database_path('factories/PostFactory.php');
+        $content = $this->files->get($factoryPath);
+
+        // PostSchema has BelongsTo(User) as 'author' and BelongsTo(Category)
+        $this->assertStringContainsString('UserFactory::createDefault()', $content);
+        $this->assertStringContainsString('CategoryFactory::createDefault()', $content);
+    }
+
+    // ─── Model test generation ───────────────────────────────────
+
+    public function test_generates_model_test_by_default(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $testPath = base_path('tests/Unit/PostModelTest.php');
+        $this->assertFileExists($testPath, 'Model test file should be generated by default');
+    }
+
+    public function test_no_test_flag_skips_model_test(): void
+    {
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--no-test' => true,
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $testPath = base_path('tests/Unit/PostModelTest.php');
+        $this->assertFileDoesNotExist($testPath, 'Model test file should not be generated with --no-test');
+    }
+
+    public function test_generated_model_test_has_correct_structure(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $testPath = base_path('tests/Unit/PostModelTest.php');
+        $content = $this->files->get($testPath);
+
+        $this->assertStringContainsString('class PostModelTest extends TestCase', $content);
+        $this->assertStringContainsString('use RefreshDatabase;', $content);
+        $this->assertStringContainsString('PostFactory::createDefault()', $content);
+        $this->assertStringContainsString('test_can_create_model', $content);
+    }
+
+    public function test_generated_model_test_includes_relationship_tests(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $testPath = base_path('tests/Unit/PostModelTest.php');
+        $content = $this->files->get($testPath);
+
+        // PostSchema has BelongsTo(User) as 'author' and BelongsTo(Category)
+        $this->assertStringContainsString('test_author_relationship', $content);
+        $this->assertStringContainsString('test_category_relationship', $content);
+    }
+
+    public function test_generated_model_test_is_valid_php(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $testPath = base_path('tests/Unit/PostModelTest.php');
+
+        exec("php -l {$testPath} 2>&1", $output, $exitCode);
+        $this->assertEquals(0, $exitCode, "Generated model test has syntax errors:\n".implode("\n", $output));
+    }
+
+    // ─── Controller test generation ──────────────────────────────
+
+    public function test_generates_controller_test_by_default(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $testPath = base_path('tests/Feature/Controllers/PostControllerTest.php');
+        $this->assertFileExists($testPath, 'Controller test file should be generated by default');
+    }
+
+    public function test_no_test_flag_skips_controller_test(): void
+    {
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--no-test' => true,
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $testPath = base_path('tests/Feature/Controllers/PostControllerTest.php');
+        $this->assertFileDoesNotExist($testPath, 'Controller test should not be generated with --no-test');
+    }
+
+    public function test_generated_controller_test_has_crud_methods(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $testPath = base_path('tests/Feature/Controllers/PostControllerTest.php');
+        $content = $this->files->get($testPath);
+
+        $this->assertStringContainsString('test_can_get_collection', $content);
+        $this->assertStringContainsString('test_can_get_single', $content);
+        $this->assertStringContainsString('test_can_create', $content);
+        $this->assertStringContainsString('test_can_update', $content);
+        $this->assertStringContainsString('test_can_delete', $content);
+        $this->assertStringContainsString("actingAs(\$user, 'sanctum')", $content);
+    }
+
+    public function test_generated_controller_test_is_valid_php(): void
+    {
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        $testPath = base_path('tests/Feature/Controllers/PostControllerTest.php');
+
+        exec("php -l {$testPath} 2>&1", $output, $exitCode);
+        $this->assertEquals(0, $exitCode, "Generated controller test has syntax errors:\n".implode("\n", $output));
+    }
+
+    public function test_api_option_places_controller_test_in_api_directory(): void
+    {
+        config()->set('schema-craft.apis.partner', [
+            'namespaces' => [
+                'controller' => 'App\\Http\\Controllers\\PartnerApi',
+                'service' => 'App\\Services\\PartnerApi',
+                'request' => 'App\\Http\\Requests\\PartnerApi',
+                'resource' => 'App\\Resources\\PartnerApi',
+            ],
+        ]);
+
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\CategorySchema',
+            '--api' => 'partner',
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/PartnerApi/CategoryController.php'));
+        $this->trackFile(app_path('Services/PartnerApi/CategoryService.php'));
+        $this->trackFile(app_path('Http/Requests/PartnerApi/CreateCategoryRequest.php'));
+        $this->trackFile(app_path('Http/Requests/PartnerApi/UpdateCategoryRequest.php'));
+        $this->trackFile(app_path('Resources/PartnerApi/CategoryResource.php'));
+
+        // Controller test should be in the PartnerApi directory
+        $testPath = base_path('tests/Feature/Controllers/PartnerApi/CategoryControllerTest.php');
+        $this->assertFileExists($testPath, 'Controller test should be placed in API-specific directory');
     }
 }
