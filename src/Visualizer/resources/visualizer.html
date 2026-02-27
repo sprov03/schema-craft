@@ -888,6 +888,500 @@
         .qb-info-divider {
             border: none; border-top: 1px solid var(--border); margin: 16px 0;
         }
+
+        /* ── Toast Notifications ──────────────────────────── */
+        .toast-container {
+            position: fixed; top: 16px; right: 16px; z-index: 10000;
+            display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+        }
+        .toast {
+            display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            font-size: 13px; color: var(--text-primary); pointer-events: auto;
+            animation: toast-in 0.25s ease-out; min-width: 280px; max-width: 420px;
+        }
+        .toast.fade-out { animation: toast-out 0.3s ease-in forwards; }
+        .toast-icon { font-size: 16px; flex-shrink: 0; }
+        .toast.success { border-left: 3px solid var(--success); }
+        .toast.success .toast-icon { color: var(--success); }
+        .toast.error { border-left: 3px solid var(--error); }
+        .toast.error .toast-icon { color: var(--error); }
+        .toast.warning { border-left: 3px solid var(--warning); }
+        .toast.warning .toast-icon { color: var(--warning); }
+        .toast.info { border-left: 3px solid var(--info); }
+        .toast.info .toast-icon { color: var(--info); }
+        @keyframes toast-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translateY(-10px); } }
+
+        /* ── File Preview Modal ───────────────────────────── */
+        .fp-overlay {
+            position: fixed; inset: 0; z-index: 9000;
+            background: rgba(0,0,0,0.6); display: flex;
+            align-items: center; justify-content: center;
+            animation: fp-fade-in 0.2s ease-out;
+        }
+        @keyframes fp-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .fp-modal {
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 12px; width: 90vw; max-width: 1100px; height: 80vh;
+            display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .fp-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 20px; border-bottom: 1px solid var(--border);
+        }
+        .fp-header-title { font-size: 15px; font-weight: 600; }
+        .fp-close {
+            background: none; border: none; color: var(--text-muted); font-size: 20px;
+            cursor: pointer; padding: 4px 8px; border-radius: 4px;
+        }
+        .fp-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .fp-body { display: flex; flex: 1; min-height: 0; }
+        .fp-file-list {
+            width: 280px; flex-shrink: 0; overflow-y: auto;
+            border-right: 1px solid var(--border); padding: 8px 0;
+        }
+        .fp-file-item {
+            display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+            cursor: pointer; font-size: 12px; transition: background 0.1s;
+        }
+        .fp-file-item:hover { background: var(--bg-secondary); }
+        .fp-file-item.active { background: var(--accent-dim); color: var(--accent); }
+        .fp-file-path { flex: 1; font-family: var(--font-mono); word-break: break-all; }
+        .fp-file-badge {
+            padding: 2px 8px; border-radius: 10px; font-size: 10px;
+            font-weight: 600; text-transform: uppercase; flex-shrink: 0;
+        }
+        .fp-file-badge.new { background: var(--success-dim); color: var(--success); }
+        .fp-file-badge.exists { background: var(--warning-dim); color: var(--warning); }
+        .fp-code-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        .fp-code-header {
+            padding: 10px 16px; border-bottom: 1px solid var(--border);
+            font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary);
+        }
+        .fp-code-content {
+            flex: 1; overflow: auto; padding: 16px;
+            font-family: var(--font-mono); font-size: 12px;
+            line-height: 1.6; white-space: pre-wrap; color: var(--text-primary);
+            background: var(--bg-secondary);
+        }
+        .fp-footer {
+            display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+            padding: 12px 20px; border-top: 1px solid var(--border);
+        }
+        .fp-summary {
+            margin-right: auto; font-size: 12px; color: var(--text-secondary);
+        }
+
+        /* ── Confirm Dialog ───────────────────────────────── */
+        .cd-overlay {
+            position: fixed; inset: 0; z-index: 9500;
+            background: rgba(0,0,0,0.6); display: flex;
+            align-items: center; justify-content: center;
+        }
+        .cd-modal {
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 12px; padding: 24px; width: 420px; max-width: 90vw;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .cd-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+        .cd-message { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
+        .cd-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+        /* ── Shared Buttons ───────────────────────────────── */
+        .sc-btn {
+            padding: 8px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+            font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s;
+            background: var(--bg-secondary); color: var(--text-primary);
+        }
+        .sc-btn:hover { border-color: var(--text-muted); }
+        .sc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .sc-btn.primary {
+            background: var(--accent); color: #fff; border-color: var(--accent);
+        }
+        .sc-btn.primary:hover { filter: brightness(1.1); }
+        .sc-btn.danger {
+            background: var(--error); color: #fff; border-color: var(--error);
+        }
+        .sc-btn.sm { padding: 5px 12px; font-size: 12px; }
+
+        /* ── Schemas Tab ──────────────────────────────────── */
+        #schemas-tab { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        .sc-install-banner {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 20px; margin-bottom: 20px;
+            background: var(--warning-dim); border: 1px solid var(--warning);
+            border-radius: var(--radius); font-size: 13px;
+        }
+        .sc-install-banner .sc-banner-icon { font-size: 18px; }
+        .sc-install-banner .sc-banner-text { flex: 1; }
+        .sc-tab-layout { display: flex; gap: 20px; }
+        .sc-panel {
+            flex: 1; background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); display: flex; flex-direction: column;
+        }
+        .sc-panel-header {
+            padding: 14px 20px; border-bottom: 1px solid var(--border);
+            font-size: 14px; font-weight: 600;
+        }
+        .sc-panel-body { padding: 20px; flex: 1; overflow-y: auto; }
+        .sc-panel-footer {
+            padding: 14px 20px; border-top: 1px solid var(--border);
+            display: flex; gap: 10px; justify-content: flex-end;
+        }
+        .sc-form-group { margin-bottom: 16px; }
+        .sc-form-label {
+            display: block; font-size: 12px; font-weight: 500;
+            color: var(--text-secondary); margin-bottom: 6px;
+        }
+        .sc-input {
+            width: 100%; padding: 8px 12px; font-size: 13px;
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text-primary); outline: none;
+        }
+        .sc-input:focus { border-color: var(--accent); }
+        .sc-radio-group { display: flex; gap: 12px; }
+        .sc-radio-label {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 13px; cursor: pointer; color: var(--text-primary);
+        }
+        .sc-radio-label input[type="radio"] { accent-color: var(--accent); }
+        .sc-checkbox-label {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 13px; cursor: pointer; color: var(--text-primary);
+        }
+        .sc-checkbox-label input[type="checkbox"] { accent-color: var(--accent); }
+        .sc-table-list { max-height: 380px; overflow-y: auto; margin-bottom: 16px; }
+        .sc-table-item {
+            display: flex; align-items: center; gap: 10px; padding: 8px 0;
+            border-bottom: 1px solid var(--border); font-size: 13px;
+        }
+        .sc-table-item:last-child { border-bottom: none; }
+        .sc-table-name { flex: 1; font-family: var(--font-mono); font-size: 12px; }
+        .sc-table-badges { display: flex; gap: 6px; }
+        .sc-mini-badge {
+            padding: 1px 8px; border-radius: 10px; font-size: 10px;
+            background: var(--bg-tertiary); color: var(--text-muted);
+        }
+        .sc-mini-badge.has { background: var(--success-dim); color: var(--success); }
+        .sc-table-actions { display: flex; gap: 6px; }
+        .sc-search-bar {
+            display: flex; gap: 8px; margin-bottom: 12px; align-items: center;
+        }
+        .sc-search-bar .sc-input { flex: 1; }
+
+        /* ── Status Tab ───────────────────────────────────── */
+        #status-tab { padding: 24px; max-width: 900px; margin: 0 auto; }
+        .sc-status-actions {
+            display: flex; gap: 10px; margin-bottom: 20px; align-items: center;
+        }
+        .sc-status-actions .sc-status-count { margin-right: auto; font-size: 13px; color: var(--text-secondary); }
+        .sc-status-list { display: flex; flex-direction: column; gap: 6px; }
+        .sc-status-item {
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); overflow: hidden;
+        }
+        .sc-status-row {
+            display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+            cursor: pointer; transition: background 0.1s;
+        }
+        .sc-status-row:hover { background: var(--bg-tertiary); }
+        .sc-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .sc-status-dot.synced { background: var(--success); }
+        .sc-status-dot.changed { background: var(--warning); }
+        .sc-status-dot.new-table { background: var(--info); }
+        .sc-status-table { font-weight: 600; font-size: 14px; }
+        .sc-status-schema { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+        .sc-status-summary { margin-left: auto; font-size: 12px; color: var(--text-secondary); }
+        .sc-status-arrow { color: var(--text-muted); font-size: 12px; transition: transform 0.2s; }
+        .sc-status-arrow.open { transform: rotate(90deg); }
+        .sc-diff-detail { padding: 0 16px 16px; display: none; }
+        .sc-diff-detail.open { display: block; }
+        .sc-diff-section { margin-bottom: 12px; }
+        .sc-diff-section-title {
+            font-size: 11px; font-weight: 600; text-transform: uppercase;
+            color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.5px;
+        }
+        .sc-diff-row {
+            display: flex; align-items: center; gap: 8px;
+            padding: 4px 0; font-size: 13px; font-family: var(--font-mono);
+        }
+        .sc-diff-action { font-weight: 600; width: 16px; text-align: center; }
+        .sc-diff-action.add { color: var(--success); }
+        .sc-diff-action.modify { color: var(--warning); }
+        .sc-diff-action.drop { color: var(--error); }
+        .sc-diff-action.rename { color: var(--info); }
+        .sc-diff-meta { color: var(--text-muted); font-size: 12px; }
+        .sc-status-item-actions { padding: 0 16px 12px; display: none; }
+        .sc-status-item-actions.open { display: flex; gap: 8px; }
+
+        /* ── Generate Tab ─────────────────────────────────── */
+        #generate-tab { height: calc(100vh - 49px); display: flex; flex-direction: column; }
+        #generate-tab[hidden] { display: none; }
+
+        .sc-select {
+            width: 100%; padding: 8px 12px; font-size: 13px;
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text-primary); outline: none;
+            appearance: auto;
+        }
+        .sc-select:focus { border-color: var(--accent); }
+
+        /* Level 1: API Selector */
+        .gen-api-selector {
+            flex: 1; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 24px; padding: 40px;
+        }
+        .gen-api-selector-title { font-size: 18px; font-weight: 600; color: var(--text-primary); }
+        .gen-api-selector-subtitle { font-size: 13px; color: var(--text-secondary); margin-top: -16px; }
+        .gen-api-cards { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; max-width: 800px; }
+        .gen-api-card {
+            padding: 20px 28px; background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); cursor: pointer; transition: all 0.15s;
+            min-width: 160px; text-align: center;
+        }
+        .gen-api-card:hover { border-color: var(--accent); background: var(--accent-dim); }
+        .gen-api-card-name { font-size: 15px; font-weight: 600; }
+        .gen-api-card-desc { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+        .gen-api-card.create-new { border-style: dashed; border-color: var(--text-muted); }
+        .gen-api-card.create-new:hover { border-color: var(--accent); }
+        .gen-api-card.create-new .gen-api-card-name { color: var(--text-secondary); }
+
+        /* Level 2: Main layout */
+        .gen-main { display: flex; flex: 1; min-height: 0; }
+
+        .gen-sidebar {
+            width: 260px; min-width: 260px; background: var(--bg-secondary);
+            border-right: 1px solid var(--border); display: flex; flex-direction: column;
+        }
+        .gen-sidebar-header {
+            display: flex; align-items: center; gap: 8px;
+            padding: 12px 16px; border-bottom: 1px solid var(--border);
+        }
+        .gen-back-btn {
+            padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px;
+            background: transparent; color: var(--text-secondary); font-size: 12px;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .gen-back-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .gen-sidebar-api-name { font-size: 14px; font-weight: 600; flex: 1; }
+
+        .gen-sidebar-section-title {
+            padding: 10px 16px 6px; font-size: 11px; font-weight: 600;
+            color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .gen-add-stack-btn {
+            padding: 2px 8px; border: 1px solid var(--accent); border-radius: 4px;
+            background: var(--accent-dim); color: var(--accent);
+            font-size: 10px; cursor: pointer; transition: all 0.15s;
+        }
+        .gen-add-stack-btn:hover { background: var(--accent); color: var(--bg-primary); }
+
+        .gen-sidebar-search { padding: 8px 12px; }
+        .gen-sidebar-search input {
+            width: 100%; padding: 6px 10px; border: 1px solid var(--border);
+            border-radius: 6px; background: var(--bg-primary); color: var(--text-primary);
+            font-size: 12px; outline: none;
+        }
+        .gen-sidebar-search input:focus { border-color: var(--accent); }
+        .gen-sidebar-search input::placeholder { color: var(--text-muted); }
+
+        .gen-stack-list { list-style: none; overflow-y: auto; flex: 1; min-height: 0; }
+        .gen-stack-item {
+            display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+            cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s;
+        }
+        .gen-stack-item:hover { background: var(--bg-tertiary); }
+        .gen-stack-item.active { background: var(--accent-dim); }
+        .gen-stack-item-name { flex: 1; font-size: 13px; font-weight: 500; }
+        .gen-stack-item-badge {
+            padding: 1px 8px; border-radius: 10px; font-size: 10px;
+            background: var(--bg-tertiary); color: var(--text-muted);
+        }
+        .gen-stack-item-no-ctrl {
+            font-size: 10px; color: var(--text-muted); font-style: italic;
+        }
+
+        .gen-sidebar-sdk { border-top: 1px solid var(--border); padding: 0; }
+        .gen-sdk-item {
+            display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+            cursor: pointer; transition: background 0.1s; font-size: 13px; font-weight: 500;
+        }
+        .gen-sdk-item:hover { background: var(--bg-tertiary); }
+        .gen-sdk-item.active { background: var(--accent-dim); }
+
+        /* Content area */
+        .gen-content { flex: 1; overflow-y: auto; padding: 0; }
+        .gen-empty-state {
+            display: flex; align-items: center; justify-content: center;
+            height: 100%; color: var(--text-muted); font-size: 14px;
+        }
+
+        /* Stack detail */
+        .gen-stack-detail { padding: 24px; max-width: 900px; }
+        .gen-stack-header {
+            display: flex; align-items: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;
+        }
+        .gen-stack-title { font-size: 20px; font-weight: 700; }
+        .gen-stack-route-prefix {
+            font-size: 13px; font-family: var(--font-mono); color: var(--text-muted);
+            background: var(--bg-tertiary); padding: 2px 10px; border-radius: 4px;
+        }
+        .gen-stack-badges { display: flex; gap: 6px; margin-left: auto; }
+        .gen-stack-badge { padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .gen-stack-badge.controller { background: var(--success-dim); color: var(--success); }
+        .gen-stack-badge.service { background: var(--info-dim); color: var(--info); }
+
+        /* Endpoint list */
+        .gen-endpoint-section-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .gen-endpoint-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 24px; }
+        .gen-endpoint-item {
+            display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); transition: background 0.1s;
+        }
+        .gen-endpoint-item:hover { background: var(--bg-tertiary); }
+        .gen-endpoint-method {
+            padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: 700;
+            font-family: var(--font-mono); min-width: 60px; text-align: center; text-transform: uppercase;
+        }
+        .gen-endpoint-method.get { background: var(--success-dim); color: var(--success); }
+        .gen-endpoint-method.post { background: var(--info-dim); color: var(--info); }
+        .gen-endpoint-method.put { background: var(--warning-dim); color: var(--warning); }
+        .gen-endpoint-method.delete { background: var(--error-dim); color: var(--error); }
+        .gen-endpoint-path { font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); flex: 1; }
+        .gen-endpoint-action { font-size: 12px; color: var(--text-muted); }
+        .gen-endpoint-type { padding: 1px 8px; border-radius: 10px; font-size: 10px; background: var(--bg-tertiary); color: var(--text-muted); }
+        .gen-endpoint-type.custom { background: var(--accent-dim); color: var(--accent); }
+        .gen-endpoint-item { cursor: pointer; }
+
+        /* Endpoint detail modal */
+        .ep-overlay {
+            position: fixed; inset: 0; z-index: 9000;
+            background: rgba(0,0,0,0.6); display: flex;
+            align-items: center; justify-content: center;
+            animation: fp-fade-in 0.2s ease-out;
+        }
+        .ep-modal {
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 12px; width: 90vw; max-width: 700px; max-height: 80vh;
+            display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .ep-header {
+            display: flex; align-items: center; gap: 12px;
+            padding: 16px 20px; border-bottom: 1px solid var(--border);
+        }
+        .ep-header-method {
+            padding: 3px 12px; border-radius: 4px; font-size: 12px; font-weight: 700;
+            font-family: var(--font-mono); text-transform: uppercase;
+        }
+        .ep-header-method.get { background: var(--success-dim); color: var(--success); }
+        .ep-header-method.post { background: var(--info-dim); color: var(--info); }
+        .ep-header-method.put { background: var(--warning-dim); color: var(--warning); }
+        .ep-header-method.delete { background: var(--error-dim); color: var(--error); }
+        .ep-header-path { font-family: var(--font-mono); font-size: 14px; font-weight: 500; flex: 1; }
+        .ep-header-close {
+            background: none; border: none; color: var(--text-muted); font-size: 20px;
+            cursor: pointer; padding: 4px 8px; border-radius: 4px; flex-shrink: 0;
+        }
+        .ep-header-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .ep-tabs {
+            display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 20px;
+        }
+        .ep-tab {
+            padding: 10px 20px; border: none; background: transparent; color: var(--text-secondary);
+            font-size: 13px; font-weight: 500; cursor: pointer; position: relative;
+            transition: color 0.15s;
+        }
+        .ep-tab:hover { color: var(--text-primary); }
+        .ep-tab.active { color: var(--accent); }
+        .ep-tab.active::after {
+            content: ''; position: absolute; bottom: -1px; left: 0; right: 0;
+            height: 2px; background: var(--accent); border-radius: 1px 1px 0 0;
+        }
+        .ep-body { flex: 1; overflow-y: auto; padding: 20px; }
+        .ep-section { margin-bottom: 20px; }
+        .ep-section:last-child { margin-bottom: 0; }
+        .ep-section-title {
+            font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+            color: var(--text-muted); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+        }
+        .ep-section-badge {
+            padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0;
+        }
+        .ep-section-badge.params { background: var(--info-dim); color: var(--info); }
+        .ep-section-badge.body { background: var(--warning-dim); color: var(--warning); }
+        .ep-section-badge.fields { background: var(--success-dim); color: var(--success); }
+        .ep-section-badge.relations { background: var(--accent-dim); color: var(--accent); }
+        .ep-section-badge.meta { background: var(--bg-tertiary); color: var(--text-muted); }
+
+        .ep-field-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .ep-field-table th {
+            text-align: left; padding: 8px 10px; font-weight: 600; color: var(--text-muted);
+            border-bottom: 1px solid var(--border); font-size: 10px; text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .ep-field-table td {
+            padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top;
+        }
+        .ep-field-table tr:last-child td { border-bottom: none; }
+        .ep-field-name { font-family: var(--font-mono); font-weight: 500; color: var(--text-primary); }
+        .ep-field-type { font-family: var(--font-mono); color: var(--text-secondary); font-size: 11px; }
+        .ep-field-rules { font-size: 11px; }
+        .ep-rule-tag {
+            display: inline-block; padding: 1px 6px; margin: 1px 2px; border-radius: 3px;
+            font-family: var(--font-mono); font-size: 10px;
+            background: var(--bg-tertiary); color: var(--text-secondary);
+        }
+        .ep-rule-tag.required { background: var(--error-dim); color: var(--error); }
+        .ep-rule-tag.nullable { background: var(--warning-dim); color: var(--warning); }
+        .ep-field-nullable { color: var(--warning); font-size: 10px; }
+        .ep-field-flags { display: flex; gap: 4px; flex-wrap: wrap; }
+        .ep-field-flag {
+            padding: 1px 6px; border-radius: 3px; font-size: 10px;
+            background: var(--bg-tertiary); color: var(--text-muted);
+        }
+        .ep-field-flag.pk { background: var(--accent-dim); color: var(--accent); }
+        .ep-field-flag.ai { background: var(--info-dim); color: var(--info); }
+        .ep-field-flag.unique { background: var(--warning-dim); color: var(--warning); }
+        .ep-field-flag.unsigned { background: var(--bg-tertiary); color: var(--text-muted); }
+
+        .ep-no-body { color: var(--text-muted); font-size: 12px; font-style: italic; padding: 4px 0; }
+        .ep-rel-link {
+            color: var(--accent); cursor: pointer; text-decoration: none; font-family: var(--font-mono);
+            font-size: 12px; font-weight: 500; transition: opacity 0.15s;
+        }
+        .ep-rel-link:hover { opacity: 0.8; text-decoration: underline; }
+        .ep-breadcrumb { display: flex; align-items: center; gap: 6px; padding: 0 20px 0; margin-bottom: -8px; padding-top: 12px; }
+        .ep-breadcrumb-item { font-size: 11px; color: var(--text-muted); }
+        .ep-breadcrumb-link { font-size: 11px; color: var(--accent); cursor: pointer; }
+        .ep-breadcrumb-link:hover { text-decoration: underline; }
+        .ep-breadcrumb-sep { font-size: 11px; color: var(--text-muted); }
+
+        /* Add action section */
+        .gen-add-action-section {
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 16px 20px;
+        }
+        .gen-add-action-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; }
+        .gen-add-action-row { display: flex; gap: 10px; align-items: center; }
+        .gen-add-action-row .sc-input { flex: 1; }
+
+        /* SDK detail */
+        .gen-sdk-detail { padding: 24px; max-width: 700px; }
+        .gen-sdk-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+        .gen-sdk-info-grid {
+            display: grid; grid-template-columns: 140px 1fr; gap: 8px 16px; margin-bottom: 24px;
+        }
+        .gen-sdk-info-label { font-size: 12px; font-weight: 500; color: var(--text-muted); padding-top: 2px; }
+        .gen-sdk-info-value { font-size: 13px; font-family: var(--font-mono); color: var(--text-primary); }
+
+        /* New stack form / new API form */
+        .gen-new-stack-form { padding: 24px; max-width: 600px; }
+        .gen-new-api-form { max-width: 500px; margin: 0 auto; padding-top: 20px; }
     </style>
 </head>
 <body>
@@ -897,6 +1391,9 @@
             <button class="tab-btn active" data-tab="health">Health</button>
             <button class="tab-btn" data-tab="explorer">Explorer</button>
             <button class="tab-btn" data-tab="query-builder">Query Builder</button>
+            <button class="tab-btn" data-tab="schemas">Schemas</button>
+            <button class="tab-btn" data-tab="status">Status</button>
+            <button class="tab-btn" data-tab="generate">Generate</button>
         </nav>
         <div class="header-actions">
             <button class="theme-toggle" id="theme-toggle">Light</button>
@@ -955,6 +1452,12 @@
             <div class="qb-panel-content" id="qb-panel-output" hidden></div>
         </div>
     </section>
+
+    <section id="schemas-tab" hidden></section>
+    <section id="status-tab" hidden></section>
+    <section id="generate-tab" hidden></section>
+
+    <div id="toast-container" class="toast-container"></div>
 
     <div class="qb-modal-overlay" id="qb-modal" hidden>
         <div class="qb-modal">
@@ -1051,10 +1554,14 @@
             document.getElementById('health-tab').hidden = tab !== 'health';
             document.getElementById('explorer-tab').hidden = tab !== 'explorer';
             document.getElementById('query-builder-tab').hidden = tab !== 'query-builder';
+            document.getElementById('schemas-tab').hidden = tab !== 'schemas';
+            document.getElementById('status-tab').hidden = tab !== 'status';
+            document.getElementById('generate-tab').hidden = tab !== 'generate';
 
-            if (tab === 'query-builder') {
-                initQueryBuilder();
-            }
+            if (tab === 'query-builder') initQueryBuilder();
+            if (tab === 'schemas') initSchemasTab();
+            if (tab === 'status') initStatusTab();
+            if (tab === 'generate') initGenerateTab();
         }
 
         function toggleTheme() {
@@ -3729,6 +4236,1574 @@
                 if (schemaData.schemas[keys[i]].tableName === tableName) return keys[i];
             }
             return null;
+        }
+
+        // ── Shared: Toast Notifications ──────────────────
+        function showToast(message, type) {
+            type = type || 'info';
+            var icons = { success: '\u2713', error: '\u2717', warning: '\u26A0', info: '\u2139' };
+            var container = document.getElementById('toast-container');
+            var toast = document.createElement('div');
+            toast.className = 'toast ' + type;
+            toast.innerHTML = '<span class="toast-icon">' + (icons[type] || icons.info) + '</span>' +
+                '<span>' + escapeHtml(message) + '</span>';
+            container.appendChild(toast);
+            setTimeout(function() {
+                toast.classList.add('fade-out');
+                setTimeout(function() { toast.remove(); }, 300);
+            }, 4000);
+        }
+
+        // ── Shared: File Preview Modal ──────────────────
+        function showFilePreviewModal(files, onConfirm, confirmLabel) {
+            confirmLabel = confirmLabel || 'Write Files';
+            var overlay = document.createElement('div');
+            overlay.className = 'fp-overlay';
+
+            var newCount = files.filter(function(f) { return !f.exists; }).length;
+            var existsCount = files.filter(function(f) { return f.exists; }).length;
+            var summaryText = files.length + ' file(s): ' + newCount + ' new' + (existsCount ? ', ' + existsCount + ' existing' : '');
+
+            var fileListHtml = files.map(function(f, idx) {
+                var badge = f.exists ? '<span class="fp-file-badge exists">Exists</span>'
+                    : '<span class="fp-file-badge new">New</span>';
+                return '<div class="fp-file-item' + (idx === 0 ? ' active' : '') + '" data-fp-idx="' + idx + '">' +
+                    '<span class="fp-file-path">' + escapeHtml(f.path) + '</span>' + badge + '</div>';
+            }).join('');
+
+            overlay.innerHTML =
+                '<div class="fp-modal">' +
+                    '<div class="fp-header">' +
+                        '<span class="fp-header-title">File Preview</span>' +
+                        '<button class="fp-close" id="fp-close">&times;</button>' +
+                    '</div>' +
+                    '<div class="fp-body">' +
+                        '<div class="fp-file-list">' + fileListHtml + '</div>' +
+                        '<div class="fp-code-panel">' +
+                            '<div class="fp-code-header" id="fp-code-header">' + escapeHtml(files[0].path) + '</div>' +
+                            '<pre class="fp-code-content" id="fp-code-content">' + escapeHtml(files[0].content || '') + '</pre>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="fp-footer">' +
+                        '<span class="fp-summary">' + summaryText + '</span>' +
+                        '<button class="sc-btn" id="fp-cancel">Cancel</button>' +
+                        '<button class="sc-btn primary" id="fp-confirm">' + escapeHtml(confirmLabel) + '</button>' +
+                    '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            // File selection
+            overlay.querySelectorAll('.fp-file-item').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    overlay.querySelectorAll('.fp-file-item').forEach(function(i) { i.classList.remove('active'); });
+                    item.classList.add('active');
+                    var idx = parseInt(item.dataset.fpIdx, 10);
+                    document.getElementById('fp-code-header').textContent = files[idx].path;
+                    document.getElementById('fp-code-content').textContent = files[idx].content || '';
+                });
+            });
+
+            function close() { overlay.remove(); }
+            overlay.querySelector('#fp-close').addEventListener('click', close);
+            overlay.querySelector('#fp-cancel').addEventListener('click', close);
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+
+            overlay.querySelector('#fp-confirm').addEventListener('click', function() {
+                close();
+                if (onConfirm) onConfirm();
+            });
+        }
+
+        // ── Shared: Confirm Dialog ──────────────────────
+        function showConfirmDialog(title, message, onConfirm) {
+            var overlay = document.createElement('div');
+            overlay.className = 'cd-overlay';
+            overlay.innerHTML =
+                '<div class="cd-modal">' +
+                    '<div class="cd-title">' + escapeHtml(title) + '</div>' +
+                    '<div class="cd-message">' + escapeHtml(message) + '</div>' +
+                    '<div class="cd-actions">' +
+                        '<button class="sc-btn" id="cd-cancel">Cancel</button>' +
+                        '<button class="sc-btn primary" id="cd-confirm">Confirm</button>' +
+                    '</div>' +
+                '</div>';
+            document.body.appendChild(overlay);
+
+            function close() { overlay.remove(); }
+            overlay.querySelector('#cd-cancel').addEventListener('click', close);
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+            overlay.querySelector('#cd-confirm').addEventListener('click', function() {
+                close();
+                if (onConfirm) onConfirm();
+            });
+        }
+
+        // ── Schemas Tab ─────────────────────────────────
+        var schemasInitialized = false;
+        var schemasState = {
+            baseModelInstalled: null,
+            tables: null,
+            tableSearchQuery: '',
+        };
+
+        function initSchemasTab() {
+            if (schemasInitialized) return;
+            schemasInitialized = true;
+            renderSchemasTab();
+            checkInstallStatus();
+            loadDatabaseTables();
+        }
+
+        function renderSchemasTab() {
+            var container = document.getElementById('schemas-tab');
+            container.innerHTML =
+                '<div class="sc-install-banner" id="sc-install-banner" hidden>' +
+                    '<span class="sc-banner-icon">\u26A0</span>' +
+                    '<span class="sc-banner-text">BaseModel is not installed. It is required for generated models to work properly.</span>' +
+                    '<button class="sc-btn sm primary" id="sc-install-btn">Install BaseModel</button>' +
+                '</div>' +
+                '<div class="sc-tab-layout">' +
+                    '<div class="sc-panel">' +
+                        '<div class="sc-panel-header">Create Schema</div>' +
+                        '<div class="sc-panel-body">' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-form-label">Schema Names (comma-separated)</label>' +
+                                '<input type="text" class="sc-input" id="sc-create-names" placeholder="Post, Comment, Tag">' +
+                            '</div>' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-form-label">Primary Key</label>' +
+                                '<div class="sc-radio-group">' +
+                                    '<label class="sc-radio-label"><input type="radio" name="sc-pk" value="auto" checked> Auto-increment</label>' +
+                                    '<label class="sc-radio-label"><input type="radio" name="sc-pk" value="uuid"> UUID</label>' +
+                                    '<label class="sc-radio-label"><input type="radio" name="sc-pk" value="ulid"> ULID</label>' +
+                                '</div>' +
+                            '</div>' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-soft-deletes"> Include soft deletes</label>' +
+                            '</div>' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-create-model" checked> Create model file</label>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="sc-panel-footer">' +
+                            '<button class="sc-btn" id="sc-create-preview">Preview</button>' +
+                            '<button class="sc-btn primary" id="sc-create-submit">Create</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="sc-panel">' +
+                        '<div class="sc-panel-header">Import from Database</div>' +
+                        '<div class="sc-panel-body">' +
+                            '<div class="sc-search-bar">' +
+                                '<input type="text" class="sc-input" id="sc-import-search" placeholder="Search tables...">' +
+                                '<button class="sc-btn sm" id="sc-select-all">All</button>' +
+                                '<button class="sc-btn sm" id="sc-deselect-all">None</button>' +
+                            '</div>' +
+                            '<div class="sc-table-list" id="sc-table-list">' +
+                                '<div style="color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center;">Loading tables...</div>' +
+                            '</div>' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-model" checked> Generate model files</label>' +
+                            '</div>' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-force"> Force overwrite existing files</label>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="sc-panel-footer">' +
+                            '<button class="sc-btn" id="sc-import-preview">Preview</button>' +
+                            '<button class="sc-btn primary" id="sc-import-submit">Import</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+            // Bind events
+            document.getElementById('sc-install-btn').addEventListener('click', doInstallBaseModel);
+            document.getElementById('sc-create-preview').addEventListener('click', function() { doCreateSchema(true); });
+            document.getElementById('sc-create-submit').addEventListener('click', function() { doCreateSchema(false); });
+            document.getElementById('sc-import-preview').addEventListener('click', function() { doImportSchema(true); });
+            document.getElementById('sc-import-submit').addEventListener('click', function() { doImportSchema(false); });
+            document.getElementById('sc-import-search').addEventListener('input', function(e) {
+                schemasState.tableSearchQuery = e.target.value.toLowerCase();
+                renderTableList();
+            });
+            document.getElementById('sc-select-all').addEventListener('click', function() { toggleAllTables(true); });
+            document.getElementById('sc-deselect-all').addEventListener('click', function() { toggleAllTables(false); });
+        }
+
+        function checkInstallStatus() {
+            fetch('/_schema-craft/api/install/status')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    schemasState.baseModelInstalled = data.installed;
+                    document.getElementById('sc-install-banner').hidden = data.installed;
+                })
+                .catch(function() {});
+        }
+
+        function doInstallBaseModel() {
+            var btn = document.getElementById('sc-install-btn');
+            btn.disabled = true;
+            btn.textContent = 'Installing...';
+
+            fetch('/_schema-craft/api/install', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' } })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        schemasState.baseModelInstalled = true;
+                        document.getElementById('sc-install-banner').hidden = true;
+                        showToast('BaseModel installed successfully', 'success');
+                    } else {
+                        showToast(data.message || 'Failed to install BaseModel', 'error');
+                    }
+                })
+                .catch(function(e) { showToast('Error: ' + e.message, 'error'); })
+                .finally(function() { btn.disabled = false; btn.textContent = 'Install BaseModel'; });
+        }
+
+        function getCreateFormData() {
+            var names = document.getElementById('sc-create-names').value.trim();
+            var pk = document.querySelector('input[name="sc-pk"]:checked');
+            return {
+                names: names,
+                primaryKey: pk ? pk.value : 'auto',
+                softDeletes: document.getElementById('sc-soft-deletes').checked,
+                createModel: document.getElementById('sc-create-model').checked,
+            };
+        }
+
+        function doCreateSchema(previewOnly) {
+            var data = getCreateFormData();
+            if (!data.names) {
+                showToast('Please enter at least one schema name', 'warning');
+                return;
+            }
+
+            var url = previewOnly ? '/_schema-craft/api/schema/create/preview' : '/_schema-craft/api/schema/create';
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(data),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (!result.success) {
+                    showToast(result.message || 'Failed to create schemas', 'error');
+                    return;
+                }
+
+                if (previewOnly) {
+                    showFilePreviewModal(result.files, function() { doCreateSchema(false); }, 'Write Files');
+                } else {
+                    var count = result.files ? result.files.length : 0;
+                    showToast(result.message || count + ' file(s) created', 'success');
+                    loadDatabaseTables(); // Refresh import panel statuses
+                    refreshSchemaData();
+                }
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        // ── Import from Database ────────────────────────
+        function loadDatabaseTables() {
+            fetch('/_schema-craft/api/database/tables')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    schemasState.tables = data.tables.map(function(t) {
+                        t.selected = false;
+                        return t;
+                    });
+                    renderTableList();
+                })
+                .catch(function(e) {
+                    var list = document.getElementById('sc-table-list');
+                    if (list) list.innerHTML = '<div style="color: var(--error); font-size: 13px; padding: 20px 0; text-align: center;">Failed to load tables: ' + escapeHtml(e.message) + '</div>';
+                });
+        }
+
+        function renderTableList() {
+            var list = document.getElementById('sc-table-list');
+            if (!list || !schemasState.tables) return;
+
+            var filtered = schemasState.tables.filter(function(t) {
+                if (!schemasState.tableSearchQuery) return true;
+                return t.name.toLowerCase().indexOf(schemasState.tableSearchQuery) !== -1 ||
+                    t.modelName.toLowerCase().indexOf(schemasState.tableSearchQuery) !== -1;
+            });
+
+            if (filtered.length === 0) {
+                list.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center;">No tables found</div>';
+                return;
+            }
+
+            list.innerHTML = filtered.map(function(t) {
+                var schemaBadge = t.hasSchema ? '<span class="sc-mini-badge has">Schema</span>' : '';
+                var modelBadge = t.hasModel ? '<span class="sc-mini-badge has">Model</span>' : '';
+                return '<div class="sc-table-item">' +
+                    '<input type="checkbox" class="sc-table-cb" data-table="' + escapeAttr(t.name) + '"' + (t.selected ? ' checked' : '') + '>' +
+                    '<span class="sc-table-name">' + escapeHtml(t.name) + '</span>' +
+                    '<span class="sc-table-badges">' + schemaBadge + modelBadge + '</span>' +
+                '</div>';
+            }).join('');
+
+            // Bind checkbox events
+            list.querySelectorAll('.sc-table-cb').forEach(function(cb) {
+                cb.addEventListener('change', function() {
+                    var tableName = cb.dataset.table;
+                    var table = schemasState.tables.find(function(t) { return t.name === tableName; });
+                    if (table) table.selected = cb.checked;
+                });
+            });
+        }
+
+        function toggleAllTables(select) {
+            if (!schemasState.tables) return;
+            var query = schemasState.tableSearchQuery;
+            schemasState.tables.forEach(function(t) {
+                var matches = !query ||
+                    t.name.toLowerCase().indexOf(query) !== -1 ||
+                    t.modelName.toLowerCase().indexOf(query) !== -1;
+                if (matches) t.selected = select;
+            });
+            renderTableList();
+        }
+
+        function getSelectedTables() {
+            if (!schemasState.tables) return [];
+            return schemasState.tables.filter(function(t) { return t.selected; }).map(function(t) { return t.name; });
+        }
+
+        function doImportSchema(previewOnly) {
+            var tables = getSelectedTables();
+            if (tables.length === 0) {
+                showToast('Please select at least one table', 'warning');
+                return;
+            }
+
+            var createModel = document.getElementById('sc-import-model').checked;
+            var force = document.getElementById('sc-import-force').checked;
+            var url = previewOnly ? '/_schema-craft/api/schema/import/preview' : '/_schema-craft/api/schema/import';
+
+            var body = { tables: tables, createModel: createModel };
+            if (!previewOnly) body.force = force;
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(body),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (!result.success) {
+                    showToast(result.message || 'Import failed', 'error');
+                    return;
+                }
+
+                if (previewOnly) {
+                    var pivotNote = result.pivots && result.pivots.length > 0
+                        ? result.pivots.length + ' pivot table(s) detected and handled as relationships'
+                        : '';
+                    showFilePreviewModal(result.files, function() { doImportSchema(false); }, 'Write Files');
+                    if (pivotNote) showToast(pivotNote, 'info');
+                } else {
+                    var s = result.summary || {};
+                    var msg = (s.schemas || 0) + ' schema(s), ' + (s.models || 0) + ' model(s) created';
+                    if (s.skipped > 0) msg += ', ' + s.skipped + ' skipped';
+                    if (s.pivots > 0) msg += ', ' + s.pivots + ' pivot(s)';
+                    showToast(msg, 'success');
+                    loadDatabaseTables(); // Refresh statuses
+                    refreshSchemaData();
+                }
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        function refreshSchemaData() {
+            fetch('/_schema-craft/api/schema')
+                .then(function(r) { return r.json(); })
+                .then(function(data) { schemaData = data; })
+                .catch(function() {});
+        }
+
+        // ── Status Tab ──────────────────────────────────
+        var statusInitialized = false;
+        var statusData = null;
+
+        function initStatusTab() {
+            if (statusInitialized) {
+                return;
+            }
+            statusInitialized = true;
+            renderStatusTab();
+            loadStatusData();
+        }
+
+        function renderStatusTab() {
+            var container = document.getElementById('status-tab');
+            container.innerHTML =
+                '<div class="summary-bar" id="status-summary">' +
+                    '<div class="stat-card"><div class="stat-value" id="status-in-sync">-</div><div class="stat-label">In Sync</div></div>' +
+                    '<div class="stat-card"><div class="stat-value" id="status-changes">-</div><div class="stat-label">Changes</div></div>' +
+                    '<div class="stat-card"><div class="stat-value" id="status-new">-</div><div class="stat-label">New Tables</div></div>' +
+                '</div>' +
+                '<div class="sc-status-actions" id="status-actions">' +
+                    '<span class="sc-status-count" id="status-total"></span>' +
+                    '<button class="sc-btn sm" id="status-refresh">Refresh</button>' +
+                    '<button class="sc-btn sm primary" id="status-generate-all">Generate All Migrations</button>' +
+                    '<button class="sc-btn sm" id="status-generate-run">Generate &amp; Run</button>' +
+                '</div>' +
+                '<div class="sc-status-list" id="status-list"></div>';
+
+            document.getElementById('status-refresh').addEventListener('click', function() {
+                statusInitialized = false;
+                statusData = null;
+                initStatusTab();
+            });
+            document.getElementById('status-generate-all').addEventListener('click', function() {
+                doMigratePreviewAndWrite(false);
+            });
+            document.getElementById('status-generate-run').addEventListener('click', function() {
+                doMigratePreviewAndWrite(true);
+            });
+        }
+
+        function loadStatusData() {
+            document.getElementById('status-list').innerHTML = '<div style="padding:24px;color:var(--text-muted);text-align:center;">Loading status...</div>';
+            fetch('/_schema-craft/api/status')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    statusData = data;
+                    renderStatusData();
+                })
+                .catch(function(e) {
+                    document.getElementById('status-list').innerHTML = '<div style="padding:24px;color:var(--error);">Failed to load status: ' + escapeHtml(e.message) + '</div>';
+                });
+        }
+
+        function renderStatusData() {
+            if (!statusData) return;
+            var s = statusData.summary;
+            document.getElementById('status-in-sync').textContent = s.inSync;
+            document.getElementById('status-changes').textContent = s.hasChanges;
+            document.getElementById('status-new').textContent = s.newTables;
+            document.getElementById('status-total').textContent = s.total + ' schema(s) discovered';
+
+            var hasActionable = s.hasChanges > 0 || s.newTables > 0;
+            document.getElementById('status-generate-all').disabled = !hasActionable;
+            document.getElementById('status-generate-run').disabled = !hasActionable;
+
+            var listEl = document.getElementById('status-list');
+            if (!statusData.schemas || statusData.schemas.length === 0) {
+                listEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);text-align:center;">No schemas discovered.</div>';
+                return;
+            }
+
+            var html = '';
+            statusData.schemas.forEach(function(item, idx) {
+                var dotClass = item.status === 'in_sync' ? 'synced' : item.status === 'new_table' ? 'new-table' : 'changed';
+                var statusLabel = item.status === 'in_sync' ? 'In Sync' : item.status === 'new_table' ? 'New Table' : 'Has Changes';
+                var changeSummary = '';
+
+                if (item.diff) {
+                    var parts = [];
+                    var adds = item.diff.columns.filter(function(c) { return c.action === 'add'; }).length;
+                    var mods = item.diff.columns.filter(function(c) { return c.action === 'modify'; }).length;
+                    var drops = item.diff.columns.filter(function(c) { return c.action === 'drop'; }).length;
+                    var renames = item.diff.columns.filter(function(c) { return c.action === 'rename'; }).length;
+                    if (adds) parts.push('+' + adds + ' col');
+                    if (mods) parts.push('~' + mods + ' col');
+                    if (drops) parts.push('-' + drops + ' col');
+                    if (renames) parts.push(renames + ' rename');
+                    if (item.diff.indexes.length) parts.push(item.diff.indexes.length + ' idx');
+                    if (item.diff.foreignKeys.length) parts.push(item.diff.foreignKeys.length + ' fk');
+                    if (item.diff.addTimestamps) parts.push('+timestamps');
+                    if (item.diff.dropTimestamps) parts.push('-timestamps');
+                    if (item.diff.addSoftDeletes) parts.push('+softDeletes');
+                    if (item.diff.dropSoftDeletes) parts.push('-softDeletes');
+                    changeSummary = parts.join(', ');
+                }
+
+                var isExpandable = item.status !== 'in_sync';
+                html += '<div class="sc-status-item" data-status-idx="' + idx + '">' +
+                    '<div class="sc-status-row" ' + (isExpandable ? 'style="cursor:pointer;" onclick="window._toggleStatusItem(' + idx + ')"' : '') + '>' +
+                        '<span class="sc-status-dot ' + dotClass + '"></span>' +
+                        '<span class="sc-status-table">' + escapeHtml(item.tableName) + '</span>' +
+                        '<span class="sc-status-schema">' + escapeHtml(shortName(item.schemaClass)) + '</span>' +
+                        (changeSummary ? '<span class="sc-status-summary">' + escapeHtml(changeSummary) + '</span>' : '<span class="sc-status-summary">' + escapeHtml(statusLabel) + '</span>') +
+                        (isExpandable ? '<span class="sc-status-arrow" id="status-arrow-' + idx + '">&#9654;</span>' : '') +
+                    '</div>';
+
+                if (item.diff) {
+                    html += '<div class="sc-diff-detail" id="status-diff-' + idx + '">';
+                    html += renderDiffDetail(item.diff);
+                    html += '</div>';
+                    html += '<div class="sc-status-item-actions" id="status-actions-' + idx + '">' +
+                        '<button class="sc-btn sm primary" onclick="window._migrateTable(\'' + escapeAttr(item.tableName) + '\')">Generate Migration</button>' +
+                    '</div>';
+                }
+
+                html += '</div>';
+            });
+
+            listEl.innerHTML = html;
+        }
+
+        window._toggleStatusItem = function(idx) {
+            var diff = document.getElementById('status-diff-' + idx);
+            var arrow = document.getElementById('status-arrow-' + idx);
+            var actions = document.getElementById('status-actions-' + idx);
+            if (diff) {
+                diff.classList.toggle('open');
+                if (arrow) arrow.classList.toggle('open');
+                if (actions) actions.classList.toggle('open');
+            }
+        };
+
+        function renderDiffDetail(diff) {
+            var html = '';
+
+            if (diff.columns.length > 0) {
+                html += '<div class="sc-diff-section">' +
+                    '<div class="sc-diff-section-title">Columns</div>';
+                diff.columns.forEach(function(col) {
+                    var actionSymbol = col.action === 'add' ? '+' : col.action === 'drop' ? '-' : col.action === 'rename' ? 'R' : '~';
+                    var meta = '';
+                    if (col.action === 'rename') {
+                        meta = col.oldColumn + ' \u2192 ' + col.column;
+                    } else if (col.action === 'modify' && col.desired && col.actual) {
+                        var changes = [];
+                        if (col.desired.type !== col.actual.type) changes.push(col.actual.type + ' \u2192 ' + col.desired.type);
+                        if (col.desired.nullable !== col.actual.nullable) changes.push(col.desired.nullable ? 'nullable' : 'not null');
+                        if (col.desired.unsigned !== col.actual.unsigned) changes.push(col.desired.unsigned ? 'unsigned' : 'signed');
+                        meta = changes.join(', ');
+                    } else if (col.action === 'add' && col.desired) {
+                        meta = col.desired.type + (col.desired.nullable ? ', nullable' : '') + (col.desired.unsigned ? ', unsigned' : '');
+                    } else if (col.action === 'drop' && col.actual) {
+                        meta = col.actual.type;
+                    }
+
+                    html += '<div class="sc-diff-row">' +
+                        '<span class="sc-diff-action ' + col.action + '">' + actionSymbol + '</span>' +
+                        '<span>' + escapeHtml(col.column) + '</span>' +
+                        (meta ? '<span class="sc-diff-meta">' + escapeHtml(meta) + '</span>' : '') +
+                    '</div>';
+                });
+                html += '</div>';
+            }
+
+            if (diff.indexes.length > 0) {
+                html += '<div class="sc-diff-section">' +
+                    '<div class="sc-diff-section-title">Indexes</div>';
+                diff.indexes.forEach(function(idx) {
+                    var symbol = idx.action === 'add' ? '+' : '-';
+                    var desc = (idx.unique ? 'unique ' : '') + idx.columns.join(', ');
+                    html += '<div class="sc-diff-row">' +
+                        '<span class="sc-diff-action ' + idx.action + '">' + symbol + '</span>' +
+                        '<span>' + escapeHtml(desc) + '</span>' +
+                    '</div>';
+                });
+                html += '</div>';
+            }
+
+            if (diff.foreignKeys.length > 0) {
+                html += '<div class="sc-diff-section">' +
+                    '<div class="sc-diff-section-title">Foreign Keys</div>';
+                diff.foreignKeys.forEach(function(fk) {
+                    var symbol = fk.action === 'add' ? '+' : '-';
+                    var desc = fk.column + ' \u2192 ' + fk.foreignTable + '.' + fk.foreignColumn;
+                    html += '<div class="sc-diff-row">' +
+                        '<span class="sc-diff-action ' + fk.action + '">' + symbol + '</span>' +
+                        '<span>' + escapeHtml(desc) + '</span>' +
+                    '</div>';
+                });
+                html += '</div>';
+            }
+
+            var flags = [];
+            if (diff.addTimestamps) flags.push('+timestamps');
+            if (diff.dropTimestamps) flags.push('-timestamps');
+            if (diff.addSoftDeletes) flags.push('+softDeletes');
+            if (diff.dropSoftDeletes) flags.push('-softDeletes');
+            if (flags.length > 0) {
+                html += '<div class="sc-diff-section">' +
+                    '<div class="sc-diff-section-title">Flags</div>' +
+                    '<div class="sc-diff-row"><span>' + escapeHtml(flags.join(', ')) + '</span></div>' +
+                '</div>';
+            }
+
+            return html;
+        }
+
+        function doMigratePreviewAndWrite(andRun) {
+            fetch('/_schema-craft/api/migrate/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({}),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.files || data.files.length === 0) {
+                    showToast(data.message || 'Nothing to migrate.', 'info');
+                    return;
+                }
+                var confirmLabel = andRun ? 'Generate & Run Migrations' : 'Write Migration Files';
+                showFilePreviewModal(data.files, confirmLabel, function() {
+                    var endpoint = andRun ? '/_schema-craft/api/migrate/run' : '/_schema-craft/api/migrate';
+                    fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({}),
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(result) {
+                        if (result.success) {
+                            showToast(result.message, 'success');
+                            if (result.migrateOutput) {
+                                showToast('Migrate output: ' + result.migrateOutput, 'info');
+                            }
+                            // Refresh status
+                            statusInitialized = false;
+                            statusData = null;
+                            initStatusTab();
+                        } else {
+                            showToast(result.message || 'Migration failed.', 'error');
+                        }
+                    })
+                    .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                });
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        window._migrateTable = function(tableName) {
+            fetch('/_schema-craft/api/migrate/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ tables: [tableName] }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.files || data.files.length === 0) {
+                    showToast('No changes for ' + tableName + '.', 'info');
+                    return;
+                }
+                showFilePreviewModal(data.files, 'Write Migration', function() {
+                    fetch('/_schema-craft/api/migrate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ tables: [tableName] }),
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(result) {
+                        if (result.success) {
+                            showToast(result.message, 'success');
+                            statusInitialized = false;
+                            statusData = null;
+                            initStatusTab();
+                        } else {
+                            showToast(result.message || 'Migration failed.', 'error');
+                        }
+                    })
+                    .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                });
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        };
+
+        // ── Generate Tab ────────────────────────────────
+        var generateInitialized = false;
+        var generateConfig = null;
+        var genSelectedApi = null;
+        var genSelectedStack = null;
+        var genSelectedView = null;
+        var genStackDetail = null;
+        var genSdkConfig = null;
+
+        function initGenerateTab() {
+            if (generateInitialized) return;
+            generateInitialized = true;
+            loadGenerateConfig(null, function() {
+                renderGenerateApiSelector();
+            });
+        }
+
+        function loadGenerateConfig(api, callback) {
+            var url = '/_schema-craft/api/generate/config';
+            if (api) url += '?api=' + encodeURIComponent(api);
+            fetch(url)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    generateConfig = data;
+                    if (callback) callback();
+                })
+                .catch(function(e) { showToast('Failed to load config: ' + e.message, 'error'); });
+        }
+
+        // ── Level 1: API Selector ──────────────────────
+        function renderGenerateApiSelector() {
+            genSelectedApi = null;
+            genSelectedStack = null;
+            genSelectedView = null;
+
+            var container = document.getElementById('generate-tab');
+            var cardsHtml = '';
+
+            if (generateConfig && generateConfig.apis) {
+                generateConfig.apis.forEach(function(api) {
+                    cardsHtml += '<div class="gen-api-card" data-api="' + escapeAttr(api) + '">' +
+                        '<div class="gen-api-card-name">' + escapeHtml(api) + '</div>' +
+                        '<div class="gen-api-card-desc">API Configuration</div>' +
+                    '</div>';
+                });
+            }
+
+            cardsHtml += '<div class="gen-api-card create-new" id="gen-create-api-card">' +
+                '<div class="gen-api-card-name">+ Create New API</div>' +
+                '<div class="gen-api-card-desc">Add a new API configuration</div>' +
+            '</div>';
+
+            container.innerHTML =
+                '<div class="gen-api-selector">' +
+                    '<div class="gen-api-selector-title">Select an API</div>' +
+                    '<div class="gen-api-selector-subtitle">Choose an API configuration to manage stacks and SDKs</div>' +
+                    '<div class="gen-api-cards" id="gen-api-cards">' + cardsHtml + '</div>' +
+                    '<div id="gen-new-api-area"></div>' +
+                '</div>';
+
+            container.querySelectorAll('.gen-api-card[data-api]').forEach(function(card) {
+                card.addEventListener('click', function() {
+                    selectApi(card.dataset.api);
+                });
+            });
+
+            document.getElementById('gen-create-api-card').addEventListener('click', showCreateApiForm);
+        }
+
+        function showCreateApiForm() {
+            var area = document.getElementById('gen-new-api-area');
+            area.innerHTML =
+                '<div class="gen-new-api-form">' +
+                    '<div class="sc-panel">' +
+                        '<div class="sc-panel-header">Create New API</div>' +
+                        '<div class="sc-panel-body">' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-form-label">API Name</label>' +
+                                '<input type="text" class="sc-input" id="gen-newapi-name" placeholder="e.g. partner, admin, mobile">' +
+                            '</div>' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-form-label">URL Prefix</label>' +
+                                '<input type="text" class="sc-input" id="gen-newapi-prefix" placeholder="Auto-generated from name">' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="sc-panel-footer">' +
+                            '<button class="sc-btn" id="gen-newapi-cancel">Cancel</button>' +
+                            '<button class="sc-btn primary" id="gen-newapi-create">Create API</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+            document.getElementById('gen-newapi-name').addEventListener('input', function() {
+                var name = this.value.trim();
+                if (name) {
+                    document.getElementById('gen-newapi-prefix').value = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-api';
+                }
+            });
+
+            document.getElementById('gen-newapi-cancel').addEventListener('click', function() {
+                area.innerHTML = '';
+            });
+
+            document.getElementById('gen-newapi-create').addEventListener('click', doCreateNewApi);
+            document.getElementById('gen-newapi-name').focus();
+        }
+
+        function doCreateNewApi() {
+            var name = document.getElementById('gen-newapi-name').value.trim();
+            var prefix = document.getElementById('gen-newapi-prefix').value.trim();
+            if (!name) { showToast('Enter an API name.', 'warning'); return; }
+
+            fetch('/_schema-craft/api/create-api', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ name: name, prefix: prefix || undefined }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadGenerateConfig(null, function() {
+                        selectApi(name);
+                    });
+                } else {
+                    showToast(data.message || 'API creation failed.', 'error');
+                }
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        // ── Level 2: Main layout ───────────────────────
+        function selectApi(apiName) {
+            genSelectedApi = apiName;
+            genSelectedStack = null;
+            genSelectedView = null;
+            genStackDetail = null;
+
+            loadGenerateConfig(apiName, function() {
+                renderGenerateMain();
+            });
+        }
+
+        function renderGenerateMain() {
+            var container = document.getElementById('generate-tab');
+
+            // Build stack list
+            var stacks = [];
+            if (generateConfig && generateConfig.schemas) {
+                stacks = generateConfig.schemas.filter(function(s) { return s.hasController; });
+            }
+
+            var stackListHtml = '';
+            stacks.forEach(function(s) {
+                stackListHtml += '<li class="gen-stack-item" data-schema="' + escapeAttr(s.class) + '">' +
+                    '<span class="gen-stack-item-name">' + escapeHtml(s.modelName) + '</span>' +
+                    '<span class="gen-stack-item-badge">' + (s.endpointCount || 5) + '</span>' +
+                '</li>';
+            });
+
+            if (!stackListHtml) {
+                stackListHtml = '<li style="padding:16px;color:var(--text-muted);font-size:12px;text-align:center;">No stacks generated yet</li>';
+            }
+
+            container.innerHTML =
+                '<div class="gen-main">' +
+                    '<div class="gen-sidebar">' +
+                        '<div class="gen-sidebar-header">' +
+                            '<button class="gen-back-btn" id="gen-back">\u2190 Back</button>' +
+                            '<span class="gen-sidebar-api-name">' + escapeHtml(genSelectedApi) + '</span>' +
+                        '</div>' +
+                        '<div class="gen-sidebar-section-title">' +
+                            'API Stacks' +
+                            '<button class="gen-add-stack-btn" id="gen-add-stack-btn">+ New</button>' +
+                        '</div>' +
+                        '<div class="gen-sidebar-search">' +
+                            '<input type="search" id="gen-stack-search" placeholder="Search stacks...">' +
+                        '</div>' +
+                        '<ul class="gen-stack-list" id="gen-stack-list">' + stackListHtml + '</ul>' +
+                        '<div class="gen-sidebar-sdk">' +
+                            '<div class="gen-sidebar-section-title">Client SDK</div>' +
+                            '<div class="gen-sdk-item" id="gen-sdk-nav">' +
+                                '<span>\uD83D\uDCE6</span>' +
+                                '<span>SDK Management</span>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="gen-content" id="gen-content">' +
+                        '<div class="gen-empty-state">Select an API stack to view endpoints</div>' +
+                    '</div>' +
+                '</div>';
+
+            // Bind events
+            document.getElementById('gen-back').addEventListener('click', goBackToApiSelector);
+            document.getElementById('gen-add-stack-btn').addEventListener('click', showNewStackForm);
+            document.getElementById('gen-sdk-nav').addEventListener('click', showSdkView);
+
+            // Stack search filter
+            document.getElementById('gen-stack-search').addEventListener('input', function(e) {
+                var query = e.target.value.toLowerCase();
+                document.querySelectorAll('.gen-stack-item[data-schema]').forEach(function(item) {
+                    var name = item.querySelector('.gen-stack-item-name');
+                    if (name) {
+                        var matches = !query || name.textContent.toLowerCase().indexOf(query) !== -1;
+                        item.style.display = matches ? '' : 'none';
+                    }
+                });
+            });
+
+            // Stack item clicks
+            document.querySelectorAll('.gen-stack-item[data-schema]').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    selectStack(item.dataset.schema);
+                });
+            });
+
+            // Restore selection if we had one
+            if (genSelectedStack && genSelectedView === 'stack') {
+                selectStack(genSelectedStack);
+            } else if (genSelectedView === 'sdk') {
+                showSdkView();
+            }
+        }
+
+        function goBackToApiSelector() {
+            genSelectedApi = null;
+            genSelectedStack = null;
+            genSelectedView = null;
+            loadGenerateConfig(null, function() {
+                renderGenerateApiSelector();
+            });
+        }
+
+        // ── Level 3: Stack detail ──────────────────────
+        function selectStack(schemaClass) {
+            genSelectedStack = schemaClass;
+            genSelectedView = 'stack';
+
+            // Highlight in sidebar
+            document.querySelectorAll('.gen-stack-item').forEach(function(item) {
+                item.classList.toggle('active', item.dataset.schema === schemaClass);
+            });
+            var sdkNav = document.getElementById('gen-sdk-nav');
+            if (sdkNav) sdkNav.classList.remove('active');
+
+            var content = document.getElementById('gen-content');
+            content.innerHTML = '<div class="gen-empty-state">Loading...</div>';
+
+            fetch('/_schema-craft/api/generate/stack-detail?schema=' + encodeURIComponent(schemaClass) + '&api=' + encodeURIComponent(genSelectedApi))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success === false) {
+                        content.innerHTML = '<div class="gen-empty-state">' + escapeHtml(data.message || 'Failed to load.') + '</div>';
+                        return;
+                    }
+                    genStackDetail = data;
+                    renderStackDetail();
+                })
+                .catch(function(e) {
+                    content.innerHTML = '<div class="gen-empty-state">Error: ' + escapeHtml(e.message) + '</div>';
+                });
+        }
+
+        function renderStackDetail() {
+            var d = genStackDetail;
+            var content = document.getElementById('gen-content');
+
+            var badgesHtml = '';
+            if (d.hasController) badgesHtml += '<span class="gen-stack-badge controller">Controller</span>';
+            if (d.hasService) badgesHtml += '<span class="gen-stack-badge service">Service</span>';
+
+            var endpointsHtml = '';
+            d.endpoints.forEach(function(ep, idx) {
+                endpointsHtml += '<div class="gen-endpoint-item" data-ep-idx="' + idx + '">' +
+                    '<span class="gen-endpoint-method ' + ep.method.toLowerCase() + '">' + ep.method + '</span>' +
+                    '<span class="gen-endpoint-path">' + escapeHtml(ep.path) + '</span>' +
+                    '<span class="gen-endpoint-action">' + escapeHtml(ep.action) + '</span>' +
+                    '<span class="gen-endpoint-type ' + ep.type + '">' + ep.type + '</span>' +
+                '</div>';
+            });
+
+            content.innerHTML =
+                '<div class="gen-stack-detail">' +
+                    '<div class="gen-stack-header">' +
+                        '<span class="gen-stack-title">' + escapeHtml(d.modelName) + '</span>' +
+                        '<span class="gen-stack-route-prefix">/' + escapeHtml(d.routePrefix) + '</span>' +
+                        '<div class="gen-stack-badges">' + badgesHtml + '</div>' +
+                    '</div>' +
+                    '<div class="gen-endpoint-section-title">Endpoints (' + d.endpoints.length + ')</div>' +
+                    '<div class="gen-endpoint-list">' + endpointsHtml + '</div>' +
+                    '<div class="gen-add-action-section">' +
+                        '<div class="gen-add-action-title">Add Custom Action</div>' +
+                        '<div class="gen-add-action-row">' +
+                            '<input type="text" class="sc-input" id="gen-inline-action-name" placeholder="e.g. publish, archive, cancel">' +
+                            '<button class="sc-btn" id="gen-inline-action-preview">Preview</button>' +
+                            '<button class="sc-btn primary" id="gen-inline-action-submit">Add Action</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+            // Bind endpoint clicks to open modal
+            content.querySelectorAll('.gen-endpoint-item[data-ep-idx]').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    var idx = parseInt(item.dataset.epIdx, 10);
+                    showEndpointDetailModal(d.endpoints[idx], d);
+                });
+            });
+
+            document.getElementById('gen-inline-action-preview').addEventListener('click', function() { doInlineAction(true); });
+            document.getElementById('gen-inline-action-submit').addEventListener('click', function() { doInlineAction(false); });
+        }
+
+        // ── Endpoint detail modal ────────────────────────
+        var epModalCounter = 0;
+
+        function showEndpointDetailModal(ep, stackData) {
+            var modalId = ++epModalCounter;
+            var overlay = document.createElement('div');
+            overlay.className = 'ep-overlay';
+            overlay.style.zIndex = 9000 + modalId;
+            overlay.dataset.epModalId = modalId;
+
+            var bodyId = 'ep-body-' + modalId;
+            var requestContent = buildRequestTab(ep, stackData);
+            var responseContent = buildResponseTab(ep, stackData, [stackData.modelName]);
+
+            overlay.innerHTML =
+                '<div class="ep-modal">' +
+                    '<div class="ep-header">' +
+                        '<span class="ep-header-method ' + ep.method.toLowerCase() + '">' + ep.method + '</span>' +
+                        '<span class="ep-header-path">' + escapeHtml(ep.path) + '</span>' +
+                        '<button class="ep-header-close ep-close-btn">&times;</button>' +
+                    '</div>' +
+                    '<div class="ep-tabs">' +
+                        '<button class="ep-tab active" data-ep-tab="request">Request</button>' +
+                        '<button class="ep-tab" data-ep-tab="response">Response</button>' +
+                    '</div>' +
+                    '<div class="ep-body" id="' + bodyId + '">' + requestContent + '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+            bindRelationshipLinks(overlay);
+
+            var tabContents = { request: requestContent, response: responseContent };
+
+            // Tab switching
+            overlay.querySelectorAll('.ep-tab').forEach(function(tab) {
+                tab.addEventListener('click', function() {
+                    overlay.querySelectorAll('.ep-tab').forEach(function(t) { t.classList.remove('active'); });
+                    tab.classList.add('active');
+                    var body = document.getElementById(bodyId);
+                    body.innerHTML = tabContents[tab.dataset.epTab];
+                    bindRelationshipLinks(overlay);
+                });
+            });
+
+            // Close — only this modal
+            function close() { overlay.remove(); }
+            overlay.querySelector('.ep-close-btn').addEventListener('click', close);
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+            document.addEventListener('keydown', function onEsc(e) {
+                if (e.key === 'Escape') {
+                    // Close the topmost modal
+                    var topOverlay = document.querySelector('.ep-overlay[data-ep-modal-id="' + modalId + '"]');
+                    if (topOverlay) { topOverlay.remove(); document.removeEventListener('keydown', onEsc); }
+                }
+            });
+        }
+
+        function showResourceDetailModal(schemaClass, breadcrumb) {
+            var modalId = ++epModalCounter;
+            var overlay = document.createElement('div');
+            overlay.className = 'ep-overlay';
+            overlay.style.zIndex = 9000 + modalId;
+            overlay.dataset.epModalId = modalId;
+
+            var bodyId = 'ep-body-' + modalId;
+
+            overlay.innerHTML =
+                '<div class="ep-modal">' +
+                    '<div class="ep-header">' +
+                        '<span class="ep-header-path" style="font-weight:700;">Loading...</span>' +
+                        '<button class="ep-header-close ep-close-btn">&times;</button>' +
+                    '</div>' +
+                    '<div class="ep-body" id="' + bodyId + '">' +
+                        '<div class="ep-no-body" style="text-align:center;padding:40px;">Loading resource...</div>' +
+                    '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            function close() { overlay.remove(); }
+            overlay.querySelector('.ep-close-btn').addEventListener('click', close);
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+            document.addEventListener('keydown', function onEsc(e) {
+                if (e.key === 'Escape') {
+                    var topOverlay = document.querySelector('.ep-overlay[data-ep-modal-id="' + modalId + '"]');
+                    if (topOverlay) { topOverlay.remove(); document.removeEventListener('keydown', onEsc); }
+                }
+            });
+
+            fetch('/_schema-craft/api/generate/resource-detail?schema=' + encodeURIComponent(schemaClass))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success === false) {
+                        document.getElementById(bodyId).innerHTML =
+                            '<div class="ep-no-body" style="text-align:center;padding:40px;">' + escapeHtml(data.message || 'Not found.') + '</div>';
+                        return;
+                    }
+
+                    // Update header
+                    var headerPath = overlay.querySelector('.ep-header-path');
+                    headerPath.textContent = data.modelName + ' Resource';
+
+                    // Build breadcrumb
+                    var breadcrumbHtml = '';
+                    if (breadcrumb && breadcrumb.length > 0) {
+                        breadcrumbHtml = '<div class="ep-breadcrumb">';
+                        breadcrumb.forEach(function(b, i) {
+                            if (i > 0) breadcrumbHtml += '<span class="ep-breadcrumb-sep">\u203A</span>';
+                            breadcrumbHtml += '<span class="ep-breadcrumb-item">' + escapeHtml(b) + '</span>';
+                        });
+                        breadcrumbHtml += '<span class="ep-breadcrumb-sep">\u203A</span>';
+                        breadcrumbHtml += '<span class="ep-breadcrumb-item" style="color:var(--text-primary);font-weight:500;">' + escapeHtml(data.modelName) + '</span>';
+                        breadcrumbHtml += '</div>';
+                    }
+
+                    // Build content with fields + relationships
+                    var content = breadcrumbHtml;
+                    content += buildResponseFieldsHtml(data.fields, false);
+
+                    if (data.relationships && data.relationships.length) {
+                        content += buildRelationshipsHtml(data.relationships, breadcrumb.concat([data.modelName]));
+                    }
+
+                    document.getElementById(bodyId).innerHTML = content;
+                    bindRelationshipLinks(overlay);
+                })
+                .catch(function(e) {
+                    document.getElementById(bodyId).innerHTML =
+                        '<div class="ep-no-body" style="text-align:center;padding:40px;">Error: ' + escapeHtml(e.message) + '</div>';
+                });
+        }
+
+        function buildRelationshipsHtml(relationships, breadcrumb) {
+            if (!relationships || !relationships.length) return '';
+
+            var relRows = '';
+            relationships.forEach(function(r) {
+                var modelCell;
+                if (r.relatedSchema) {
+                    modelCell = '<a class="ep-rel-link" data-rel-schema="' + escapeAttr(r.relatedSchema) +
+                        '" data-rel-breadcrumb="' + escapeAttr(JSON.stringify(breadcrumb || [])) + '">' +
+                        escapeHtml(r.relatedModel) + '</a>';
+                } else {
+                    modelCell = '<span class="ep-field-type">' + escapeHtml(r.relatedModel) + '</span>';
+                }
+                relRows += '<tr>' +
+                    '<td><span class="ep-field-name">' + escapeHtml(r.name) + '</span></td>' +
+                    '<td>' + escapeHtml(r.type) + '</td>' +
+                    '<td>' + modelCell + '</td>' +
+                '</tr>';
+            });
+
+            return '<div class="ep-section">' +
+                '<div class="ep-section-title"><span class="ep-section-badge relations">Relationships</span></div>' +
+                '<table class="ep-field-table"><thead><tr><th>Name</th><th>Type</th><th>Related Model</th></tr></thead><tbody>' + relRows + '</tbody></table>' +
+            '</div>';
+        }
+
+        function bindRelationshipLinks(container) {
+            container.querySelectorAll('.ep-rel-link[data-rel-schema]').forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var schema = link.dataset.relSchema;
+                    var breadcrumb = [];
+                    try { breadcrumb = JSON.parse(link.dataset.relBreadcrumb); } catch (ex) {}
+                    showResourceDetailModal(schema, breadcrumb);
+                });
+            });
+        }
+
+        function buildRequestTab(ep, stackData) {
+            var html = '';
+
+            // URL params
+            if (ep.path.indexOf('{') !== -1) {
+                html += '<div class="ep-section">' +
+                    '<div class="ep-section-title"><span class="ep-section-badge params">URL Parameters</span></div>' +
+                    '<table class="ep-field-table"><thead><tr><th>Parameter</th><th>Type</th></tr></thead><tbody>';
+                var paramMatches = ep.path.match(/\{(\w+)\}/g) || [];
+                paramMatches.forEach(function(p) {
+                    var paramName = p.replace(/[{}]/g, '');
+                    html += '<tr>' +
+                        '<td><span class="ep-field-name">' + escapeHtml(paramName) + '</span></td>' +
+                        '<td><span class="ep-field-type">integer | string</span></td>' +
+                    '</tr>';
+                });
+                html += '</tbody></table></div>';
+            }
+
+            // Request body
+            if (ep.action === 'create' || ep.action === 'update') {
+                html += buildRequestBodyHtml(stackData.editableFields);
+            } else if (ep.method === 'PUT' && ep.type === 'custom') {
+                html += '<div class="ep-section">' +
+                    '<div class="ep-section-title"><span class="ep-section-badge body">Request Body</span> application/json</div>' +
+                    '<div class="ep-no-body">Custom request class — edit the generated request to add validation rules.</div>' +
+                '</div>';
+            } else if (ep.action === 'getCollection') {
+                html += '<div class="ep-section">' +
+                    '<div class="ep-section-title"><span class="ep-section-badge params">Query Parameters</span></div>' +
+                    '<table class="ep-field-table"><thead><tr><th>Param</th><th>Type</th><th>Default</th></tr></thead><tbody>' +
+                    '<tr><td><span class="ep-field-name">page</span></td><td><span class="ep-field-type">integer</span></td><td>1</td></tr>' +
+                    '<tr><td><span class="ep-field-name">per_page</span></td><td><span class="ep-field-type">integer</span></td><td>15</td></tr>' +
+                    '</tbody></table></div>';
+            } else if (ep.action === 'get') {
+                html += '<div class="ep-section">' +
+                    '<div class="ep-no-body">No request body — resource identified by URL parameter.</div>' +
+                '</div>';
+            } else if (ep.action === 'delete') {
+                html += '<div class="ep-section">' +
+                    '<div class="ep-no-body">No request body — resource identified by URL parameter.</div>' +
+                '</div>';
+            }
+
+            if (!html) {
+                html = '<div class="ep-no-body">No request data for this endpoint.</div>';
+            }
+
+            return html;
+        }
+
+        function buildResponseTab(ep, stackData, breadcrumb) {
+            var html = '';
+
+            if (ep.action === 'delete') {
+                html += '<div class="ep-section">' +
+                    '<div class="ep-section-title"><span class="ep-section-badge meta">204 No Content</span></div>' +
+                    '<div class="ep-no-body">Empty response body on successful deletion.</div>' +
+                '</div>';
+                return html;
+            }
+
+            var isPaginated = ep.action === 'getCollection';
+
+            // Response fields
+            html += buildResponseFieldsHtml(stackData.fields, isPaginated);
+
+            // Relationships (clickable)
+            html += buildRelationshipsHtml(stackData.relationships, breadcrumb || []);
+
+            return html;
+        }
+
+        function buildRequestBodyHtml(editableFields) {
+            if (!editableFields || !editableFields.length) {
+                return '<div class="ep-section">' +
+                    '<div class="ep-section-title"><span class="ep-section-badge body">Request Body</span> application/json</div>' +
+                    '<div class="ep-no-body">No editable fields.</div>' +
+                '</div>';
+            }
+
+            var rows = '';
+            editableFields.forEach(function(f) {
+                var ruleTags = '';
+                if (f.rules) {
+                    f.rules.split('|').forEach(function(r) {
+                        var cls = 'ep-rule-tag';
+                        if (r === 'required') cls += ' required';
+                        if (r === 'nullable') cls += ' nullable';
+                        ruleTags += '<span class="' + cls + '">' + escapeHtml(r) + '</span>';
+                    });
+                }
+                rows += '<tr>' +
+                    '<td><span class="ep-field-name">' + escapeHtml(f.name) + '</span></td>' +
+                    '<td><span class="ep-field-type">' + escapeHtml(f.type) + '</span></td>' +
+                    '<td class="ep-field-rules">' + ruleTags + '</td>' +
+                '</tr>';
+            });
+
+            return '<div class="ep-section">' +
+                '<div class="ep-section-title"><span class="ep-section-badge body">Request Body</span> application/json</div>' +
+                '<table class="ep-field-table"><thead><tr><th>Field</th><th>Type</th><th>Validation</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+            '</div>';
+        }
+
+        function buildResponseFieldsHtml(fields, isPaginated) {
+            if (!fields || !fields.length) {
+                return '<div class="ep-section">' +
+                    '<div class="ep-section-title"><span class="ep-section-badge fields">Response Fields</span></div>' +
+                    '<div class="ep-no-body">No fields found.</div>' +
+                '</div>';
+            }
+
+            var rows = '';
+            fields.forEach(function(f) {
+                var flags = '';
+                if (f.primary) flags += '<span class="ep-field-flag pk">PK</span>';
+                if (f.autoIncrement) flags += '<span class="ep-field-flag ai">AI</span>';
+                if (f.unique) flags += '<span class="ep-field-flag unique">unique</span>';
+                if (f.unsigned) flags += '<span class="ep-field-flag unsigned">unsigned</span>';
+
+                var typeStr = f.type;
+                if (f.length) typeStr += '(' + f.length + ')';
+                else if (f.precision) typeStr += '(' + f.precision + (f.scale !== undefined ? ',' + f.scale : '') + ')';
+
+                var nullStr = f.nullable ? '<span class="ep-field-nullable">nullable</span>' : '';
+
+                rows += '<tr>' +
+                    '<td><span class="ep-field-name">' + escapeHtml(f.name) + '</span></td>' +
+                    '<td><span class="ep-field-type">' + escapeHtml(typeStr) + '</span> ' + nullStr + '</td>' +
+                    '<td><div class="ep-field-flags">' + flags + '</div></td>' +
+                '</tr>';
+            });
+
+            var subtitle = isPaginated ? '200 OK — paginated' : '200 OK';
+
+            return '<div class="ep-section">' +
+                '<div class="ep-section-title"><span class="ep-section-badge fields">Response Fields</span> ' + subtitle + '</div>' +
+                '<table class="ep-field-table"><thead><tr><th>Field</th><th>Type</th><th>Flags</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+            '</div>';
+        }
+
+        function doInlineAction(previewOnly) {
+            var actionName = document.getElementById('gen-inline-action-name').value.trim();
+            if (!actionName) { showToast('Enter an action name.', 'warning'); return; }
+
+            var payload = { schema: genSelectedStack, api: genSelectedApi, action: actionName };
+
+            if (previewOnly) {
+                fetch('/_schema-craft/api/generate/action/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
+                    showFilePreviewModal(data.files, 'Add Action', function() {
+                        doWriteAction(payload);
+                    });
+                })
+                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            } else {
+                doWriteAction(payload);
+            }
+        }
+
+        function doWriteAction(payload) {
+            fetch('/_schema-craft/api/generate/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    document.getElementById('gen-inline-action-name').value = '';
+                    // Refresh stack detail to show new endpoint
+                    selectStack(genSelectedStack);
+                    // Also refresh config to update endpoint count badge
+                    loadGenerateConfig(genSelectedApi, function() {
+                        refreshSidebarBadges();
+                    });
+                } else {
+                    showToast(data.message || 'Action creation failed.', 'error');
+                }
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        function refreshSidebarBadges() {
+            if (!generateConfig || !generateConfig.schemas) return;
+            document.querySelectorAll('.gen-stack-item[data-schema]').forEach(function(item) {
+                var schema = generateConfig.schemas.find(function(s) { return s.class === item.dataset.schema; });
+                if (schema) {
+                    var badge = item.querySelector('.gen-stack-item-badge');
+                    if (badge) badge.textContent = schema.endpointCount || 5;
+                }
+            });
+        }
+
+        // ── New Stack Form ─────────────────────────────
+        function showNewStackForm() {
+            genSelectedStack = null;
+            genSelectedView = 'new-stack';
+
+            // Clear sidebar active states
+            document.querySelectorAll('.gen-stack-item').forEach(function(i) { i.classList.remove('active'); });
+            var sdkNav = document.getElementById('gen-sdk-nav');
+            if (sdkNav) sdkNav.classList.remove('active');
+
+            // Build schema options (only schemas WITHOUT controllers)
+            var schemaOptions = '';
+            if (generateConfig && generateConfig.schemas) {
+                generateConfig.schemas.filter(function(s) { return !s.hasController; }).forEach(function(s) {
+                    schemaOptions += '<option value="' + escapeAttr(s.class) + '">' + escapeHtml(s.modelName) + '</option>';
+                });
+            }
+
+            if (!schemaOptions) {
+                schemaOptions = '<option value="">All schemas already have stacks</option>';
+            }
+
+            var content = document.getElementById('gen-content');
+            content.innerHTML =
+                '<div class="gen-new-stack-form">' +
+                    '<div class="sc-panel">' +
+                        '<div class="sc-panel-header">Generate New API Stack</div>' +
+                        '<div class="sc-panel-body">' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-form-label">Schema</label>' +
+                                '<select class="sc-select" id="gen-ns-schema">' + schemaOptions + '</select>' +
+                            '</div>' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="gen-ns-factory" checked> Generate factory</label>' +
+                            '</div>' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="gen-ns-tests" checked> Generate tests</label>' +
+                            '</div>' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="gen-ns-force"> Force overwrite existing files</label>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="sc-panel-footer">' +
+                            '<button class="sc-btn" id="gen-ns-preview">Preview</button>' +
+                            '<button class="sc-btn primary" id="gen-ns-generate">Generate</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+            document.getElementById('gen-ns-preview').addEventListener('click', function() { doNewStackGenerate(true); });
+            document.getElementById('gen-ns-generate').addEventListener('click', function() { doNewStackGenerate(false); });
+        }
+
+        function doNewStackGenerate(previewOnly) {
+            var schema = document.getElementById('gen-ns-schema').value;
+            if (!schema) { showToast('Select a schema.', 'warning'); return; }
+
+            var payload = {
+                schema: schema,
+                api: genSelectedApi,
+                noFactory: !document.getElementById('gen-ns-factory').checked,
+                noTest: !document.getElementById('gen-ns-tests').checked,
+            };
+
+            if (previewOnly) {
+                fetch('/_schema-craft/api/generate/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
+                    showFilePreviewModal(data.files, 'Generate Stack', function() {
+                        payload.force = document.getElementById('gen-ns-force').checked;
+                        doNewStackWrite(payload, schema);
+                    });
+                })
+                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            } else {
+                payload.force = document.getElementById('gen-ns-force').checked;
+                doNewStackWrite(payload, schema);
+            }
+        }
+
+        function doNewStackWrite(payload, schemaClass) {
+            fetch('/_schema-craft/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    // Refresh config and re-render main, then auto-select the new stack
+                    genSelectedStack = schemaClass;
+                    genSelectedView = 'stack';
+                    loadGenerateConfig(genSelectedApi, function() {
+                        renderGenerateMain();
+                    });
+                } else {
+                    showToast(data.message || 'Generation failed.', 'error');
+                }
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        // ── SDK View ───────────────────────────────────
+        function showSdkView() {
+            genSelectedStack = null;
+            genSelectedView = 'sdk';
+
+            // Clear sidebar active states
+            document.querySelectorAll('.gen-stack-item').forEach(function(i) { i.classList.remove('active'); });
+            var sdkNav = document.getElementById('gen-sdk-nav');
+            if (sdkNav) sdkNav.classList.add('active');
+
+            var content = document.getElementById('gen-content');
+            content.innerHTML = '<div class="gen-empty-state">Loading SDK config...</div>';
+
+            fetch('/_schema-craft/api/sdk/config?api=' + encodeURIComponent(genSelectedApi))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    genSdkConfig = data;
+                    renderSdkView();
+                })
+                .catch(function(e) {
+                    content.innerHTML = '<div class="gen-empty-state">Failed to load SDK config.</div>';
+                });
+        }
+
+        function renderSdkView() {
+            var d = genSdkConfig;
+            var content = document.getElementById('gen-content');
+
+            content.innerHTML =
+                '<div class="gen-sdk-detail">' +
+                    '<div class="gen-sdk-title">Client SDK</div>' +
+                    '<div class="gen-sdk-info-grid">' +
+                        '<span class="gen-sdk-info-label">Package Name</span>' +
+                        '<span class="gen-sdk-info-value">' + escapeHtml(d.name || '-') + '</span>' +
+                        '<span class="gen-sdk-info-label">Namespace</span>' +
+                        '<span class="gen-sdk-info-value">' + escapeHtml(d.namespace || '-') + '</span>' +
+                        '<span class="gen-sdk-info-label">Client Class</span>' +
+                        '<span class="gen-sdk-info-value">' + escapeHtml(d.client || '-') + '</span>' +
+                        '<span class="gen-sdk-info-label">Version</span>' +
+                        '<span class="gen-sdk-info-value">' + escapeHtml(d.version || '-') + '</span>' +
+                        '<span class="gen-sdk-info-label">Output Path</span>' +
+                        '<span class="gen-sdk-info-value">' + escapeHtml(d.path || '-') + '</span>' +
+                    '</div>' +
+                    '<div class="sc-form-group">' +
+                        '<label class="sc-checkbox-label"><input type="checkbox" id="gen-sdk-force-cb"> Force overwrite existing files</label>' +
+                    '</div>' +
+                    '<div style="display:flex;gap:10px;">' +
+                        '<button class="sc-btn" id="gen-sdk-preview-btn">Preview SDK</button>' +
+                        '<button class="sc-btn primary" id="gen-sdk-generate-btn">Generate SDK</button>' +
+                    '</div>' +
+                '</div>';
+
+            document.getElementById('gen-sdk-preview-btn').addEventListener('click', function() { doSdkAction(true); });
+            document.getElementById('gen-sdk-generate-btn').addEventListener('click', function() { doSdkAction(false); });
+        }
+
+        function doSdkAction(previewOnly) {
+            var payload = {
+                api: genSelectedApi,
+                path: genSdkConfig.path || undefined,
+                name: genSdkConfig.name || undefined,
+                namespace: genSdkConfig.namespace || undefined,
+                client: genSdkConfig.client || undefined,
+                version: genSdkConfig.version || undefined,
+            };
+
+            if (previewOnly) {
+                fetch('/_schema-craft/api/sdk/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
+                    showFilePreviewModal(data.files, 'Generate SDK', function() {
+                        payload.force = document.getElementById('gen-sdk-force-cb').checked;
+                        doSdkWrite(payload);
+                    });
+                })
+                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            } else {
+                payload.force = document.getElementById('gen-sdk-force-cb').checked;
+                doSdkWrite(payload);
+            }
+        }
+
+        function doSdkWrite(payload) {
+            fetch('/_schema-craft/api/sdk/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.message || 'SDK generation failed.', 'error');
+                }
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
         }
 
         // ── Helpers ────────────────────────────────────────
