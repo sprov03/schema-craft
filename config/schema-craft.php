@@ -27,6 +27,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Query Definitions Path
+    |--------------------------------------------------------------------------
+    |
+    | Directory where visual query builder definitions are stored as JSON files.
+    | These definitions can be loaded and edited in the schema visualizer UI.
+    |
+    */
+
+    'query_definitions_path' => app_path('QueryDefinitions'),
+
+    /*
+    |--------------------------------------------------------------------------
     | API Configurations
     |--------------------------------------------------------------------------
     |

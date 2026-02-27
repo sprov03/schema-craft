@@ -26,7 +26,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if ($this->app->environment('local')) {
+        if ($this->app->environment('local', 'testing')) {
             $this->registerVisualizerRoutes();
         }
 
@@ -56,11 +56,26 @@ class SchemaCraftServiceProvider extends ServiceProvider
 
     private function registerVisualizerRoutes(): void
     {
-        Route::prefix('_schema-craft')->group(function () {
+        $noCsrf = \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class;
+
+        Route::prefix('_schema-craft')->group(function () use ($noCsrf) {
             Route::get('/', [VisualizerController::class, 'index']);
             Route::get('/api/schema', [VisualizerController::class, 'api']);
             Route::post('/api/apply-relationship', [VisualizerController::class, 'applyRelationship'])
-                ->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class);
+                ->withoutMiddleware($noCsrf);
+
+            // Query Builder API
+            Route::get('/api/queries', [VisualizerController::class, 'listQueries']);
+            Route::get('/api/queries/{name}', [VisualizerController::class, 'loadQuery']);
+            Route::post('/api/queries', [VisualizerController::class, 'saveQuery'])
+                ->withoutMiddleware($noCsrf);
+            Route::delete('/api/queries/{name}', [VisualizerController::class, 'deleteQuery'])
+                ->withoutMiddleware($noCsrf);
+            Route::get('/api/query-config', [VisualizerController::class, 'queryConfig']);
+            Route::post('/api/generate-query', [VisualizerController::class, 'generateQuery'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/preview-sql', [VisualizerController::class, 'previewSql'])
+                ->withoutMiddleware($noCsrf);
         });
     }
 }

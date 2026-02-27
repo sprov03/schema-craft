@@ -15,6 +15,7 @@ class SchemaInfo
         public array $relationships,
         public bool $hasTimestamps,
         public bool $hasSoftDeletes,
+        public ?string $modelClass = null,
     ) {}
 
     /**
@@ -29,6 +30,7 @@ class SchemaInfo
             'relationships' => $this->relationships,
             'hasTimestamps' => $this->hasTimestamps,
             'hasSoftDeletes' => $this->hasSoftDeletes,
+            'modelClass' => $this->modelClass,
         ];
     }
 }

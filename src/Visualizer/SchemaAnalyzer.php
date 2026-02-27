@@ -127,6 +127,7 @@ class SchemaAnalyzer
                 relationships: $relationships,
                 hasTimestamps: $table->hasTimestamps,
                 hasSoftDeletes: $table->hasSoftDeletes,
+                modelClass: $this->resolveModelFqcn($schemaClass),
             );
         }
 
