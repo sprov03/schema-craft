@@ -5,6 +5,7 @@ namespace SchemaCraft\Visualizer;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use SchemaCraft\Config\ApiConfig;
 use SchemaCraft\Config\ConfigResolver;
@@ -15,6 +16,8 @@ use SchemaCraft\Generator\Api\ResourceGenerator;
 use SchemaCraft\Generator\ControllerTestGenerator;
 use SchemaCraft\Generator\DependencyResolver;
 use SchemaCraft\Generator\FactoryGenerator;
+use SchemaCraft\Generator\Filament\FilamentCodeGenerator;
+use SchemaCraft\Generator\Filament\FilamentPolicyGenerator;
 use SchemaCraft\Generator\ModelTestGenerator;
 use SchemaCraft\Generator\Sdk\ControllerActionScanner;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
@@ -639,6 +642,107 @@ class GenerateController
     }
 
     /**
+     * Preview Filament resource generation without writing.
+     */
+    public function filamentPreview(Request $request): JsonResponse
+    {
+        $request->validate([
+            'schema' => ['required', 'string'],
+            'withPolicy' => ['sometimes', 'boolean'],
+        ]);
+
+        $schemaClass = $request->input('schema');
+
+        if (! class_exists($schemaClass) || ! is_subclass_of($schemaClass, \SchemaCraft\Schema::class)) {
+            return new JsonResponse(['success' => false, 'message' => "Schema class [{$schemaClass}] not found."], 404);
+        }
+
+        $files = $this->buildFilamentFiles($schemaClass, $request->boolean('withPolicy', false));
+
+        $previewFiles = [];
+        foreach ($files as $file) {
+            $previewFiles[] = [
+                'path' => $file->path,
+                'content' => $file->content,
+                'exists' => file_exists(base_path($file->path)),
+            ];
+        }
+
+        return new JsonResponse(['success' => true, 'files' => $previewFiles]);
+    }
+
+    /**
+     * Generate Filament resource and write files to disk.
+     */
+    public function filamentGenerate(Request $request, Filesystem $fs): JsonResponse
+    {
+        $request->validate([
+            'schema' => ['required', 'string'],
+            'withPolicy' => ['sometimes', 'boolean'],
+            'force' => ['sometimes', 'boolean'],
+        ]);
+
+        $schemaClass = $request->input('schema');
+        $force = $request->boolean('force', false);
+
+        if (! class_exists($schemaClass) || ! is_subclass_of($schemaClass, \SchemaCraft\Schema::class)) {
+            return new JsonResponse(['success' => false, 'message' => "Schema class [{$schemaClass}] not found."], 404);
+        }
+
+        $files = $this->buildFilamentFiles($schemaClass, $request->boolean('withPolicy', false));
+
+        $results = [];
+        foreach ($files as $file) {
+            $absolutePath = base_path($file->path);
+
+            if (! $force && $fs->exists($absolutePath)) {
+                $results[] = ['path' => $file->path, 'skipped' => true, 'message' => 'Already exists.'];
+
+                continue;
+            }
+
+            $fs->ensureDirectoryExists(dirname($absolutePath));
+            $fs->put($absolutePath, $file->content);
+            $results[] = ['path' => $file->path, 'created' => true, 'message' => class_basename($file->path).' created.'];
+        }
+
+        $created = count(array_filter($results, fn ($r) => $r['created'] ?? false));
+
+        return new JsonResponse([
+            'success' => true,
+            'files' => $results,
+            'message' => "{$created} Filament file(s) created.",
+        ]);
+    }
+
+    /**
+     * Build Filament resource files for a schema.
+     *
+     * @return GeneratedFile[]
+     */
+    private function buildFilamentFiles(string $schemaClass, bool $withPolicy): array
+    {
+        $modelName = $this->resolveModelName($schemaClass);
+        $scanner = new SchemaScanner($schemaClass);
+        $table = $scanner->scan();
+
+        $stubsPath = $this->resolveStubsPath();
+        $generator = new FilamentCodeGenerator($stubsPath);
+
+        $files = $generator->generate(
+            table: $table,
+            modelName: $modelName,
+        );
+
+        if ($withPolicy) {
+            $policyGenerator = new FilamentPolicyGenerator($stubsPath);
+            $files['policy'] = $policyGenerator->generate(modelName: $modelName);
+        }
+
+        return array_values($files);
+    }
+
+    /**
      * Build the full API stack files (preview or write).
      *
      * @return GeneratedFile[]
@@ -1059,5 +1163,52 @@ PHP;
         }
 
         $fs->put($bootstrapPath, $content);
+    }
+
+    /**
+     * Check if Filament panel provider is installed.
+     */
+    public function filamentInstallStatus(): JsonResponse
+    {
+        $panelProviderPath = app_path('Providers/Filament/AdminPanelProvider.php');
+
+        return new JsonResponse([
+            'installed' => file_exists($panelProviderPath),
+            'path' => 'app/Providers/Filament/AdminPanelProvider.php',
+        ]);
+    }
+
+    /**
+     * Run Filament install command.
+     */
+    public function filamentInstall(): JsonResponse
+    {
+        $panelProviderPath = app_path('Providers/Filament/AdminPanelProvider.php');
+
+        if (file_exists($panelProviderPath)) {
+            return new JsonResponse([
+                'success' => true,
+                'message' => 'Filament is already installed.',
+            ]);
+        }
+
+        try {
+            Artisan::call('filament:install', [
+                '--no-interaction' => true,
+            ]);
+
+            $output = Artisan::output();
+
+            return new JsonResponse([
+                'success' => true,
+                'message' => 'Filament installed successfully.',
+                'output' => trim($output),
+            ]);
+        } catch (\Throwable $e) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => 'Failed to install Filament: '.$e->getMessage(),
+            ], 500);
+        }
     }
 }

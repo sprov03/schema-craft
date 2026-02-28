@@ -1379,6 +1379,58 @@
         .gen-sdk-info-label { font-size: 12px; font-weight: 500; color: var(--text-muted); padding-top: 2px; }
         .gen-sdk-info-value { font-size: 13px; font-family: var(--font-mono); color: var(--text-primary); }
 
+        /* Selector page sections */
+        .gen-selector-section { width: 100%; max-width: 800px; text-align: center; }
+        .gen-selector-section-title {
+            font-size: 12px; font-weight: 600; color: var(--text-muted);
+            margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+            text-align: left;
+        }
+        .gen-selector-section-divider {
+            border: none; border-top: 1px solid var(--border-color);
+            margin: 8px 0 24px 0; max-width: 800px; width: 100%;
+        }
+        .gen-api-card.filament { border-color: var(--accent-color); }
+        .gen-api-card.filament:hover { border-color: var(--accent-color); filter: brightness(1.05); }
+
+        /* Filament full-page layout */
+        .gen-filament-page { padding: 24px; max-width: 800px; margin: 0 auto; }
+        .gen-filament-page-header {
+            display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
+        }
+        .gen-filament-page-title { font-size: 20px; font-weight: 700; }
+
+        /* Filament install banners */
+        .gen-filament-install-banner {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 20px; margin-bottom: 20px;
+            background: var(--warning-dim, rgba(250,173,20,0.08)); border: 1px solid var(--warning-color, #faad14);
+            border-radius: 8px; font-size: 13px;
+        }
+        .gen-filament-install-banner .sc-banner-icon { font-size: 18px; }
+        .gen-filament-install-banner .sc-banner-text { flex: 1; }
+        .gen-filament-install-success {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 20px; margin-bottom: 20px;
+            background: var(--success-dim, rgba(82,196,26,0.08)); border: 1px solid var(--success-color, #52c41a);
+            border-radius: 8px; font-size: 13px;
+        }
+        .gen-filament-install-success .sc-banner-icon { font-size: 18px; }
+        .gen-filament-install-success .sc-banner-text { flex: 1; }
+
+        /* Filament schema list */
+        .gen-filament-schema-list { display: flex; flex-direction: column; gap: 8px; }
+        .gen-filament-schema-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 16px; border: 1px solid var(--border-color); border-radius: 8px;
+            background: var(--surface-secondary);
+        }
+        .gen-filament-schema-row:hover { border-color: var(--accent-color); }
+        .gen-filament-schema-info { display: flex; flex-direction: column; gap: 2px; }
+        .gen-filament-schema-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+        .gen-filament-schema-class { font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); }
+        .gen-filament-schema-actions { display: flex; gap: 8px; }
+
         /* New stack form / new API form */
         .gen-new-stack-form { padding: 24px; max-width: 600px; }
         .gen-new-api-form { max-width: 500px; margin: 0 auto; padding-top: 20px; }
@@ -4964,9 +5016,22 @@
 
             container.innerHTML =
                 '<div class="gen-api-selector">' +
-                    '<div class="gen-api-selector-title">Select an API</div>' +
-                    '<div class="gen-api-selector-subtitle">Choose an API configuration to manage stacks and SDKs</div>' +
-                    '<div class="gen-api-cards" id="gen-api-cards">' + cardsHtml + '</div>' +
+                    '<div class="gen-api-selector-title">Code Generation</div>' +
+                    '<div class="gen-api-selector-subtitle">Manage API stacks, SDKs, and admin panel resources</div>' +
+                    '<div class="gen-selector-section">' +
+                        '<div class="gen-selector-section-title">APIs</div>' +
+                        '<div class="gen-api-cards" id="gen-api-cards">' + cardsHtml + '</div>' +
+                    '</div>' +
+                    '<hr class="gen-selector-section-divider">' +
+                    '<div class="gen-selector-section">' +
+                        '<div class="gen-selector-section-title">Admin Panel</div>' +
+                        '<div class="gen-api-cards">' +
+                            '<div class="gen-api-card filament" id="gen-filament-card">' +
+                                '<div class="gen-api-card-name">Filament Resources</div>' +
+                                '<div class="gen-api-card-desc">Generate admin panel from schemas</div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
                     '<div id="gen-new-api-area"></div>' +
                 '</div>';
 
@@ -4977,6 +5042,7 @@
             });
 
             document.getElementById('gen-create-api-card').addEventListener('click', showCreateApiForm);
+            document.getElementById('gen-filament-card').addEventListener('click', showFilamentPage);
         }
 
         function showCreateApiForm() {
@@ -5804,6 +5870,266 @@
                 }
             })
             .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        // ── Filament View ───────────────────────────────
+        function showFilamentPage() {
+            genSelectedApi = null;
+            genSelectedStack = null;
+            genSelectedView = 'filament';
+
+            var container = document.getElementById('generate-tab');
+
+            container.innerHTML =
+                '<div class="gen-filament-page">' +
+                    '<div class="gen-filament-page-header">' +
+                        '<button class="gen-back-btn" id="gen-filament-back">\u2190 Back</button>' +
+                        '<span class="gen-filament-page-title">Filament Resources</span>' +
+                    '</div>' +
+                    '<div id="gen-filament-install-area"></div>' +
+                    '<div id="gen-filament-content"></div>' +
+                '</div>';
+
+            document.getElementById('gen-filament-back').addEventListener('click', function() {
+                genSelectedView = null;
+                loadGenerateConfig(null, function() {
+                    renderGenerateApiSelector();
+                });
+            });
+
+            checkFilamentInstallStatus(function() {
+                renderFilamentView();
+            });
+        }
+
+        function showFilamentView() {
+            showFilamentPage();
+        }
+
+        function checkFilamentInstallStatus(callback) {
+            fetch('/_schema-craft/api/filament/install-status')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var area = document.getElementById('gen-filament-install-area');
+                    if (!area) { if (callback) callback(); return; }
+
+                    if (data.installed) {
+                        area.innerHTML =
+                            '<div class="gen-filament-install-success">' +
+                                '<span class="sc-banner-icon">\u2705</span>' +
+                                '<span class="sc-banner-text">Filament panel is installed and configured.</span>' +
+                            '</div>';
+                    } else {
+                        area.innerHTML =
+                            '<div class="gen-filament-install-banner">' +
+                                '<span class="sc-banner-icon">\u26A0</span>' +
+                                '<span class="sc-banner-text">Filament is not installed yet. Install it to set up the admin panel.</span>' +
+                                '<button class="sc-btn sm primary" id="gen-filament-install-btn">Install Filament</button>' +
+                            '</div>';
+                        document.getElementById('gen-filament-install-btn').addEventListener('click', doFilamentInstall);
+                    }
+
+                    if (callback) callback();
+                })
+                .catch(function() {
+                    if (callback) callback();
+                });
+        }
+
+        function doFilamentInstall() {
+            var btn = document.getElementById('gen-filament-install-btn');
+            btn.disabled = true;
+            btn.textContent = 'Installing...';
+
+            fetch('/_schema-craft/api/filament/install', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast('Filament installed successfully.', 'success');
+                    var area = document.getElementById('gen-filament-install-area');
+                    if (area) {
+                        area.innerHTML =
+                            '<div class="gen-filament-install-success">' +
+                                '<span class="sc-banner-icon">\u2705</span>' +
+                                '<span class="sc-banner-text">Filament panel is installed and configured.</span>' +
+                            '</div>';
+                    }
+                } else {
+                    showToast(data.message || 'Filament installation failed.', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Install Filament';
+                }
+            })
+            .catch(function(e) {
+                showToast('Error: ' + e.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Install Filament';
+            });
+        }
+
+        function renderFilamentView() {
+            var content = document.getElementById('gen-filament-content') || document.getElementById('gen-content');
+            var schemas = (generateConfig && generateConfig.schemas) ? generateConfig.schemas : [];
+
+            var schemaListHtml = '';
+            schemas.forEach(function(s) {
+                schemaListHtml +=
+                    '<div class="gen-filament-schema-row" data-schema="' + escapeAttr(s.class) + '">' +
+                        '<div class="gen-filament-schema-info">' +
+                            '<span class="gen-filament-schema-name">' + escapeHtml(s.modelName) + '</span>' +
+                            '<span class="gen-filament-schema-class">' + escapeHtml(s.class) + '</span>' +
+                        '</div>' +
+                        '<div class="gen-filament-schema-actions">' +
+                            '<button class="sc-btn sc-btn-sm gen-filament-preview-btn" data-schema="' + escapeAttr(s.class) + '">Preview</button>' +
+                            '<button class="sc-btn sc-btn-sm primary gen-filament-generate-btn" data-schema="' + escapeAttr(s.class) + '">Generate</button>' +
+                        '</div>' +
+                    '</div>';
+            });
+
+            if (!schemaListHtml) {
+                schemaListHtml = '<div style="padding:24px;color:var(--text-muted);text-align:center;">No schemas found</div>';
+            }
+
+            content.innerHTML =
+                '<div>' +
+                    '<p style="color:var(--text-muted);font-size:13px;margin:0 0 16px 0;">Generate Filament v5 admin panel resources from your schemas.</p>' +
+                    '<div class="sc-form-group" style="display:flex;gap:16px;margin-bottom:16px;">' +
+                        '<label class="sc-checkbox-label"><input type="checkbox" id="gen-filament-policy-cb"> Include Policy</label>' +
+                        '<label class="sc-checkbox-label"><input type="checkbox" id="gen-filament-force-cb"> Force overwrite</label>' +
+                    '</div>' +
+                    '<div style="display:flex;gap:10px;margin-bottom:20px;">' +
+                        '<button class="sc-btn" id="gen-filament-preview-all-btn">Preview All</button>' +
+                        '<button class="sc-btn primary" id="gen-filament-generate-all-btn">Generate All</button>' +
+                    '</div>' +
+                    '<div class="gen-filament-schema-list">' + schemaListHtml + '</div>' +
+                '</div>';
+
+            // Bind per-schema buttons
+            document.querySelectorAll('.gen-filament-preview-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() { doFilamentAction(btn.dataset.schema, true); });
+            });
+            document.querySelectorAll('.gen-filament-generate-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() { doFilamentAction(btn.dataset.schema, false); });
+            });
+
+            // Bind all buttons
+            document.getElementById('gen-filament-preview-all-btn').addEventListener('click', function() {
+                doFilamentAllAction(true);
+            });
+            document.getElementById('gen-filament-generate-all-btn').addEventListener('click', function() {
+                doFilamentAllAction(false);
+            });
+        }
+
+        function doFilamentAction(schemaClass, previewOnly) {
+            var payload = {
+                schema: schemaClass,
+                withPolicy: document.getElementById('gen-filament-policy-cb').checked,
+                force: document.getElementById('gen-filament-force-cb').checked,
+            };
+
+            if (previewOnly) {
+                fetch('/_schema-craft/api/filament/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
+                    showFilePreviewModal(data.files, 'Generate Filament', function() {
+                        doFilamentWrite(payload);
+                    });
+                })
+                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            } else {
+                doFilamentWrite(payload);
+            }
+        }
+
+        function doFilamentWrite(payload) {
+            fetch('/_schema-craft/api/filament/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.message || 'Filament generation failed.', 'error');
+                }
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        function doFilamentAllAction(previewOnly) {
+            var schemas = (generateConfig && generateConfig.schemas) ? generateConfig.schemas : [];
+            if (!schemas.length) { showToast('No schemas found.', 'error'); return; }
+
+            var withPolicy = document.getElementById('gen-filament-policy-cb').checked;
+            var force = document.getElementById('gen-filament-force-cb').checked;
+
+            if (previewOnly) {
+                // Preview all by collecting files from each schema
+                var allFiles = [];
+                var remaining = schemas.length;
+                var hadError = false;
+
+                schemas.forEach(function(s) {
+                    fetch('/_schema-craft/api/filament/preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ schema: s.class, withPolicy: withPolicy }),
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success && data.files) {
+                            allFiles = allFiles.concat(data.files);
+                        }
+                        remaining--;
+                        if (remaining === 0 && !hadError) {
+                            showFilePreviewModal(allFiles, 'Generate All Filament', function() {
+                                doFilamentGenerateAll(schemas, withPolicy, force);
+                            });
+                        }
+                    })
+                    .catch(function(e) {
+                        hadError = true;
+                        showToast('Error previewing: ' + e.message, 'error');
+                    });
+                });
+            } else {
+                doFilamentGenerateAll(schemas, withPolicy, force);
+            }
+        }
+
+        function doFilamentGenerateAll(schemas, withPolicy, force) {
+            var remaining = schemas.length;
+            var totalCreated = 0;
+
+            schemas.forEach(function(s) {
+                fetch('/_schema-craft/api/filament/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ schema: s.class, withPolicy: withPolicy, force: force }),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success && data.files) {
+                        totalCreated += data.files.filter(function(f) { return f.created; }).length;
+                    }
+                    remaining--;
+                    if (remaining === 0) {
+                        showToast(totalCreated + ' Filament file(s) created.', 'success');
+                    }
+                })
+                .catch(function() { remaining--; });
+            });
         }
 
         // ── Helpers ────────────────────────────────────────

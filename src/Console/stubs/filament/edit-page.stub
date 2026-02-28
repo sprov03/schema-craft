@@ -1,0 +1,19 @@
+<?php
+
+namespace {{ pageNamespace }};
+
+use {{ resourceFqcn }};
+use Filament\Actions;
+use Filament\Resources\Pages\EditRecord as BaseEditRecord;
+
+class Edit{{ modelName }} extends BaseEditRecord
+{
+    protected static string $resource = {{ resourceClass }}::class;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Actions\DeleteAction::make(),
+        ];
+    }
+}

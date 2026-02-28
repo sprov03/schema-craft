@@ -1,0 +1,35 @@
+<?php
+
+namespace {{ relationManagerNamespace }};
+
+use Filament\Actions;
+use Filament\Forms\Components;
+use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Schema;
+use Filament\Tables;
+use Filament\Tables\Table;
+
+class {{ relationManagerClass }} extends RelationManager
+{
+    protected static string $relationship = '{{ relationshipName }}';
+
+    public function form(Schema $schema): Schema
+    {
+        return $schema
+            ->components([
+{{ formFields }}
+            ]);
+    }
+
+    public function table(Table $table): Table
+    {
+        return $table
+            ->columns([
+{{ tableColumns }}
+            ])
+            ->actions([
+                Actions\EditAction::make(),
+                Actions\DeleteAction::make(),
+            ]);
+    }
+}

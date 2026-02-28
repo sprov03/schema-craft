@@ -768,4 +768,33 @@ PHP;
         $this->assertEquals('GenMoon', $response->json('modelName'));
         $this->assertNotEmpty($response->json('fields'));
     }
+
+    // ─── Filament install status ──────────────────────
+
+    public function test_filament_install_status_when_not_installed(): void
+    {
+        $response = $this->getJson('/_schema-craft/api/filament/install-status');
+
+        $response->assertOk();
+        $response->assertJson([
+            'installed' => false,
+            'path' => 'app/Providers/Filament/AdminPanelProvider.php',
+        ]);
+    }
+
+    public function test_filament_install_status_when_installed(): void
+    {
+        $this->files->ensureDirectoryExists($this->tempDir.'/app/Providers/Filament');
+        $this->files->put(
+            $this->tempDir.'/app/Providers/Filament/AdminPanelProvider.php',
+            '<?php // stub'
+        );
+
+        $response = $this->getJson('/_schema-craft/api/filament/install-status');
+
+        $response->assertOk();
+        $response->assertJson([
+            'installed' => true,
+        ]);
+    }
 }

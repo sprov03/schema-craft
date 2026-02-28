@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use SchemaCraft\Console\CreateApiCommand;
 use SchemaCraft\Console\GenerateApiCommand;
+use SchemaCraft\Console\GenerateFilamentCommand;
 use SchemaCraft\Console\GenerateSdkCommand;
 use SchemaCraft\Console\InstallCommand;
 use SchemaCraft\Console\MakeSchemaCommand;
@@ -37,6 +38,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
             $this->commands([
                 CreateApiCommand::class,
                 GenerateApiCommand::class,
+                GenerateFilamentCommand::class,
                 GenerateSdkCommand::class,
                 InstallCommand::class,
                 MakeSchemaCommand::class,
@@ -52,6 +54,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
 
             $this->publishes([
                 __DIR__.'/Console/stubs/api' => base_path('stubs/schema-craft/api'),
+                __DIR__.'/Console/stubs/filament' => base_path('stubs/schema-craft/filament'),
                 __DIR__.'/Console/stubs/sdk' => base_path('stubs/schema-craft/sdk'),
             ], 'schema-craft-stubs');
         }
@@ -115,6 +118,16 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 ->withoutMiddleware($noCsrf);
             Route::post('/api/generate/action', [GenerateController::class, 'action'])
                 ->withoutMiddleware($noCsrf);
+
+            // Filament Generation API
+            Route::get('/api/filament/install-status', [GenerateController::class, 'filamentInstallStatus']);
+            Route::post('/api/filament/install', [GenerateController::class, 'filamentInstall'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/filament/preview', [GenerateController::class, 'filamentPreview'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/filament/generate', [GenerateController::class, 'filamentGenerate'])
+                ->withoutMiddleware($noCsrf);
+
             Route::post('/api/create-api', [GenerateController::class, 'createApi'])
                 ->withoutMiddleware($noCsrf);
             Route::get('/api/sdk/config', [GenerateController::class, 'sdkConfig']);

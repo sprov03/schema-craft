@@ -1,0 +1,64 @@
+<?php
+
+namespace {{ resourceNamespace }};
+
+use {{ modelFqcn }};
+use BackedEnum;
+use Filament\Actions;
+{{ formImports }}
+use Filament\Resources\Resource;
+use Filament\Schemas\Schema;
+use Filament\Support\Icons\Heroicon;
+use Filament\Tables;
+use Filament\Tables\Table;
+
+class {{ resourceClass }} extends Resource
+{
+    protected static ?string $model = {{ modelClass }}::class;
+
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+
+    public static function form(Schema $schema): Schema
+    {
+        return $schema
+            ->components([
+{{ formFields }}
+            ]);
+    }
+
+    public static function table(Table $table): Table
+    {
+        return $table
+            ->columns([
+{{ tableColumns }}
+            ])
+            ->filters([
+{{ tableFilters }}
+            ])
+            ->actions([
+                Actions\EditAction::make(),
+                Actions\ViewAction::make(),
+            ])
+            ->bulkActions([
+                Actions\BulkActionGroup::make([
+                    Actions\DeleteBulkAction::make(),
+                ]),
+            ]);
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+{{ relationManagers }}
+        ];
+    }
+
+    public static function getPages(): array
+    {
+        return [
+            'index' => {{ resourceClass }}\Pages\List{{ pluralModelName }}::route('/'),
+            'create' => {{ resourceClass }}\Pages\Create{{ modelName }}::route('/create'),
+            'edit' => {{ resourceClass }}\Pages\Edit{{ modelName }}::route('/{record}/edit'),
+        ];
+    }
+}
