@@ -6,6 +6,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Generator\SchemaFileGenerator;
 use SchemaCraft\Migration\DatabaseReader;
 
@@ -61,7 +62,7 @@ class SchemaController
             ]);
         }
 
-        $stub = $files->get(__DIR__.'/../Console/stubs/base-model.stub');
+        $stub = $files->get($this->resolveStubPath('base-model.stub'));
 
         $files->ensureDirectoryExists(dirname($path));
         $files->put($path, $stub);
@@ -127,7 +128,7 @@ class SchemaController
 
         // Auto-install BaseModel if needed
         if ($createModel && ! $files->exists(app_path('Models/BaseModel.php'))) {
-            $stub = $files->get(__DIR__.'/../Console/stubs/base-model.stub');
+            $stub = $files->get($this->resolveStubPath('base-model.stub'));
             $files->ensureDirectoryExists(app_path('Models'));
             $files->put(app_path('Models/BaseModel.php'), $stub);
         }
@@ -154,12 +155,43 @@ class SchemaController
     }
 
     /**
+     * List available DB connection configurations.
+     */
+    public function connections(): JsonResponse
+    {
+        $names = ConfigResolver::allConnectionNames();
+        $connections = [];
+
+        foreach ($names as $name) {
+            $config = ConfigResolver::resolveConnection($name);
+            $connections[] = [
+                'name' => $name,
+                'connection' => $config->connection,
+                'schemaPrefix' => $config->schemaPrefix,
+                'modelPrefix' => $config->modelPrefix,
+                'schemaNamespace' => $config->schemaNamespace,
+                'modelNamespace' => $config->modelNamespace,
+            ];
+        }
+
+        return new JsonResponse([
+            'connections' => $connections,
+            'default' => config('schema-craft.default_connection', 'default'),
+        ]);
+    }
+
+    /**
      * List all importable database tables.
      */
-    public function listTables(): JsonResponse
+    public function listTables(Request $request): JsonResponse
     {
-        $reader = new DatabaseReader;
+        $connectionConfig = ConfigResolver::resolveConnection($request->query('db_connection'));
+        $dbConnection = $connectionConfig->needsConnectionProperty() ? $connectionConfig->connection : null;
+        $reader = new DatabaseReader($dbConnection);
         $allTableNames = $reader->tables();
+
+        $schemaDir = $this->namespaceToAppPath($connectionConfig->schemaNamespace);
+        $modelDir = $this->namespaceToAppPath($connectionConfig->modelNamespace);
 
         $tables = [];
         foreach ($allTableNames as $tableName) {
@@ -168,11 +200,14 @@ class SchemaController
             }
 
             $modelName = $this->tableToModelName($tableName);
+            $prefixedSchema = $connectionConfig->prefixedSchemaName($modelName);
+            $prefixedModel = $connectionConfig->prefixedModelName($modelName);
+
             $tables[] = [
                 'name' => $tableName,
                 'modelName' => $modelName,
-                'hasSchema' => file_exists(app_path("Schemas/{$modelName}Schema.php")),
-                'hasModel' => file_exists(app_path("Models/{$modelName}.php")),
+                'hasSchema' => file_exists("{$schemaDir}/{$prefixedSchema}.php"),
+                'hasModel' => file_exists("{$modelDir}/{$prefixedModel}.php"),
             ];
         }
 
@@ -188,12 +223,13 @@ class SchemaController
             'tables' => ['required', 'array', 'min:1'],
             'tables.*' => ['string'],
             'createModel' => ['sometimes', 'boolean'],
+            'db_connection' => ['sometimes', 'string'],
         ]);
 
         $tableNames = $request->input('tables');
         $createModel = $request->boolean('createModel', true);
 
-        return $this->runImport($tableNames, $createModel, false, false);
+        return $this->runImport($tableNames, $createModel, false, false, $request->input('db_connection'));
     }
 
     /**
@@ -206,6 +242,7 @@ class SchemaController
             'tables.*' => ['string'],
             'createModel' => ['sometimes', 'boolean'],
             'force' => ['sometimes', 'boolean'],
+            'db_connection' => ['sometimes', 'string'],
         ]);
 
         $tableNames = $request->input('tables');
@@ -214,22 +251,28 @@ class SchemaController
 
         // Auto-install BaseModel if needed
         if ($createModel && ! $files->exists(app_path('Models/BaseModel.php'))) {
-            $stub = $files->get(__DIR__.'/../Console/stubs/base-model.stub');
+            $stub = $files->get($this->resolveStubPath('base-model.stub'));
             $files->ensureDirectoryExists(app_path('Models'));
             $files->put(app_path('Models/BaseModel.php'), $stub);
         }
 
-        return $this->runImport($tableNames, $createModel, true, $force);
+        return $this->runImport($tableNames, $createModel, true, $force, $request->input('db_connection'));
     }
 
     /**
      * Core import logic shared by preview and write.
      */
-    private function runImport(array $tableNames, bool $createModel, bool $write, bool $force): JsonResponse
+    private function runImport(array $tableNames, bool $createModel, bool $write, bool $force, ?string $dbConnectionName = null): JsonResponse
     {
-        $reader = new DatabaseReader;
+        $connectionConfig = ConfigResolver::resolveConnection($dbConnectionName);
+        $dbConnection = $connectionConfig->needsConnectionProperty() ? $connectionConfig->connection : null;
+        $reader = new DatabaseReader($dbConnection);
         $generator = new SchemaFileGenerator;
         $files = new Filesystem;
+
+        $schemaDir = $this->namespaceToAppPath($connectionConfig->schemaNamespace);
+        $modelDir = $this->namespaceToAppPath($connectionConfig->modelNamespace);
+        $emitConnection = $connectionConfig->needsConnectionProperty() ? $connectionConfig->connection : null;
 
         // Read all requested tables
         $allTables = [];
@@ -276,43 +319,48 @@ class SchemaController
                 table: $tableState,
                 allTables: $regularTables,
                 pivotRelationships: $pivotRelationships,
+                schemaNamespace: $connectionConfig->schemaNamespace,
+                modelNamespace: $connectionConfig->modelNamespace,
+                schemaPrefix: $connectionConfig->schemaPrefix,
+                modelPrefix: $connectionConfig->modelPrefix,
+                connection: $emitConnection,
             );
 
-            $schemaPath = "app/Schemas/{$result->schemaClassName}.php";
-            $schemaFullPath = app_path("Schemas/{$result->schemaClassName}.php");
+            $schemaRelPath = str_replace(base_path().'/', '', "{$schemaDir}/{$result->schemaClassName}.php");
+            $schemaFullPath = "{$schemaDir}/{$result->schemaClassName}.php";
             $schemaExists = file_exists($schemaFullPath);
 
             if ($write) {
                 if (! $force && $schemaExists) {
-                    $outputFiles[] = ['path' => $schemaPath, 'skipped' => true, 'message' => 'Already exists.', 'type' => 'schema'];
+                    $outputFiles[] = ['path' => $schemaRelPath, 'skipped' => true, 'message' => 'Already exists.', 'type' => 'schema'];
                     $summary['skipped']++;
                 } else {
                     $files->ensureDirectoryExists(dirname($schemaFullPath));
                     $files->put($schemaFullPath, $result->schemaContent);
-                    $outputFiles[] = ['path' => $schemaPath, 'created' => true, 'message' => "{$result->schemaClassName} created.", 'type' => 'schema'];
+                    $outputFiles[] = ['path' => $schemaRelPath, 'created' => true, 'message' => "{$result->schemaClassName} created.", 'type' => 'schema'];
                     $summary['schemas']++;
                 }
             } else {
-                $outputFiles[] = ['path' => $schemaPath, 'content' => $result->schemaContent, 'exists' => $schemaExists, 'type' => 'schema'];
+                $outputFiles[] = ['path' => $schemaRelPath, 'content' => $result->schemaContent, 'exists' => $schemaExists, 'type' => 'schema'];
             }
 
             if ($createModel) {
-                $modelPath = "app/Models/{$result->modelClassName}.php";
-                $modelFullPath = app_path("Models/{$result->modelClassName}.php");
+                $modelRelPath = str_replace(base_path().'/', '', "{$modelDir}/{$result->modelClassName}.php");
+                $modelFullPath = "{$modelDir}/{$result->modelClassName}.php";
                 $modelExists = file_exists($modelFullPath);
 
                 if ($write) {
                     if (! $force && $modelExists) {
-                        $outputFiles[] = ['path' => $modelPath, 'skipped' => true, 'message' => 'Already exists.', 'type' => 'model'];
+                        $outputFiles[] = ['path' => $modelRelPath, 'skipped' => true, 'message' => 'Already exists.', 'type' => 'model'];
                         $summary['skipped']++;
                     } else {
                         $files->ensureDirectoryExists(dirname($modelFullPath));
                         $files->put($modelFullPath, $result->modelContent);
-                        $outputFiles[] = ['path' => $modelPath, 'created' => true, 'message' => "{$result->modelClassName} created.", 'type' => 'model'];
+                        $outputFiles[] = ['path' => $modelRelPath, 'created' => true, 'message' => "{$result->modelClassName} created.", 'type' => 'model'];
                         $summary['models']++;
                     }
                 } else {
-                    $outputFiles[] = ['path' => $modelPath, 'content' => $result->modelContent, 'exists' => $modelExists, 'type' => 'model'];
+                    $outputFiles[] = ['path' => $modelRelPath, 'content' => $result->modelContent, 'exists' => $modelExists, 'type' => 'model'];
                 }
             }
         }
@@ -357,8 +405,8 @@ class SchemaController
      */
     private function generateSchemaFiles(Filesystem $files, array $names, array $idConfig, bool $softDeletes, bool $createModel): array
     {
-        $schemaStub = $files->get(__DIR__.'/../Console/stubs/schema.stub');
-        $modelStub = $files->get(__DIR__.'/../Console/stubs/model.stub');
+        $schemaStub = $files->get($this->resolveStubPath('schema.stub'));
+        $modelStub = $files->get($this->resolveStubPath('model.stub'));
 
         $generatedFiles = [];
 
@@ -411,5 +459,37 @@ class SchemaController
     private function tableToModelName(string $tableName): string
     {
         return Str::studly(Str::singular($tableName));
+    }
+
+    /**
+     * Resolve a stub file path, preferring published stubs over package defaults.
+     */
+    private function resolveStubPath(string $filename): string
+    {
+        $publishedPath = base_path("stubs/schema-craft/{$filename}");
+
+        if (file_exists($publishedPath)) {
+            return $publishedPath;
+        }
+
+        return dirname(__DIR__)."/Console/stubs/{$filename}";
+    }
+
+    /**
+     * Convert a namespace to an absolute directory path using app_path().
+     *
+     * App\Schemas → app_path('Schemas')
+     * App\Schemas\Crm → app_path('Schemas/Crm')
+     * Custom\Namespace → base_path('Custom/Namespace')
+     */
+    private function namespaceToAppPath(string $namespace): string
+    {
+        $path = str_replace('\\', '/', $namespace);
+
+        if (str_starts_with($path, 'App/')) {
+            return app_path(substr($path, 4));
+        }
+
+        return base_path($path);
     }
 }

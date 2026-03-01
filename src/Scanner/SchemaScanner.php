@@ -145,9 +145,15 @@ class SchemaScanner
             }
         }
 
+        // Read connection from the schema class (if declared)
+        $connection = $reflection->hasProperty('connection')
+            ? $reflection->getStaticPropertyValue('connection')
+            : null;
+
         return new TableDefinition(
             tableName: $tableName,
             schemaClass: $this->schemaClass,
+            connection: $connection,
             columns: $columns,
             relationships: $relationships,
             compositeIndexes: $compositeIndexes,

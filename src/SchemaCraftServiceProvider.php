@@ -56,6 +56,9 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 __DIR__.'/Console/stubs/api' => base_path('stubs/schema-craft/api'),
                 __DIR__.'/Console/stubs/filament' => base_path('stubs/schema-craft/filament'),
                 __DIR__.'/Console/stubs/sdk' => base_path('stubs/schema-craft/sdk'),
+                __DIR__.'/Console/stubs/schema.stub' => base_path('stubs/schema-craft/schema.stub'),
+                __DIR__.'/Console/stubs/model.stub' => base_path('stubs/schema-craft/model.stub'),
+                __DIR__.'/Console/stubs/base-model.stub' => base_path('stubs/schema-craft/base-model.stub'),
             ], 'schema-craft-stubs');
         }
     }
@@ -84,6 +87,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 ->withoutMiddleware($noCsrf);
 
             // Schema Management API
+            Route::get('/api/connections', [SchemaController::class, 'connections']);
             Route::get('/api/install/status', [SchemaController::class, 'installStatus']);
             Route::post('/api/install', [SchemaController::class, 'install'])
                 ->withoutMiddleware($noCsrf);
@@ -117,6 +121,10 @@ class SchemaCraftServiceProvider extends ServiceProvider
             Route::post('/api/generate/action/preview', [GenerateController::class, 'actionPreview'])
                 ->withoutMiddleware($noCsrf);
             Route::post('/api/generate/action', [GenerateController::class, 'action'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/generate/service', [GenerateController::class, 'createService'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/generate/test', [GenerateController::class, 'createTest'])
                 ->withoutMiddleware($noCsrf);
 
             // Filament Generation API

@@ -1,5 +1,14 @@
 <?php
 
+/**
+ * Template variables:
+ *   {{ requestNamespace }}  - Request namespace
+ *   {{ requestClass }}      - Request class name (e.g., "CreatePostRequest")
+ *   {{ schemaFqcn }}        - Full schema class path (e.g., "App\Schemas\PostSchema")
+ *   {{ schemaClass }}       - Schema class name (e.g., "PostSchema")
+ *   {{ ruleFields }}        - Indented list of column names for validation
+ */
+
 namespace {{ requestNamespace }};
 
 use {{ schemaFqcn }};

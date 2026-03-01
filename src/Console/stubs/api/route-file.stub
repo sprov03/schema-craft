@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * Template variables:
+ *   {{ apiName }}  - API name in StudlyCase (e.g., "Partner")
+ *   {{ prefix }}   - URL prefix (e.g., "partner-api")
+ */
+
 use Illuminate\Support\Facades\Route;
 
 /*

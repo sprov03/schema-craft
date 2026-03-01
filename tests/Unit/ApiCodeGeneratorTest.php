@@ -388,9 +388,9 @@ class ApiCodeGeneratorTest extends TestCase
         $this->assertStringContainsString('namespace App\\Http\\Requests;', $file->content);
     }
 
-    // ─── FK columns included in editable fields ───────────────────
+    // ─── FK columns with relationship-aware service generation ─────
 
-    public function test_fk_columns_are_editable(): void
+    public function test_fk_columns_use_associate_in_service(): void
     {
         $columns = [
             new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true),
@@ -411,8 +411,132 @@ class ApiCodeGeneratorTest extends TestCase
         $serviceContent = $files['service']->content;
         $requestContent = $files['create_request']->content;
 
-        $this->assertStringContainsString('$post->author_id = $authorId;', $serviceContent);
+        // Service uses model-typed params and associate()
+        $this->assertStringContainsString('User $author', $serviceContent);
+        $this->assertStringContainsString('$post->author()->associate($author);', $serviceContent);
+        $this->assertStringNotContainsString('$post->author_id = $authorId;', $serviceContent);
+
+        // Request still uses FK column name
         $this->assertStringContainsString("'author_id',", $requestContent);
+    }
+
+    public function test_service_imports_related_models(): void
+    {
+        $columns = [
+            new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true),
+            new ColumnDefinition(name: 'title', columnType: 'string'),
+            new ColumnDefinition(name: 'author_id', columnType: 'unsignedBigInteger'),
+            new ColumnDefinition(name: 'category_id', columnType: 'unsignedBigInteger'),
+        ];
+        $relationships = [
+            new RelationshipDefinition(name: 'author', type: 'belongsTo', relatedModel: 'App\\Models\\User'),
+            new RelationshipDefinition(name: 'category', type: 'belongsTo', relatedModel: 'App\\Models\\Category'),
+        ];
+        $table = new TableDefinition(
+            tableName: 'posts',
+            schemaClass: 'App\\Schemas\\PostSchema',
+            columns: $columns,
+            relationships: $relationships,
+        );
+
+        $files = $this->generator->generate($table, 'Post');
+        $serviceContent = $files['service']->content;
+
+        $this->assertStringContainsString('use App\\Models\\User;', $serviceContent);
+        $this->assertStringContainsString('use App\\Models\\Category;', $serviceContent);
+    }
+
+    public function test_nullable_fk_uses_conditional_associate_on_create(): void
+    {
+        $columns = [
+            new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true),
+            new ColumnDefinition(name: 'title', columnType: 'string'),
+            new ColumnDefinition(name: 'reviewer_id', columnType: 'unsignedBigInteger', nullable: true),
+        ];
+        $relationships = [
+            new RelationshipDefinition(name: 'reviewer', type: 'belongsTo', relatedModel: 'App\\Models\\User', nullable: true),
+        ];
+        $table = new TableDefinition(
+            tableName: 'posts',
+            schemaClass: 'App\\Schemas\\PostSchema',
+            columns: $columns,
+            relationships: $relationships,
+        );
+
+        $files = $this->generator->generate($table, 'Post');
+        $serviceContent = $files['service']->content;
+
+        // Nullable param
+        $this->assertStringContainsString('?User $reviewer = null', $serviceContent);
+
+        // Create uses conditional associate
+        $this->assertStringContainsString('if ($reviewer !== null) {', $serviceContent);
+        $this->assertStringContainsString('$post->reviewer()->associate($reviewer);', $serviceContent);
+    }
+
+    public function test_nullable_fk_uses_dissociate_on_update(): void
+    {
+        $columns = [
+            new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true),
+            new ColumnDefinition(name: 'title', columnType: 'string'),
+            new ColumnDefinition(name: 'reviewer_id', columnType: 'unsignedBigInteger', nullable: true),
+        ];
+        $relationships = [
+            new RelationshipDefinition(name: 'reviewer', type: 'belongsTo', relatedModel: 'App\\Models\\User', nullable: true),
+        ];
+        $table = new TableDefinition(
+            tableName: 'posts',
+            schemaClass: 'App\\Schemas\\PostSchema',
+            columns: $columns,
+            relationships: $relationships,
+        );
+
+        $files = $this->generator->generate($table, 'Post');
+        $serviceContent = $files['service']->content;
+
+        // Update uses dissociate for null case
+        $this->assertStringContainsString('$this->post->reviewer()->associate($reviewer);', $serviceContent);
+        $this->assertStringContainsString('$this->post->reviewer()->dissociate();', $serviceContent);
+    }
+
+    public function test_service_no_related_imports_without_relationships(): void
+    {
+        $files = $this->generator->generate($this->makeTable(), 'Post');
+        $serviceContent = $files['service']->content;
+
+        // Should only have the model import, no extra use statements
+        $this->assertStringContainsString('use App\\Models\\Post;', $serviceContent);
+        $this->assertStringNotContainsString('use App\\Models\\User;', $serviceContent);
+    }
+
+    public function test_service_mixes_associate_and_direct_assignments(): void
+    {
+        $columns = [
+            new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true),
+            new ColumnDefinition(name: 'title', columnType: 'string'),
+            new ColumnDefinition(name: 'author_id', columnType: 'unsignedBigInteger'),
+            new ColumnDefinition(name: 'body', columnType: 'text', nullable: true),
+        ];
+        $relationships = [
+            new RelationshipDefinition(name: 'author', type: 'belongsTo', relatedModel: 'App\\Models\\User'),
+        ];
+        $table = new TableDefinition(
+            tableName: 'posts',
+            schemaClass: 'App\\Schemas\\PostSchema',
+            columns: $columns,
+            relationships: $relationships,
+        );
+
+        $files = $this->generator->generate($table, 'Post');
+        $serviceContent = $files['service']->content;
+
+        // Direct assignment for regular columns
+        $this->assertStringContainsString('$post->title = $title;', $serviceContent);
+        $this->assertStringContainsString('$post->body = $body;', $serviceContent);
+
+        // associate() for FK column
+        $this->assertStringContainsString('$post->author()->associate($author);', $serviceContent);
+        $this->assertStringNotContainsString('$post->author_id', $serviceContent);
     }
 
     // ─── Soft deletes columns excluded ────────────────────────────
@@ -464,6 +588,189 @@ class ApiCodeGeneratorTest extends TestCase
         $this->assertStringContainsString('namespace App\\Http\\Requests\\V2;', $createRequest);
         $this->assertStringContainsString('use Domain\\Blog\\Schemas\\PostSchema;', $createRequest);
         $this->assertStringContainsString('namespace App\\Http\\Resources\\V2;', $resource);
+    }
+
+    // ─── Action controller method PHPDoc description ───────────────
+
+    public function test_action_controller_method_has_default_phpdoc(): void
+    {
+        $result = $this->generator->renderActionControllerMethod(
+            'get', 'archive', 'Post', 'post', 'post',
+        );
+
+        $this->assertStringContainsString("/**\n     * Archive the post.\n     */", $result);
+    }
+
+    public function test_action_controller_method_uses_custom_description(): void
+    {
+        $result = $this->generator->renderActionControllerMethod(
+            'get', 'archive', 'Post', 'post', 'post',
+            description: 'Archive the post and remove from public listings.',
+        );
+
+        $this->assertStringContainsString('Archive the post and remove from public listings.', $result);
+        $this->assertStringNotContainsString('Archive the post.', $result);
+    }
+
+    // ─── generateService() standalone ──────────────────────────────
+
+    public function test_generate_service_returns_service_file(): void
+    {
+        $file = $this->generator->generateService($this->makeTable(), 'Post');
+
+        $this->assertInstanceOf(GeneratedFile::class, $file);
+        $this->assertSame('app/Models/Services/PostService.php', $file->path);
+        $this->assertStringContainsString('namespace App\\Models\\Services;', $file->content);
+        $this->assertStringContainsString('class PostService', $file->content);
+        $this->assertStringContainsString('use App\\Models\\Post;', $file->content);
+    }
+
+    public function test_generate_service_with_custom_namespace(): void
+    {
+        $file = $this->generator->generateService(
+            $this->makeTable(),
+            'Post',
+            modelNamespace: 'Domain\\Blog\\Models',
+            serviceNamespace: 'Domain\\Blog\\Services',
+        );
+
+        $this->assertSame('Domain/Blog/Services/PostService.php', $file->path);
+        $this->assertStringContainsString('namespace Domain\\Blog\\Services;', $file->content);
+        $this->assertStringContainsString('use Domain\\Blog\\Models\\Post;', $file->content);
+    }
+
+    public function test_generate_service_includes_crud_methods(): void
+    {
+        $file = $this->generator->generateService($this->makeTable(), 'Post');
+
+        $this->assertStringContainsString('public static function create(', $file->content);
+        $this->assertStringContainsString('public function update(', $file->content);
+        $this->assertStringContainsString('public function delete(): void', $file->content);
+        $this->assertStringContainsString('string $title', $file->content);
+        $this->assertStringContainsString('$post->title = $title;', $file->content);
+    }
+
+    // ─── Action test method generation ──────────────────────────────
+
+    public function test_action_test_method_get_generates_correct_structure(): void
+    {
+        $result = $this->generator->renderActionTestMethod(
+            'get',
+            'archive',
+            'Post',
+            'post',
+            'api/posts',
+        );
+
+        $this->assertStringContainsString('public function test_can_archive(): void', $result);
+        $this->assertStringContainsString('UserFactory::createDefault()', $result);
+        $this->assertStringContainsString("actingAs(\$user, 'sanctum')", $result);
+        $this->assertStringContainsString('PostFactory::createDefault()', $result);
+        $this->assertStringContainsString("getJson('/api/posts/' . \$post->id . '/archive')", $result);
+        $this->assertStringContainsString('assertOk()', $result);
+    }
+
+    public function test_action_test_method_delete_generates_correct_structure(): void
+    {
+        $result = $this->generator->renderActionTestMethod(
+            'delete',
+            'archive',
+            'Post',
+            'post',
+            'api/posts',
+        );
+
+        $this->assertStringContainsString("deleteJson('/api/posts/' . \$post->id . '/archive')", $result);
+        $this->assertStringContainsString('assertNoContent()', $result);
+    }
+
+    public function test_action_test_method_put_includes_request_fields(): void
+    {
+        $table = $this->makeTable();
+
+        $result = $this->generator->renderActionTestMethod(
+            'put',
+            'publish',
+            'Post',
+            'post',
+            'api/posts',
+            $table,
+        );
+
+        $this->assertStringContainsString('public function test_can_publish(): void', $result);
+        $this->assertStringContainsString('$request = [', $result);
+        $this->assertStringContainsString("'title' => 'title_test'", $result);
+        $this->assertStringContainsString("'body' => 'Test body content'", $result);
+        $this->assertStringContainsString("'is_featured' => true", $result);
+        $this->assertStringContainsString("putJson('/api/posts/' . \$post->id . '/publish', \$request)", $result);
+        $this->assertStringContainsString('assertOk()', $result);
+    }
+
+    public function test_action_test_method_post_includes_related_factories(): void
+    {
+        $columns = [
+            new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true),
+            new ColumnDefinition(name: 'title', columnType: 'string'),
+            new ColumnDefinition(name: 'author_id', columnType: 'unsignedBigInteger'),
+        ];
+
+        $relationships = [
+            new RelationshipDefinition(
+                name: 'author',
+                type: 'belongsTo',
+                relatedModel: 'App\\Models\\User',
+                foreignColumn: 'author_id',
+            ),
+        ];
+
+        $table = $this->makeTable($columns, $relationships);
+
+        $result = $this->generator->renderActionTestMethod(
+            'post',
+            'duplicate',
+            'Post',
+            'post',
+            'api/posts',
+            $table,
+        );
+
+        $this->assertStringContainsString('public function test_can_duplicate(): void', $result);
+        $this->assertStringContainsString('UserFactory::createDefault()', $result);
+        $this->assertStringContainsString("'author_id' => \$post->author_id", $result);
+        $this->assertStringContainsString("postJson('/api/posts/' . \$post->id . '/duplicate', \$request)", $result);
+        $this->assertStringContainsString('assertCreated()', $result);
+    }
+
+    public function test_action_test_method_put_uses_fk_from_existing_model(): void
+    {
+        $columns = [
+            new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true),
+            new ColumnDefinition(name: 'title', columnType: 'string'),
+            new ColumnDefinition(name: 'category_id', columnType: 'unsignedBigInteger'),
+        ];
+
+        $relationships = [
+            new RelationshipDefinition(
+                name: 'category',
+                type: 'belongsTo',
+                relatedModel: 'App\\Models\\Category',
+                foreignColumn: 'category_id',
+            ),
+        ];
+
+        $table = $this->makeTable($columns, $relationships);
+
+        $result = $this->generator->renderActionTestMethod(
+            'put',
+            'recategorize',
+            'Post',
+            'post',
+            'api/posts',
+            $table,
+        );
+
+        // PUT tests should reference the existing model's FK
+        $this->assertStringContainsString("'category_id' => \$post->category_id", $result);
     }
 
     // ─── No excessive blank lines ─────────────────────────────────

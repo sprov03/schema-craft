@@ -455,7 +455,6 @@ class GenerateApiCommandTest extends TestCase
         config()->set('schema-craft.apis.partner', [
             'namespaces' => [
                 'controller' => 'App\\Http\\Controllers\\PartnerApi',
-                'service' => 'App\\Services\\PartnerApi',
                 'request' => 'App\\Http\\Requests\\PartnerApi',
                 'resource' => 'App\\Resources\\PartnerApi',
             ],
@@ -466,9 +465,11 @@ class GenerateApiCommandTest extends TestCase
             '--api' => 'partner',
         ])->assertSuccessful();
 
+        // Controller, request, resource use the API-specific namespaces
+        // Service uses the connection-specific namespace (default: App\Models\Services)
         $expectedFiles = [
             app_path('Http/Controllers/PartnerApi/CategoryController.php'),
-            app_path('Services/PartnerApi/CategoryService.php'),
+            app_path('Models/Services/CategoryService.php'),
             app_path('Http/Requests/PartnerApi/CreateCategoryRequest.php'),
             app_path('Http/Requests/PartnerApi/UpdateCategoryRequest.php'),
             app_path('Resources/PartnerApi/CategoryResource.php'),
@@ -489,7 +490,6 @@ class GenerateApiCommandTest extends TestCase
         config()->set('schema-craft.apis.partner', [
             'namespaces' => [
                 'controller' => 'App\\Http\\Controllers\\PartnerApi',
-                'service' => 'App\\Services\\PartnerApi',
                 'request' => 'App\\Http\\Requests\\PartnerApi',
                 'resource' => 'App\\Resources\\PartnerApi',
             ],
@@ -500,9 +500,9 @@ class GenerateApiCommandTest extends TestCase
             '--api' => 'partner',
         ])->assertSuccessful();
 
-        // Track all files
+        // Track all files — service uses connection namespace, not API namespace
         $this->trackFile(app_path('Http/Controllers/PartnerApi/PostController.php'));
-        $this->trackFile(app_path('Services/PartnerApi/PostService.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
         $this->trackFile(app_path('Http/Requests/PartnerApi/CreatePostRequest.php'));
         $this->trackFile(app_path('Http/Requests/PartnerApi/UpdatePostRequest.php'));
         $this->trackFile(app_path('Resources/PartnerApi/PostResource.php'));
@@ -564,19 +564,373 @@ class GenerateApiCommandTest extends TestCase
 
         $this->trackFile(app_path('Http/Requests/ArchivePostRequest.php'));
 
-        // Check controller was updated
+        // Check controller was updated with route and method
         $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
         $this->assertStringContainsString("'archive'", $controllerContent);
         $this->assertStringContainsString('public function archive(', $controllerContent);
 
-        // Check service was updated
+        // Check controller uses int ID and model resolver
+        $this->assertStringContainsString('int $post_id', $controllerContent);
+        $this->assertStringContainsString('Post::forAuthUser()->findOrFail($post_id)', $controllerContent);
+
+        // Check service was updated with typed params
         $serviceContent = $this->files->get(app_path('Models/Services/PostService.php'));
-        $this->assertStringContainsString('public function archive()', $serviceContent);
+        $this->assertStringContainsString('public function archive(', $serviceContent);
+        $this->assertStringContainsString('string $title', $serviceContent);
 
         // Check request was created
         $this->assertFileExists(app_path('Http/Requests/ArchivePostRequest.php'));
         $requestContent = $this->files->get(app_path('Http/Requests/ArchivePostRequest.php'));
         $this->assertStringContainsString('class ArchivePostRequest extends FormRequest', $requestContent);
+    }
+
+    public function test_action_request_includes_schema_context(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add an action (defaults to update type)
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'archive',
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Requests/ArchivePostRequest.php'));
+
+        $requestContent = $this->files->get(app_path('Http/Requests/ArchivePostRequest.php'));
+
+        // Should have schema import (uses the connection-configured schema namespace)
+        $this->assertStringContainsString('use App\\Schemas\\PostSchema;', $requestContent);
+
+        // Should call updateRules() with column names (default action type is update)
+        $this->assertStringContainsString('PostSchema::updateRules([', $requestContent);
+        $this->assertStringContainsString("'title',", $requestContent);
+        $this->assertStringContainsString("'body',", $requestContent);
+        $this->assertStringContainsString('])->toArray();', $requestContent);
+    }
+
+    public function test_post_method_uses_create_rules(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add an action with POST method — should derive createRules
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'duplicate',
+            '--method' => 'post',
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Requests/DuplicatePostRequest.php'));
+
+        $requestContent = $this->files->get(app_path('Http/Requests/DuplicatePostRequest.php'));
+
+        // POST method should produce createRules()
+        $this->assertStringContainsString('PostSchema::createRules([', $requestContent);
+        $this->assertStringContainsString("'title',", $requestContent);
+        $this->assertStringContainsString('])->toArray();', $requestContent);
+
+        // Controller method should accept the request and int ID
+        $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
+        $this->assertStringContainsString('DuplicatePostRequest $request', $controllerContent);
+        $this->assertStringContainsString('int $post_id', $controllerContent);
+        $this->assertStringContainsString("Route::post('posts/{post_id}/duplicate'", $controllerContent);
+    }
+
+    public function test_get_action_skips_request_generation(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add action with --method=get
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'status',
+            '--method' => 'get',
+        ])->assertSuccessful();
+
+        // GET should NOT create a request file
+        $this->assertFileDoesNotExist(app_path('Http/Requests/StatusPostRequest.php'));
+
+        $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
+        $this->assertStringContainsString("Route::get('posts/{post_id}/status'", $controllerContent);
+
+        // Controller method should use int ID, NOT a request parameter
+        $this->assertStringContainsString('public function status(int $post_id)', $controllerContent);
+        $this->assertStringContainsString('Post::forAuthUser()->findOrFail($post_id)', $controllerContent);
+        $this->assertStringNotContainsString('StatusPostRequest', $controllerContent);
+
+        // Service method should NOT have validated params
+        $serviceContent = $this->files->get(app_path('Models/Services/PostService.php'));
+        $this->assertStringContainsString('public function status(): Post', $serviceContent);
+    }
+
+    public function test_delete_action_skips_request_generation(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add action with --method=delete
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'softDelete',
+            '--method' => 'delete',
+        ])->assertSuccessful();
+
+        // DELETE should NOT create a request file
+        $this->assertFileDoesNotExist(app_path('Http/Requests/SoftDeletePostRequest.php'));
+
+        $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
+        $this->assertStringContainsString("Route::delete('posts/{post_id}/soft-delete'", $controllerContent);
+
+        // Controller method should use int ID, NOT a request parameter
+        $this->assertStringContainsString('public function softDelete(int $post_id)', $controllerContent);
+        $this->assertStringContainsString('Post::forAuthUser()->findOrFail($post_id)', $controllerContent);
+        $this->assertStringNotContainsString('SoftDeletePostRequest', $controllerContent);
+    }
+
+    public function test_action_default_http_method_is_put(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add action without specifying --method
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'archive',
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Requests/ArchivePostRequest.php'));
+
+        $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
+        $this->assertStringContainsString("Route::put('posts/{post_id}/archive'", $controllerContent);
+    }
+
+    public function test_action_route_includes_id_param(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add an action
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'publish',
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Requests/PublishPostRequest.php'));
+
+        $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
+
+        // Route should include snake_case ID parameter
+        $this->assertStringContainsString('{post_id}', $controllerContent);
+        $this->assertStringContainsString("Route::put('posts/{post_id}/publish'", $controllerContent);
+
+        // Controller method should use int ID parameter
+        $this->assertStringContainsString('int $post_id', $controllerContent);
+    }
+
+    public function test_action_controller_resolves_model_with_model_resolver(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add a GET action
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'preview',
+            '--method' => 'get',
+        ])->assertSuccessful();
+
+        $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
+
+        // Should resolve model via forAuthUser pattern
+        $this->assertStringContainsString('$post = Post::forAuthUser()->findOrFail($post_id)', $controllerContent);
+        $this->assertStringContainsString('$post->Service()->preview()', $controllerContent);
+    }
+
+    public function test_action_decodes_fk_fields_via_model_resolver(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add a PUT action (generates decoded request properties)
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'revise',
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Requests/RevisePostRequest.php'));
+
+        $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
+
+        // Primitive fields should use $request->validated()['col']
+        $this->assertStringContainsString("\$request->validated()['title']", $controllerContent);
+
+        // FK field (author_id) should be resolved via model resolver
+        $this->assertStringContainsString("User::forAuthUser()->findOrFail(\$request->validated()['author_id'])", $controllerContent);
+
+        // FK model should be imported
+        $this->assertStringContainsString('use SchemaCraft\Tests\Fixtures\Models\User;', $controllerContent);
+    }
+
+    public function test_action_decodes_nullable_fk_fields(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add a PUT action
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'reassign',
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Requests/ReassignPostRequest.php'));
+
+        $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
+
+        // Nullable FK (category_id) should use the nullable model resolver pattern (find instead of findOrFail)
+        $this->assertStringContainsString('Category::forAuthUser()->find(', $controllerContent);
+    }
+
+    public function test_action_service_method_has_typed_params(): void
+    {
+        // Generate the base API first
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Add a PUT action
+        $this->artisan('schema:generate', [
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            '--action' => 'update_content',
+        ])->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Requests/UpdateContentPostRequest.php'));
+
+        $serviceContent = $this->files->get(app_path('Models/Services/PostService.php'));
+
+        // Service method should have typed params for primitives
+        $this->assertStringContainsString('string $title', $serviceContent);
+
+        // Service method should have typed model params for FKs
+        $this->assertStringContainsString('User $author', $serviceContent);
+
+        // Nullable FK should have nullable type hint
+        $this->assertStringContainsString('?Category $category', $serviceContent);
+    }
+
+    public function test_initial_generate_registers_in_route_file(): void
+    {
+        // Ensure route file exists
+        $routeFile = base_path('routes/api.php');
+        $this->trackFile($routeFile);
+
+        $initialContent = "<?php\n\nuse Illuminate\\Support\\Facades\\Route;\n";
+        $this->files->ensureDirectoryExists(dirname($routeFile));
+        $this->files->put($routeFile, $initialContent);
+
+        $this->artisan('schema:generate', ['schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema'])
+            ->assertSuccessful();
+
+        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
+        $this->trackFile(app_path('Models/Services/PostService.php'));
+        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
+        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
+        $this->trackFile(app_path('Resources/PostResource.php'));
+        $this->trackFile(app_path('Resources/CommentResource.php'));
+        $this->trackFile(app_path('Resources/TagResource.php'));
+
+        // Route file should contain the apiRoutes() registration
+        $routeContent = $this->files->get($routeFile);
+        $this->assertStringContainsString('PostController::apiRoutes()', $routeContent);
     }
 
     // ─── Factory generation ──────────────────────────────────────

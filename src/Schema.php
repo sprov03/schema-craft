@@ -21,6 +21,14 @@ abstract class Schema
     private static array $scanCache = [];
 
     /**
+     * The database connection for this schema.
+     *
+     * When set, generated models will use this connection
+     * and ConfigResolver can resolve the correct ConnectionConfig.
+     */
+    protected static ?string $connection = null;
+
+    /**
      * The table name for this schema.
      *
      * Return null to use convention-based naming (class name → plural snake_case).

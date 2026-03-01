@@ -1,0 +1,23 @@
+/**
+ * Template variables:
+ *   {{ actionName }}       - Method name (e.g., "archive")
+ *   {{ requestClass }}     - Request class (e.g., "ArchivePostRequest")
+ *   {{ modelClass }}       - Model class (e.g., "Post")
+ *   {{ modelVariable }}    - camelCase variable (e.g., "post")
+ *   {{ routeParam }}       - Base route param (e.g., "post")
+ *   {{ routeParam:id }}    - Snake_case ID param (e.g., "post_id")
+ *   {{ modelResolver:modelClass,routeParam }} - Loads model-resolver.stub
+ *   {{ decodeRequestForMethodProperties }}    - Pre-rendered decoded request args
+ *   {{ phpDoc }}              - Pre-rendered PHPDoc block
+ */
+{{ phpDoc }}
+    public function {{ actionName }}({{ requestClass }} $request, int ${{ routeParam:id }}): \Illuminate\Http\JsonResponse
+    {
+        ${{ modelVariable }} = {{ modelResolver:modelClass,routeParam }};
+
+        ${{ modelVariable }}->Service()->{{ actionName }}(
+{{ decodeRequestForMethodProperties }}
+        );
+
+        return response()->json(null, 200);
+    }

@@ -1,0 +1,27 @@
+/**
+ * Template variables:
+ *   {{ actionName }}       - Method name (e.g., "archive")
+ *   {{ modelClass }}       - Model class (e.g., "Post")
+ *   {{ modelVariable }}    - camelCase variable (e.g., "post")
+ *   {{ factoryClass }}     - Factory class (e.g., "PostFactory")
+ *   {{ routePrefix }}      - Full route prefix (e.g., "api/posts")
+ *   {{ actionSlug }}       - Kebab-case action (e.g., "archive")
+ *   {{ testRequestFields }}     - Pre-rendered request field assignments
+ *   {{ testRelatedFactories }}  - Pre-rendered related factory setup lines
+ */
+    public function test_can_{{ actionName }}(): void
+    {
+        $user = UserFactory::createDefault();
+        $this->actingAs($user, 'sanctum');
+
+        ${{ modelVariable }} = {{ factoryClass }}::createDefault();
+{{ testRelatedFactories }}
+
+        $request = [
+{{ testRequestFields }}
+        ];
+
+        $response = $this->postJson('/{{ routePrefix }}/' . ${{ modelVariable }}->id . '/{{ actionSlug }}', $request);
+
+        $response->assertCreated();
+    }

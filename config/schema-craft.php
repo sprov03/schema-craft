@@ -12,6 +12,7 @@ return [
     */
 
     'default' => 'default',
+    'default_connection' => 'default',
 
     /*
     |--------------------------------------------------------------------------
@@ -52,11 +53,9 @@ return [
         'default' => [
             'namespaces' => [
                 'controller' => 'App\\Http\\Controllers\\Api',
-                'service' => 'App\\Models\\Services',
                 'request' => 'App\\Http\\Requests',
                 'resource' => 'App\\Resources',
-                'schema' => 'App\\Schemas',
-                'model' => 'App\\Models',
+                // schema, model, service namespaces are resolved from db_connections
             ],
             'routes' => [
                 'file' => 'routes/api.php',
@@ -71,6 +70,62 @@ return [
                 'client' => 'MyAppClient',
                 'version' => '0.1.0',
             ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | DB Connection Configurations
+    |--------------------------------------------------------------------------
+    |
+    | Each entry maps a config name to a database connection, with optional
+    | class name prefixes and namespace overrides. Use these when generating
+    | schemas/models from multiple databases that share the same table names.
+    |
+    */
+
+    'db_connections' => [
+        'default' => [
+            'prefixes' => [
+                'service' => '',
+                'schema' => '',
+                'model' => '',
+            ],
+            'namespaces' => [
+                'service' => 'App\\Models\\Services',
+                'schema' => 'App\\Schemas',
+                'model' => 'App\\Models',
+            ],
+            // DB Connection
+            'connection' => 'default',
+        ],
+        'prefix-example' => [
+            'prefixes' => [
+                'service' => 'Prefix',
+                'schema' => 'Prefix',
+                'model' => 'Prefix',
+            ],
+            'namespaces' => [
+                'service' => 'App\\Models\\Services',
+                'schema' => 'App\\Schemas',
+                'model' => 'App\\Models',
+            ],
+            // DB Connection
+            'connection' => 'default',
+        ],
+        'name-spaced-example' => [
+            'prefixes' => [
+                'service' => '',
+                'schema' => '',
+                'model' => '',
+            ],
+            'namespaces' => [
+                'service' => 'App\\Models\\Services\\Namespaced',
+                'schema' => 'App\\Schemas\\Namespaced',
+                'model' => 'App\\Models\\Namespaced',
+            ],
+            // DB Connection
+            'connection' => 'default',
         ],
     ],
 

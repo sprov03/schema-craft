@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use Orchestra\Testbench\TestCase;
 use SchemaCraft\Config\ApiConfig;
 use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\Config\ConnectionConfig;
 use SchemaCraft\SchemaCraftServiceProvider;
 
 class ConfigResolverTest extends TestCase
@@ -141,5 +142,84 @@ class ConfigResolverTest extends TestCase
 
         $this->assertCount(1, $dirs);
         $this->assertStringEndsWith('Schemas', $dirs[0]);
+    }
+
+    // ─── resolveByDatabaseConnection() ───────────────────────────
+
+    public function test_resolve_by_database_connection_returns_defaults_for_null(): void
+    {
+        $config = ConfigResolver::resolveByDatabaseConnection(null);
+
+        $this->assertInstanceOf(ConnectionConfig::class, $config);
+        $this->assertSame('default', $config->name);
+        $this->assertSame('App\\Schemas', $config->schemaNamespace);
+    }
+
+    public function test_resolve_by_database_connection_finds_matching_config(): void
+    {
+        config()->set('schema-craft.db_connections.crm', [
+            'connection' => 'crm-mysql',
+            'prefixes' => ['schema' => 'Crm', 'model' => 'Crm', 'service' => 'Crm'],
+            'namespaces' => [
+                'schema' => 'App\\Schemas\\Crm',
+                'model' => 'App\\Models\\Crm',
+                'service' => 'App\\Services\\Crm',
+            ],
+        ]);
+
+        $config = ConfigResolver::resolveByDatabaseConnection('crm-mysql');
+
+        $this->assertSame('crm', $config->name);
+        $this->assertSame('crm-mysql', $config->connection);
+        $this->assertSame('Crm', $config->schemaPrefix);
+        $this->assertSame('App\\Schemas\\Crm', $config->schemaNamespace);
+    }
+
+    public function test_resolve_by_database_connection_returns_defaults_when_not_found(): void
+    {
+        $config = ConfigResolver::resolveByDatabaseConnection('nonexistent-db');
+
+        $this->assertSame('default', $config->name);
+        $this->assertSame('App\\Schemas', $config->schemaNamespace);
+    }
+
+    // ─── resolve() merges connection namespaces ──────────────────
+
+    public function test_resolve_merges_default_connection_namespaces_into_api(): void
+    {
+        // API config without schema/model/service namespaces
+        config()->set('schema-craft.apis.minimal', [
+            'namespaces' => [
+                'controller' => 'App\\Http\\Controllers\\MinimalApi',
+            ],
+        ]);
+
+        $config = ConfigResolver::resolve('minimal');
+
+        // API-specific namespace from API config
+        $this->assertSame('App\\Http\\Controllers\\MinimalApi', $config->controllerNamespace);
+        // Schema/model/service default from ConnectionConfig
+        $this->assertSame('App\\Schemas', $config->schemaNamespace);
+        $this->assertSame('App\\Models', $config->modelNamespace);
+        $this->assertSame('App\\Models\\Services', $config->serviceNamespace);
+    }
+
+    public function test_resolve_api_explicit_namespace_overrides_connection_default(): void
+    {
+        // API config with explicit schema namespace
+        config()->set('schema-craft.apis.override', [
+            'namespaces' => [
+                'controller' => 'App\\Http\\Controllers\\Api',
+                'schema' => 'App\\Schemas\\Override',
+            ],
+        ]);
+
+        $config = ConfigResolver::resolve('override');
+
+        // Explicit schema namespace from API config wins
+        $this->assertSame('App\\Schemas\\Override', $config->schemaNamespace);
+        // Others fall back to connection defaults
+        $this->assertSame('App\\Models', $config->modelNamespace);
+        $this->assertSame('App\\Models\\Services', $config->serviceNamespace);
     }
 }

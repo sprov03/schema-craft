@@ -300,24 +300,32 @@ class SchemaFromDatabaseCommandTest extends TestCase
 
     public function test_custom_namespaces_in_generated_content(): void
     {
+        // Using App\Schemas\Custom and App\Models\Custom so dir resolves via app_path()
         $this->artisan('schema:from-database', [
             '--table' => ['animals'],
-            '--schema-namespace' => 'Generated\\Schemas',
-            '--model-namespace' => 'Generated\\Models',
+            '--schema-namespace' => 'App\\Schemas\\Custom',
+            '--model-namespace' => 'App\\Models\\Custom',
             '--force' => true,
         ])->assertSuccessful();
 
-        $schemaFile = $this->schemaDir.'/AnimalSchema.php';
-        $modelFile = $this->modelDir.'/Animal.php';
+        $customSchemaDir = $this->appDir.'/Schemas/Custom';
+        $customModelDir = $this->appDir.'/Models/Custom';
+
+        $schemaFile = $customSchemaDir.'/AnimalSchema.php';
+        $modelFile = $customModelDir.'/Animal.php';
 
         $this->assertFileExists($schemaFile);
 
         $schema = file_get_contents($schemaFile);
         $model = file_get_contents($modelFile);
 
-        $this->assertStringContainsString('namespace Generated\\Schemas;', $schema);
-        $this->assertStringContainsString('namespace Generated\\Models;', $model);
-        $this->assertStringContainsString('use Generated\\Schemas\\AnimalSchema;', $model);
+        $this->assertStringContainsString('namespace App\\Schemas\\Custom;', $schema);
+        $this->assertStringContainsString('namespace App\\Models\\Custom;', $model);
+        $this->assertStringContainsString('use App\\Schemas\\Custom\\AnimalSchema;', $model);
+
+        // Clean up
+        $this->cleanDir($customSchemaDir);
+        $this->cleanDir($customModelDir);
     }
 
     public function test_generated_schema_is_valid_php(): void
@@ -332,6 +340,269 @@ class SchemaFromDatabaseCommandTest extends TestCase
         $tokens = token_get_all($content);
         $this->assertNotEmpty($tokens);
         $this->assertStringStartsWith('<?php', $content);
+    }
+
+    // ─── DB Connection Config Tests ─────────────────────────────
+
+    public function test_db_connection_config_applies_prefix_to_class_names(): void
+    {
+        config()->set('schema-craft.db_connections.prefixed', [
+            'prefixes' => [
+                'service' => 'Crm',
+                'schema' => 'Crm',
+                'model' => 'Crm',
+            ],
+            'namespaces' => [
+                'service' => 'App\\Models\\Services',
+                'schema' => 'App\\Schemas',
+                'model' => 'App\\Models',
+            ],
+            'connection' => 'testing',
+        ]);
+
+        $this->artisan('schema:from-database', [
+            '--db-connection' => 'prefixed',
+            '--table' => ['animals'],
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $schemaFile = $this->schemaDir.'/CrmAnimalSchema.php';
+        $modelFile = $this->modelDir.'/CrmAnimal.php';
+
+        $this->assertFileExists($schemaFile);
+        $this->assertFileExists($modelFile);
+
+        $schema = file_get_contents($schemaFile);
+        $model = file_get_contents($modelFile);
+
+        $this->assertStringContainsString('class CrmAnimalSchema extends Schema', $schema);
+        $this->assertStringContainsString('class CrmAnimal extends BaseModel', $model);
+        $this->assertStringContainsString('@mixin CrmAnimalSchema', $model);
+        $this->assertStringContainsString('protected static string $schema = CrmAnimalSchema::class;', $model);
+    }
+
+    public function test_db_connection_config_applies_custom_namespace(): void
+    {
+        config()->set('schema-craft.db_connections.namespaced', [
+            'prefixes' => [
+                'service' => '',
+                'schema' => '',
+                'model' => '',
+            ],
+            'namespaces' => [
+                'service' => 'App\\Models\\Services\\Crm',
+                'schema' => 'App\\Schemas\\Crm',
+                'model' => 'App\\Models\\Crm',
+            ],
+            'connection' => 'testing',
+        ]);
+
+        $customSchemaDir = $this->appDir.'/Schemas/Crm';
+        $customModelDir = $this->appDir.'/Models/Crm';
+
+        $this->artisan('schema:from-database', [
+            '--db-connection' => 'namespaced',
+            '--table' => ['animals'],
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $schemaFile = $customSchemaDir.'/AnimalSchema.php';
+        $modelFile = $customModelDir.'/Animal.php';
+
+        $this->assertFileExists($schemaFile);
+        $this->assertFileExists($modelFile);
+
+        $schema = file_get_contents($schemaFile);
+        $model = file_get_contents($modelFile);
+
+        $this->assertStringContainsString('namespace App\\Schemas\\Crm;', $schema);
+        $this->assertStringContainsString('namespace App\\Models\\Crm;', $model);
+        $this->assertStringContainsString('use App\\Schemas\\Crm\\AnimalSchema;', $model);
+
+        // Clean up extra dirs
+        $this->cleanDir($customSchemaDir);
+        $this->cleanDir($customModelDir);
+    }
+
+    public function test_db_connection_config_emits_connection_property(): void
+    {
+        config()->set('schema-craft.db_connections.external', [
+            'prefixes' => [
+                'service' => '',
+                'schema' => '',
+                'model' => '',
+            ],
+            'namespaces' => [
+                'service' => 'App\\Models\\Services',
+                'schema' => 'App\\Schemas',
+                'model' => 'App\\Models',
+            ],
+            'connection' => 'external-db',
+        ]);
+
+        // We still need a working DB connection for reading, so override --connection
+        $this->artisan('schema:from-database', [
+            '--db-connection' => 'external',
+            '--connection' => 'testing',
+            '--table' => ['animals'],
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $schemaFile = $this->schemaDir.'/AnimalSchema.php';
+        $modelFile = $this->modelDir.'/Animal.php';
+
+        $schema = file_get_contents($schemaFile);
+        $model = file_get_contents($modelFile);
+
+        $this->assertStringContainsString("protected static ?string \$connection = 'external-db';", $schema);
+        $this->assertStringContainsString("protected \$connection = 'external-db';", $model);
+    }
+
+    public function test_db_connection_default_does_not_emit_connection_property(): void
+    {
+        // When connection matches the app's default DB connection, no $connection property is emitted
+        $appDefault = config('database.default');
+
+        config()->set('schema-craft.db_connections.default', [
+            'prefixes' => [
+                'service' => '',
+                'schema' => '',
+                'model' => '',
+            ],
+            'namespaces' => [
+                'service' => 'App\\Models\\Services',
+                'schema' => 'App\\Schemas',
+                'model' => 'App\\Models',
+            ],
+            'connection' => $appDefault,
+        ]);
+
+        $this->artisan('schema:from-database', [
+            '--db-connection' => 'default',
+            '--connection' => 'testing',
+            '--table' => ['animals'],
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $schema = file_get_contents($this->schemaDir.'/AnimalSchema.php');
+        $model = file_get_contents($this->modelDir.'/Animal.php');
+
+        $this->assertStringNotContainsString('$connection', $schema);
+        $this->assertStringNotContainsString('$connection', $model);
+    }
+
+    public function test_cli_options_override_db_connection_config(): void
+    {
+        config()->set('schema-craft.db_connections.override-test', [
+            'prefixes' => [
+                'service' => 'Prefix',
+                'schema' => 'Prefix',
+                'model' => 'Prefix',
+            ],
+            'namespaces' => [
+                'service' => 'App\\Models\\Services',
+                'schema' => 'App\\Schemas\\Custom',
+                'model' => 'App\\Models\\Custom',
+            ],
+            'connection' => 'testing',
+        ]);
+
+        // CLI --schema-namespace should override the config value
+        // Use App\Schemas\Override so it resolves within the test's app_path
+        $this->artisan('schema:from-database', [
+            '--db-connection' => 'override-test',
+            '--table' => ['animals'],
+            '--schema-namespace' => 'App\\Schemas\\Override',
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $overrideSchemaDir = $this->appDir.'/Schemas/Override';
+        $schemaFile = $overrideSchemaDir.'/PrefixAnimalSchema.php';
+
+        // Config-derived prefix should still apply (CLI doesn't override prefix)
+        // But namespace should be the CLI override
+        $this->assertFileExists($schemaFile);
+        $schema = file_get_contents($schemaFile);
+
+        $this->assertStringContainsString('namespace App\\Schemas\\Override;', $schema);
+        $this->assertStringContainsString('class PrefixAnimalSchema extends Schema', $schema);
+
+        // Clean up
+        $this->cleanDir($overrideSchemaDir);
+    }
+
+    public function test_prefixed_belongs_to_references_use_prefix(): void
+    {
+        Schema::connection('testing')->create('owners', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->timestamps();
+        });
+
+        // Drop and recreate animals with a FK
+        Schema::connection('testing')->dropIfExists('animals');
+        Schema::connection('testing')->create('animals', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->foreignId('owner_id')->constrained('owners');
+            $table->timestamps();
+        });
+
+        config()->set('schema-craft.db_connections.prefixed', [
+            'prefixes' => [
+                'service' => 'Crm',
+                'schema' => 'Crm',
+                'model' => 'Crm',
+            ],
+            'namespaces' => [
+                'service' => 'App\\Models\\Services',
+                'schema' => 'App\\Schemas',
+                'model' => 'App\\Models',
+            ],
+            'connection' => 'testing',
+        ]);
+
+        $this->artisan('schema:from-database', [
+            '--db-connection' => 'prefixed',
+            '--table' => ['animals', 'owners'],
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $animalSchema = file_get_contents($this->schemaDir.'/CrmAnimalSchema.php');
+
+        // BelongsTo should reference the prefixed model name
+        $this->assertStringContainsString('#[BelongsTo(CrmOwner::class)]', $animalSchema);
+        $this->assertStringContainsString('public CrmOwner $owner;', $animalSchema);
+
+        // HasMany on owner should also use prefixed names
+        $ownerSchema = file_get_contents($this->schemaDir.'/CrmOwnerSchema.php');
+        $this->assertStringContainsString('#[HasMany(CrmAnimal::class)]', $ownerSchema);
+    }
+
+    public function test_without_db_connection_generates_default_output(): void
+    {
+        // Ensure backward compatibility — no --db-connection option
+        $this->artisan('schema:from-database', [
+            '--table' => ['animals'],
+            '--force' => true,
+        ])->assertSuccessful();
+
+        $schemaFile = $this->schemaDir.'/AnimalSchema.php';
+        $modelFile = $this->modelDir.'/Animal.php';
+
+        $this->assertFileExists($schemaFile);
+        $this->assertFileExists($modelFile);
+
+        $schema = file_get_contents($schemaFile);
+        $model = file_get_contents($modelFile);
+
+        // No prefix
+        $this->assertStringContainsString('class AnimalSchema extends Schema', $schema);
+        $this->assertStringContainsString('class Animal extends BaseModel', $model);
+
+        // No $connection property
+        $this->assertStringNotContainsString('$connection', $schema);
+        $this->assertStringNotContainsString('$connection', $model);
     }
 
     private function cleanDir(string $dir): void

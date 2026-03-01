@@ -24,6 +24,9 @@ class SchemaFileGenerator
      * @param  array<string, string>  $pivotRelationships  Pivot table relationships: ['table_a' => ['table_b' => 'pivot_table_name']]
      * @param  string  $schemaNamespace  Namespace for generated schemas
      * @param  string  $modelNamespace  Namespace for generated models
+     * @param  string  $schemaPrefix  Class name prefix for schemas (e.g. 'Prefix' → PrefixAccountSchema)
+     * @param  string  $modelPrefix  Class name prefix for models (e.g. 'Prefix' → PrefixAccount)
+     * @param  string|null  $connection  DB connection name to emit as $connection property (null = default, skip)
      */
     public function generate(
         DatabaseTableState $table,
@@ -31,12 +34,16 @@ class SchemaFileGenerator
         array $pivotRelationships = [],
         string $schemaNamespace = 'App\\Schemas',
         string $modelNamespace = 'App\\Models',
+        string $schemaPrefix = '',
+        string $modelPrefix = '',
+        ?string $connection = null,
     ): GeneratedSchemaResult {
-        $modelName = $this->resolveModelName($table->tableName);
-        $schemaName = $modelName.'Schema';
+        $baseModelName = $this->resolveModelName($table->tableName);
+        $modelName = $modelPrefix.$baseModelName;
+        $schemaName = $schemaPrefix.$baseModelName.'Schema';
 
-        // Check if convention-based table name matches actual table name
-        $conventionTableName = Str::snake(Str::pluralStudly($modelName));
+        // Check if convention-based table name matches actual table name (use base name without prefix)
+        $conventionTableName = Str::snake(Str::pluralStudly($baseModelName));
         $customTableName = $conventionTableName !== $table->tableName ? $table->tableName : null;
 
         $hasTimestamps = $table->hasTimestamps();
@@ -183,7 +190,7 @@ class SchemaFileGenerator
 
         // Process BelongsTo relationships from foreign keys
         foreach ($table->foreignKeys as $fk) {
-            $prop = $this->resolveBelongsTo($fk, $table, $modelNamespace);
+            $prop = $this->resolveBelongsTo($fk, $table, $modelNamespace, $modelPrefix);
 
             // Resolve collision: if the BelongsTo property name matches a column name,
             // rename the BelongsTo property to avoid PHP redeclaration error.
@@ -206,7 +213,7 @@ class SchemaFileGenerator
 
             $belongsToProperties[] = $prop;
 
-            $relatedModel = $this->resolveModelName($fk->foreignTable);
+            $relatedModel = $modelPrefix.$this->resolveModelName($fk->foreignTable);
             $imports[] = $modelNamespace.'\\'.$relatedModel;
             $imports[] = 'SchemaCraft\\Attributes\\Relations\\BelongsTo';
 
@@ -261,7 +268,7 @@ class SchemaFileGenerator
         foreach ($allTables as $otherTableName => $otherTable) {
             foreach ($otherTable->foreignKeys as $fk) {
                 if ($fk->foreignTable === $table->tableName) {
-                    $relatedModel = $this->resolveModelName($otherTableName);
+                    $relatedModel = $modelPrefix.$this->resolveModelName($otherTableName);
                     $hasManyCollector[$relatedModel][] = [
                         'fkColumn' => $fk->column,
                         'otherTableName' => $otherTableName,
@@ -309,7 +316,7 @@ class SchemaFileGenerator
 
         // Process BelongsToMany from pivot tables
         foreach ($pivotRelationships as $relatedTable => $pivotTableName) {
-            $relatedModel = $this->resolveModelName($relatedTable);
+            $relatedModel = $modelPrefix.$this->resolveModelName($relatedTable);
             $propertyName = Str::camel(Str::plural($relatedModel));
 
             // If this name collides with a HasMany, suffix with "Pivot"
@@ -379,6 +386,7 @@ class SchemaFileGenerator
             morphToProperties: $morphToProperties,
             compositeIndexAttrs: $compositeIndexAttrs,
             customTableName: $customTableName,
+            connection: $connection,
         );
 
         $modelContent = $this->buildModelFileContent(
@@ -387,6 +395,7 @@ class SchemaFileGenerator
             modelName: $modelName,
             schemaName: $schemaName,
             hasSoftDeletes: $hasSoftDeletes,
+            connection: $connection,
         );
 
         return new GeneratedSchemaResult(
@@ -543,8 +552,9 @@ class SchemaFileGenerator
         DatabaseForeignKeyState $fk,
         DatabaseTableState $table,
         string $modelNamespace,
+        string $modelPrefix = '',
     ): GeneratedProperty {
-        $relatedModel = $this->resolveModelName($fk->foreignTable);
+        $relatedModel = $modelPrefix.$this->resolveModelName($fk->foreignTable);
         $propertyName = $this->fkColumnToPropertyName($fk->column);
 
         // Check nullable on the FK column
@@ -879,6 +889,7 @@ class SchemaFileGenerator
         array $morphToProperties,
         array $compositeIndexAttrs,
         ?string $customTableName = null,
+        ?string $connection = null,
     ): string {
         $lines = [];
         $lines[] = '<?php';
@@ -928,6 +939,12 @@ class SchemaFileGenerator
             $lines[] = '    {';
             $lines[] = "        return '{$customTableName}';";
             $lines[] = '    }';
+        }
+
+        // DB connection override (for multi-database setups)
+        if ($connection !== null) {
+            $lines[] = '';
+            $lines[] = "    protected static ?string \$connection = '{$connection}';";
         }
 
         // Id property
@@ -981,6 +998,7 @@ class SchemaFileGenerator
         string $modelName,
         string $schemaName,
         bool $hasSoftDeletes,
+        ?string $connection = null,
     ): string {
         $lines = [];
         $lines[] = '<?php';
@@ -1006,6 +1024,12 @@ class SchemaFileGenerator
         }
 
         $lines[] = "    protected static string \$schema = {$schemaName}::class;";
+
+        if ($connection !== null) {
+            $lines[] = '';
+            $lines[] = "    protected \$connection = '{$connection}';";
+        }
+
         $lines[] = '}';
         $lines[] = '';
 

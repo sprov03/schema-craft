@@ -18,6 +18,7 @@ class TableDefinition
     public function __construct(
         public string $tableName,
         public string $schemaClass,
+        public ?string $connection = null,
         public array $columns = [],
         public array $relationships = [],
         public array $compositeIndexes = [],

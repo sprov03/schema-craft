@@ -86,17 +86,58 @@ class PostService
 PHP;
     }
 
+    private function sampleTest(): string
+    {
+        return <<<'PHP'
+<?php
+
+namespace Tests\Feature\Controllers;
+
+use Database\Factories\PostFactory;
+use Database\Factories\UserFactory;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class PostControllerTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_can_get_collection(): void
+    {
+        $user = UserFactory::createDefault();
+        $this->actingAs($user, 'sanctum');
+
+        PostFactory::createDefaults(2);
+
+        $response = $this->getJson('/api/posts');
+
+        $response->assertOk();
+    }
+
+    public function test_can_delete(): void
+    {
+        $user = UserFactory::createDefault();
+        $this->actingAs($user, 'sanctum');
+
+        $post = PostFactory::createDefault();
+
+        $response = $this->deleteJson('/api/posts/' . $post->id);
+
+        $response->assertNoContent();
+    }
+}
+PHP;
+    }
+
     // ─── addRoute ─────────────────────────────────────────────────
 
     public function test_add_route_inserts_after_last_route(): void
     {
+        $renderedRoute = "Route::put('posts/{post}/archive', [PostController::class, 'archive']);";
+
         $result = $this->writer->addRoute(
             $this->sampleController(),
-            'put',
-            'posts',
-            'archive',
-            'PostController',
-            'post',
+            $renderedRoute,
         );
 
         $this->assertStringContainsString(
@@ -107,13 +148,11 @@ PHP;
 
     public function test_add_route_preserves_existing_routes(): void
     {
+        $renderedRoute = "Route::put('posts/{post}/archive', [PostController::class, 'archive']);";
+
         $result = $this->writer->addRoute(
             $this->sampleController(),
-            'put',
-            'posts',
-            'archive',
-            'PostController',
-            'post',
+            $renderedRoute,
         );
 
         $this->assertStringContainsString("Route::get('posts',", $result);
@@ -124,12 +163,20 @@ PHP;
 
     public function test_add_controller_method(): void
     {
+        $renderedMethod = <<<'PHP'
+    public function archive(ArchivePostRequest $request, Post $post): \Illuminate\Http\JsonResponse
+    {
+        $post->Service()->archive(
+            ...$request->validated()
+        );
+
+        return response()->json(null, 200);
+    }
+PHP;
+
         $result = $this->writer->addControllerMethod(
             $this->sampleController(),
-            'archive',
-            'Post',
-            'post',
-            'ArchivePostRequest',
+            $renderedMethod,
         );
 
         $this->assertStringContainsString('public function archive(ArchivePostRequest $request, Post $post)', $result);
@@ -138,12 +185,20 @@ PHP;
 
     public function test_add_controller_method_preserves_existing_methods(): void
     {
+        $renderedMethod = <<<'PHP'
+    public function archive(ArchivePostRequest $request, Post $post): \Illuminate\Http\JsonResponse
+    {
+        $post->Service()->archive(
+            ...$request->validated()
+        );
+
+        return response()->json(null, 200);
+    }
+PHP;
+
         $result = $this->writer->addControllerMethod(
             $this->sampleController(),
-            'archive',
-            'Post',
-            'post',
-            'ArchivePostRequest',
+            $renderedMethod,
         );
 
         $this->assertStringContainsString('public function getCollection()', $result);
@@ -179,25 +234,43 @@ PHP;
 
     public function test_add_service_method(): void
     {
+        $renderedMethod = <<<'PHP'
+    public function archive(mixed ...$validated): Post
+    {
+        // TODO: Implement archive logic
+
+        $this->post->save();
+
+        return $this->post;
+    }
+PHP;
+
         $result = $this->writer->addServiceMethod(
             $this->sampleService(),
-            'archive',
-            'Post',
-            'post',
+            $renderedMethod,
         );
 
-        $this->assertStringContainsString('public function archive(): Post', $result);
+        $this->assertStringContainsString('public function archive(mixed ...$validated): Post', $result);
         $this->assertStringContainsString('$this->post->save();', $result);
         $this->assertStringContainsString('return $this->post;', $result);
     }
 
     public function test_add_service_method_preserves_existing_methods(): void
     {
+        $renderedMethod = <<<'PHP'
+    public function archive(mixed ...$validated): Post
+    {
+        // TODO: Implement archive logic
+
+        $this->post->save();
+
+        return $this->post;
+    }
+PHP;
+
         $result = $this->writer->addServiceMethod(
             $this->sampleService(),
-            'archive',
-            'Post',
-            'post',
+            $renderedMethod,
         );
 
         $this->assertStringContainsString('public function update(string $title): Post', $result);
@@ -212,17 +285,119 @@ PHP;
 
         // Add first action
         $controller = $this->writer->addImport($controller, 'App\\Http\\Requests\\ArchivePostRequest');
-        $controller = $this->writer->addRoute($controller, 'put', 'posts', 'archive', 'PostController', 'post');
-        $controller = $this->writer->addControllerMethod($controller, 'archive', 'Post', 'post', 'ArchivePostRequest');
+        $controller = $this->writer->addRoute(
+            $controller,
+            "Route::put('posts/{post}/archive', [PostController::class, 'archive']);",
+        );
+        $archiveMethod = <<<'PHP'
+    public function archive(ArchivePostRequest $request, Post $post): \Illuminate\Http\JsonResponse
+    {
+        $post->Service()->archive(
+            ...$request->validated()
+        );
+
+        return response()->json(null, 200);
+    }
+PHP;
+        $controller = $this->writer->addControllerMethod($controller, $archiveMethod);
 
         // Add second action
         $controller = $this->writer->addImport($controller, 'App\\Http\\Requests\\PublishPostRequest');
-        $controller = $this->writer->addRoute($controller, 'put', 'posts', 'publish', 'PostController', 'post');
-        $controller = $this->writer->addControllerMethod($controller, 'publish', 'Post', 'post', 'PublishPostRequest');
+        $controller = $this->writer->addRoute(
+            $controller,
+            "Route::put('posts/{post}/publish', [PostController::class, 'publish']);",
+        );
+        $publishMethod = <<<'PHP'
+    public function publish(PublishPostRequest $request, Post $post): \Illuminate\Http\JsonResponse
+    {
+        $post->Service()->publish(
+            ...$request->validated()
+        );
+
+        return response()->json(null, 200);
+    }
+PHP;
+        $controller = $this->writer->addControllerMethod($controller, $publishMethod);
 
         $this->assertStringContainsString("Route::put('posts/{post}/archive',", $controller);
         $this->assertStringContainsString("Route::put('posts/{post}/publish',", $controller);
         $this->assertStringContainsString('public function archive(', $controller);
         $this->assertStringContainsString('public function publish(', $controller);
+    }
+
+    // ─── addTestMethod ────────────────────────────────────────────
+
+    public function test_add_test_method(): void
+    {
+        $renderedMethod = <<<'PHP'
+    public function test_can_archive(): void
+    {
+        $user = UserFactory::createDefault();
+        $this->actingAs($user, 'sanctum');
+
+        $post = PostFactory::createDefault();
+
+        $response = $this->getJson('/api/posts/' . $post->id . '/archive');
+
+        $response->assertOk();
+    }
+PHP;
+
+        $result = $this->writer->addTestMethod(
+            $this->sampleTest(),
+            $renderedMethod,
+        );
+
+        $this->assertStringContainsString('public function test_can_archive(): void', $result);
+        $this->assertStringContainsString("getJson('/api/posts/' . \$post->id . '/archive')", $result);
+    }
+
+    public function test_add_test_method_preserves_existing_tests(): void
+    {
+        $renderedMethod = <<<'PHP'
+    public function test_can_archive(): void
+    {
+        // ...
+    }
+PHP;
+
+        $result = $this->writer->addTestMethod(
+            $this->sampleTest(),
+            $renderedMethod,
+        );
+
+        $this->assertStringContainsString('public function test_can_get_collection(): void', $result);
+        $this->assertStringContainsString('public function test_can_delete(): void', $result);
+    }
+
+    // ─── addControllerRegistration ────────────────────────────────
+
+    public function test_add_controller_registration(): void
+    {
+        $routeFile = "<?php\n\nuse Illuminate\\Support\\Facades\\Route;\n";
+
+        $result = $this->writer->addControllerRegistration(
+            $routeFile,
+            'App\\Http\\Controllers\\Api\\PostController',
+            'PostController',
+        );
+
+        $this->assertStringContainsString('\\App\\Http\\Controllers\\Api\\PostController::apiRoutes();', $result);
+    }
+
+    public function test_add_controller_registration_does_not_duplicate(): void
+    {
+        $routeFile = "<?php\n\nuse Illuminate\\Support\\Facades\\Route;\n\n\\App\\Http\\Controllers\\Api\\PostController::apiRoutes();\n";
+
+        $result = $this->writer->addControllerRegistration(
+            $routeFile,
+            'App\\Http\\Controllers\\Api\\PostController',
+            'PostController',
+        );
+
+        $this->assertSame(
+            1,
+            substr_count($result, 'PostController::apiRoutes()'),
+        );
     }
 }

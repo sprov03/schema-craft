@@ -1,5 +1,24 @@
 <?php
 
+/**
+ * Template variables:
+ *   {{ controllerNamespace }}  - Controller namespace
+ *   {{ modelFqcn }}            - Full model class path (e.g., "App\Models\Post")
+ *   {{ serviceFqcn }}          - Full service class path
+ *   {{ resourceFqcn }}         - Full resource class path
+ *   {{ createRequestFqcn }}    - Full create request class path
+ *   {{ updateRequestFqcn }}    - Full update request class path
+ *   {{ controllerClass }}      - Controller class name (e.g., "PostController")
+ *   {{ routePrefix }}          - URL route prefix (e.g., "posts")
+ *   {{ routeParam }}           - Route parameter name (e.g., "post")
+ *   {{ modelClass }}           - Model class name (e.g., "Post")
+ *   {{ modelVariable }}        - camelCase model variable (e.g., "post")
+ *   {{ resourceClass }}        - Resource class name (e.g., "PostResource")
+ *   {{ serviceClass }}         - Service class name (e.g., "PostService")
+ *   {{ createRequestClass }}   - Create request class name
+ *   {{ updateRequestClass }}   - Update request class name
+ */
+
 namespace {{ controllerNamespace }};
 
 use App\Http\Controllers\Controller;

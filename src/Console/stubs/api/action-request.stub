@@ -1,15 +1,28 @@
 <?php
 
+/**
+ * Template variables:
+ *   {{ requestNamespace }}  - Namespace for this class
+ *   {{ requestClass }}      - Class name (e.g., "ArchivePostRequest")
+ *   {{ schemaFqcn }}        - Full schema path (e.g., "App\Schemas\PostSchema")
+ *   {{ schemaClass }}       - Schema class (e.g., "PostSchema")
+ *   {{ rulesMethod }}       - Rules method (e.g., "createRules" or "updateRules")
+ *   {{ ruleFields }}        - Column list for validation rules
+ *   {{ actionName }}        - Action name (e.g., "archive")
+ *   {{ modelClass }}        - Model class (e.g., "Post")
+ */
+
 namespace {{ requestNamespace }};
 
+use {{ schemaFqcn }};
 use Illuminate\Foundation\Http\FormRequest;
 
 class {{ requestClass }} extends FormRequest
 {
     public function rules(): array
     {
-        return [
-            //
-        ];
+        return {{ schemaClass }}::{{ rulesMethod }}([
+{{ ruleFields }}
+        ])->toArray();
     }
 }

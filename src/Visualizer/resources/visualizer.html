@@ -1229,10 +1229,12 @@
             font-size: 13px; font-family: var(--font-mono); color: var(--text-muted);
             background: var(--bg-tertiary); padding: 2px 10px; border-radius: 4px;
         }
-        .gen-stack-badges { display: flex; gap: 6px; margin-left: auto; }
+        .gen-stack-badges { display: flex; gap: 6px; margin-left: auto; align-items: center; }
         .gen-stack-badge { padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; }
         .gen-stack-badge.controller { background: var(--success-dim); color: var(--success); }
         .gen-stack-badge.service { background: var(--info-dim); color: var(--info); }
+        .gen-stack-badge.test { background: var(--accent-dim); color: var(--accent); }
+        .gen-stack-badge.missing { background: var(--warning-dim); color: var(--warning); }
 
         /* Endpoint list */
         .gen-endpoint-section-title { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -1253,6 +1255,7 @@
         .gen-endpoint-method.delete { background: var(--error-dim); color: var(--error); }
         .gen-endpoint-path { font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); flex: 1; }
         .gen-endpoint-action { font-size: 12px; color: var(--text-muted); }
+        .gen-endpoint-desc { font-size: 11px; color: var(--text-muted); font-style: italic; flex: 1; }
         .gen-endpoint-type { padding: 1px 8px; border-radius: 10px; font-size: 10px; background: var(--bg-tertiary); color: var(--text-muted); }
         .gen-endpoint-type.custom { background: var(--accent-dim); color: var(--accent); }
         .gen-endpoint-item { cursor: pointer; }
@@ -1282,6 +1285,7 @@
         .ep-header-method.put { background: var(--warning-dim); color: var(--warning); }
         .ep-header-method.delete { background: var(--error-dim); color: var(--error); }
         .ep-header-path { font-family: var(--font-mono); font-size: 14px; font-weight: 500; flex: 1; }
+        .ep-header-desc { font-size: 12px; color: var(--text-muted); font-style: italic; }
         .ep-header-close {
             background: none; border: none; color: var(--text-muted); font-size: 20px;
             cursor: pointer; padding: 4px 8px; border-radius: 4px; flex-shrink: 0;
@@ -1369,6 +1373,7 @@
         .gen-add-action-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; }
         .gen-add-action-row { display: flex; gap: 10px; align-items: center; }
         .gen-add-action-row .sc-input { flex: 1; }
+        .gen-add-action-row .sc-select { width: auto; min-width: 90px; flex: 0 0 auto; }
 
         /* SDK detail */
         .gen-sdk-detail { padding: 24px; max-width: 700px; }
@@ -1567,9 +1572,38 @@
                 document.getElementById('health-tab').hidden = false;
                 renderModelList();
                 bindEvents();
+                restoreFromQueryParams();
             } catch (e) {
                 document.getElementById('loading').innerHTML =
                     '<span style="color:var(--error)">Failed to load schema data: ' + escapeHtml(e.message) + '</span>';
+            }
+        }
+
+        function restoreFromQueryParams() {
+            var initialTab = getQueryParam('tab');
+            var initialApi = getQueryParam('api');
+            var initialStack = getQueryParam('stack');
+
+            if (initialTab && document.querySelector('.tab-btn[data-tab="' + initialTab + '"]')) {
+                if (initialTab === 'generate' && initialApi) {
+                    // Pre-set generate state before switchTab triggers initGenerateTab
+                    generateInitialized = true;
+                    genSelectedApi = initialApi;
+                    genSelectedStack = initialStack;
+                    genSelectedView = initialStack ? 'stack' : null;
+
+                    // switchTab will skip initGenerateTab since generateInitialized is true
+                    switchTab(initialTab);
+
+                    // Load the API config and render the main layout
+                    loadGenerateConfig(initialApi, function() {
+                        renderGenerateMain();
+                    });
+                } else {
+                    switchTab(initialTab);
+                }
+            } else {
+                switchTab('health');
             }
         }
 
@@ -1600,6 +1634,22 @@
             });
         }
 
+        function updateQueryParams(params) {
+            var url = new URL(window.location);
+            Object.keys(params).forEach(function(key) {
+                if (params[key] === null || params[key] === undefined) {
+                    url.searchParams.delete(key);
+                } else {
+                    url.searchParams.set(key, params[key]);
+                }
+            });
+            history.replaceState(null, '', url);
+        }
+
+        function getQueryParam(name) {
+            return new URLSearchParams(window.location.search).get(name);
+        }
+
         function switchTab(tab) {
             activeTab = tab;
             document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); });
@@ -1609,6 +1659,11 @@
             document.getElementById('schemas-tab').hidden = tab !== 'schemas';
             document.getElementById('status-tab').hidden = tab !== 'status';
             document.getElementById('generate-tab').hidden = tab !== 'generate';
+
+            updateQueryParams({ tab: tab });
+            if (tab !== 'generate') {
+                updateQueryParams({ api: null, stack: null });
+            }
 
             if (tab === 'query-builder') initQueryBuilder();
             if (tab === 'schemas') initSchemasTab();
@@ -4393,6 +4448,7 @@
 
         // ── Schemas Tab ─────────────────────────────────
         var schemasInitialized = false;
+        var schemasDbConnection = null;
         var schemasState = {
             baseModelInstalled: null,
             tables: null,
@@ -4404,7 +4460,7 @@
             schemasInitialized = true;
             renderSchemasTab();
             checkInstallStatus();
-            loadDatabaseTables();
+            loadConnections();
         }
 
         function renderSchemasTab() {
@@ -4446,6 +4502,10 @@
                     '<div class="sc-panel">' +
                         '<div class="sc-panel-header">Import from Database</div>' +
                         '<div class="sc-panel-body">' +
+                            '<div class="sc-form-group">' +
+                                '<label class="sc-form-label">Database Connection</label>' +
+                                '<select class="sc-input" id="sc-db-connection" style="width: 100%;"><option>Loading...</option></select>' +
+                            '</div>' +
                             '<div class="sc-search-bar">' +
                                 '<input type="text" class="sc-input" id="sc-import-search" placeholder="Search tables...">' +
                                 '<button class="sc-btn sm" id="sc-select-all">All</button>' +
@@ -4480,6 +4540,10 @@
             });
             document.getElementById('sc-select-all').addEventListener('click', function() { toggleAllTables(true); });
             document.getElementById('sc-deselect-all').addEventListener('click', function() { toggleAllTables(false); });
+            document.getElementById('sc-db-connection').addEventListener('change', function() {
+                schemasDbConnection = this.value;
+                loadDatabaseTables();
+            });
         }
 
         function checkInstallStatus() {
@@ -4556,9 +4620,38 @@
             .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
         }
 
+        // ── DB Connections ────────────────────────────────
+        function loadConnections() {
+            fetch('/_schema-craft/api/connections')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var select = document.getElementById('sc-db-connection');
+                    if (!select) return;
+                    select.innerHTML = '';
+                    data.connections.forEach(function(conn) {
+                        var opt = document.createElement('option');
+                        opt.value = conn.name;
+                        var label = conn.name;
+                        if (conn.schemaPrefix) label += ' (prefix: ' + conn.schemaPrefix + ')';
+                        if (conn.schemaNamespace !== 'App\\Schemas') label += ' [' + conn.schemaNamespace + ']';
+                        opt.textContent = label;
+                        select.appendChild(opt);
+                    });
+                    schemasDbConnection = data.default;
+                    select.value = data.default;
+                    loadDatabaseTables();
+                })
+                .catch(function(e) {
+                    schemasDbConnection = null;
+                    loadDatabaseTables();
+                });
+        }
+
         // ── Import from Database ────────────────────────
         function loadDatabaseTables() {
-            fetch('/_schema-craft/api/database/tables')
+            var url = '/_schema-craft/api/database/tables';
+            if (schemasDbConnection) url += '?db_connection=' + encodeURIComponent(schemasDbConnection);
+            fetch(url)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     schemasState.tables = data.tables.map(function(t) {
@@ -4637,6 +4730,7 @@
             var url = previewOnly ? '/_schema-craft/api/schema/import/preview' : '/_schema-craft/api/schema/import';
 
             var body = { tables: tables, createModel: createModel };
+            if (schemasDbConnection) body.db_connection = schemasDbConnection;
             if (!previewOnly) body.force = force;
 
             fetch(url, {
@@ -5114,6 +5208,8 @@
             genSelectedView = null;
             genStackDetail = null;
 
+            updateQueryParams({ api: apiName, stack: null });
+
             loadGenerateConfig(apiName, function() {
                 renderGenerateMain();
             });
@@ -5204,6 +5300,7 @@
             genSelectedApi = null;
             genSelectedStack = null;
             genSelectedView = null;
+            updateQueryParams({ api: null, stack: null });
             loadGenerateConfig(null, function() {
                 renderGenerateApiSelector();
             });
@@ -5213,6 +5310,8 @@
         function selectStack(schemaClass) {
             genSelectedStack = schemaClass;
             genSelectedView = 'stack';
+
+            updateQueryParams({ stack: schemaClass });
 
             // Highlight in sidebar
             document.querySelectorAll('.gen-stack-item').forEach(function(item) {
@@ -5245,7 +5344,18 @@
 
             var badgesHtml = '';
             if (d.hasController) badgesHtml += '<span class="gen-stack-badge controller">Controller</span>';
-            if (d.hasService) badgesHtml += '<span class="gen-stack-badge service">Service</span>';
+            if (d.hasService) {
+                badgesHtml += '<span class="gen-stack-badge service">Service</span>';
+            } else {
+                badgesHtml += '<span class="gen-stack-badge missing">Missing Service</span>' +
+                    '<button class="sc-btn primary sm" id="gen-create-service-btn">Create Service</button>';
+            }
+            if (d.hasTest) {
+                badgesHtml += '<span class="gen-stack-badge test">Test</span>';
+            } else {
+                badgesHtml += '<span class="gen-stack-badge missing">Missing Test</span>' +
+                    '<button class="sc-btn primary sm" id="gen-create-test-btn">Create Test</button>';
+            }
 
             var endpointsHtml = '';
             d.endpoints.forEach(function(ep, idx) {
@@ -5253,6 +5363,7 @@
                     '<span class="gen-endpoint-method ' + ep.method.toLowerCase() + '">' + ep.method + '</span>' +
                     '<span class="gen-endpoint-path">' + escapeHtml(ep.path) + '</span>' +
                     '<span class="gen-endpoint-action">' + escapeHtml(ep.action) + '</span>' +
+                    (ep.description ? '<span class="gen-endpoint-desc">' + escapeHtml(ep.description) + '</span>' : '') +
                     '<span class="gen-endpoint-type ' + ep.type + '">' + ep.type + '</span>' +
                 '</div>';
             });
@@ -5269,7 +5380,14 @@
                     '<div class="gen-add-action-section">' +
                         '<div class="gen-add-action-title">Add Custom Action</div>' +
                         '<div class="gen-add-action-row">' +
+                            '<select class="sc-select" id="gen-inline-action-method">' +
+                                '<option value="get">GET</option>' +
+                                '<option value="post">POST</option>' +
+                                '<option value="put" selected>PUT</option>' +
+                                '<option value="delete">DELETE</option>' +
+                            '</select>' +
                             '<input type="text" class="sc-input" id="gen-inline-action-name" placeholder="e.g. publish, archive, cancel">' +
+                            '<input type="text" class="sc-input" id="gen-inline-action-desc" placeholder="Brief description (optional)">' +
                             '<button class="sc-btn" id="gen-inline-action-preview">Preview</button>' +
                             '<button class="sc-btn primary" id="gen-inline-action-submit">Add Action</button>' +
                         '</div>' +
@@ -5286,6 +5404,74 @@
 
             document.getElementById('gen-inline-action-preview').addEventListener('click', function() { doInlineAction(true); });
             document.getElementById('gen-inline-action-submit').addEventListener('click', function() { doInlineAction(false); });
+
+            // Create Service button
+            var createServiceBtn = document.getElementById('gen-create-service-btn');
+            if (createServiceBtn) {
+                createServiceBtn.addEventListener('click', function() {
+                    createServiceBtn.disabled = true;
+                    createServiceBtn.textContent = 'Creating...';
+
+                    fetch('/_schema-craft/api/generate/service', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({
+                            schema: genSelectedStack,
+                            api: genSelectedApi,
+                        }),
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            showToast(data.message, 'success');
+                            selectStack(genSelectedStack);
+                        } else {
+                            showToast(data.message || 'Failed to create service.', 'error');
+                            createServiceBtn.disabled = false;
+                            createServiceBtn.textContent = 'Create Service';
+                        }
+                    })
+                    .catch(function(e) {
+                        showToast('Error: ' + e.message, 'error');
+                        createServiceBtn.disabled = false;
+                        createServiceBtn.textContent = 'Create Service';
+                    });
+                });
+            }
+
+            // Create Test button
+            var createTestBtn = document.getElementById('gen-create-test-btn');
+            if (createTestBtn) {
+                createTestBtn.addEventListener('click', function() {
+                    createTestBtn.disabled = true;
+                    createTestBtn.textContent = 'Creating...';
+
+                    fetch('/_schema-craft/api/generate/test', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({
+                            schema: genSelectedStack,
+                            api: genSelectedApi,
+                        }),
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            showToast(data.message, 'success');
+                            selectStack(genSelectedStack);
+                        } else {
+                            showToast(data.message || 'Failed to create test.', 'error');
+                            createTestBtn.disabled = false;
+                            createTestBtn.textContent = 'Create Test';
+                        }
+                    })
+                    .catch(function(e) {
+                        showToast('Error: ' + e.message, 'error');
+                        createTestBtn.disabled = false;
+                        createTestBtn.textContent = 'Create Test';
+                    });
+                });
+            }
         }
 
         // ── Endpoint detail modal ────────────────────────
@@ -5307,6 +5493,7 @@
                     '<div class="ep-header">' +
                         '<span class="ep-header-method ' + ep.method.toLowerCase() + '">' + ep.method + '</span>' +
                         '<span class="ep-header-path">' + escapeHtml(ep.path) + '</span>' +
+                        (ep.description ? '<span class="ep-header-desc">' + escapeHtml(ep.description) + '</span>' : '') +
                         '<button class="ep-header-close ep-close-btn">&times;</button>' +
                     '</div>' +
                     '<div class="ep-tabs">' +
@@ -5604,7 +5791,9 @@
             var actionName = document.getElementById('gen-inline-action-name').value.trim();
             if (!actionName) { showToast('Enter an action name.', 'warning'); return; }
 
-            var payload = { schema: genSelectedStack, api: genSelectedApi, action: actionName };
+            var httpMethod = document.getElementById('gen-inline-action-method').value;
+            var description = document.getElementById('gen-inline-action-desc').value.trim();
+            var payload = { schema: genSelectedStack, api: genSelectedApi, action: actionName, method: httpMethod, description: description || null };
 
             if (previewOnly) {
                 fetch('/_schema-craft/api/generate/action/preview', {
@@ -5636,6 +5825,8 @@
                 if (data.success) {
                     showToast(data.message, 'success');
                     document.getElementById('gen-inline-action-name').value = '';
+                    document.getElementById('gen-inline-action-desc').value = '';
+                    document.getElementById('gen-inline-action-method').value = 'put';
                     // Refresh stack detail to show new endpoint
                     selectStack(genSelectedStack);
                     // Also refresh config to update endpoint count badge
@@ -5772,6 +5963,7 @@
         function showSdkView() {
             genSelectedStack = null;
             genSelectedView = 'sdk';
+            updateQueryParams({ stack: null });
 
             // Clear sidebar active states
             document.querySelectorAll('.gen-stack-item').forEach(function(i) { i.classList.remove('active'); });
@@ -5877,6 +6069,7 @@
             genSelectedApi = null;
             genSelectedStack = null;
             genSelectedView = 'filament';
+            updateQueryParams({ api: null, stack: null });
 
             var container = document.getElementById('generate-tab');
 

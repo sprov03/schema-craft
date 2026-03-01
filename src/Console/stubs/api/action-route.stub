@@ -1,0 +1,11 @@
+/**
+ * Template variables:
+ *   {{ httpMethod }}       - HTTP method (get, post, put, delete)
+ *   {{ routePrefix }}      - URL prefix (e.g., "posts")
+ *   {{ routeParam }}       - Base route param (e.g., "post"); use :id modifier for ID style
+ *   {{ routeParam:id }}    - Snake_case ID param (e.g., "post_id")
+ *   {{ actionSlug }}       - Kebab-case action name (e.g., "archive")
+ *   {{ controllerClass }}  - Controller class (e.g., "PostController")
+ *   {{ actionName }}       - camelCase method name (e.g., "archive")
+ */
+        Route::{{ httpMethod }}('{{ routePrefix }}/{{{ routeParam:id }}}/{{ actionSlug }}', [{{ controllerClass }}::class, '{{ actionName }}']);

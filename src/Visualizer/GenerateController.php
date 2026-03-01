@@ -20,6 +20,7 @@ use SchemaCraft\Generator\Filament\FilamentCodeGenerator;
 use SchemaCraft\Generator\Filament\FilamentPolicyGenerator;
 use SchemaCraft\Generator\ModelTestGenerator;
 use SchemaCraft\Generator\Sdk\ControllerActionScanner;
+use SchemaCraft\Generator\Sdk\RouteDefinitionScanner;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
 use SchemaCraft\Generator\Sdk\SdkSchemaContext;
 use SchemaCraft\Migration\SchemaDiscovery;
@@ -34,7 +35,7 @@ class GenerateController
     {
         $apis = ConfigResolver::allApiNames();
         $apiConfig = ConfigResolver::resolve($request->query('api'));
-        $actionScanner = new ControllerActionScanner;
+        $routeScanner = new RouteDefinitionScanner;
 
         $directories = ConfigResolver::schemaDirectories();
         $discovery = new SchemaDiscovery;
@@ -48,8 +49,7 @@ class GenerateController
 
             $endpointCount = 0;
             if ($hasController) {
-                $customActions = $actionScanner->scanFile($controllerPath);
-                $endpointCount = 5 + count($customActions);
+                $endpointCount = count($routeScanner->scanFile($controllerPath));
             }
 
             $schemas[] = [
@@ -57,6 +57,7 @@ class GenerateController
                 'modelName' => $modelName,
                 'hasController' => $hasController,
                 'hasService' => file_exists($apiConfig->servicePath($modelName)),
+                'hasTest' => file_exists($apiConfig->testPath($modelName)),
                 'endpointCount' => $endpointCount,
             ];
         }
@@ -78,7 +79,7 @@ class GenerateController
         ]);
 
         $apiConfig = ConfigResolver::resolve($request->query('api'));
-        $schemaClass = $this->resolveSchemaClass($request->query('schema'), $apiConfig);
+        $schemaClass = $this->resolveSchemaClass($request->query('schema'));
         $modelName = $this->resolveModelName($schemaClass);
 
         $controllerPath = $apiConfig->controllerPath($modelName);
@@ -93,26 +94,9 @@ class GenerateController
         $routePrefix = Str::snake(Str::pluralStudly($modelName), '-');
         $routeParam = Str::camel($modelName);
 
-        $endpoints = [
-            ['method' => 'GET', 'path' => "/{$routePrefix}", 'action' => 'getCollection', 'type' => 'standard'],
-            ['method' => 'GET', 'path' => "/{$routePrefix}/{{$routeParam}}", 'action' => 'get', 'type' => 'standard'],
-            ['method' => 'POST', 'path' => "/{$routePrefix}", 'action' => 'create', 'type' => 'standard'],
-            ['method' => 'PUT', 'path' => "/{$routePrefix}/{{$routeParam}}", 'action' => 'update', 'type' => 'standard'],
-            ['method' => 'DELETE', 'path' => "/{$routePrefix}/{{$routeParam}}", 'action' => 'delete', 'type' => 'standard'],
-        ];
-
-        $actionScanner = new ControllerActionScanner;
-        $customActions = $actionScanner->scanFile($controllerPath);
-
-        foreach ($customActions as $actionName) {
-            $actionSlug = Str::snake($actionName, '-');
-            $endpoints[] = [
-                'method' => 'PUT',
-                'path' => "/{$routePrefix}/{{$routeParam}}/{$actionSlug}",
-                'action' => $actionName,
-                'type' => 'custom',
-            ];
-        }
+        // Parse actual Route:: definitions from the controller
+        $routeScanner = new RouteDefinitionScanner;
+        $endpoints = $routeScanner->scanFile($controllerPath);
 
         // Scan schema for field metadata
         $fields = [];
@@ -229,10 +213,12 @@ class GenerateController
 
         return new JsonResponse([
             'modelName' => $modelName,
+            'schemaClass' => $schemaClass,
             'routePrefix' => $routePrefix,
             'routeParam' => $routeParam,
             'hasController' => true,
             'hasService' => file_exists($apiConfig->servicePath($modelName)),
+            'hasTest' => file_exists($apiConfig->testPath($modelName)),
             'endpoints' => $endpoints,
             'fields' => $fields,
             'editableFields' => $editableFields,
@@ -368,7 +354,7 @@ class GenerateController
         ]);
 
         $apiConfig = ConfigResolver::resolve($request->input('api'));
-        $schemaClass = $this->resolveSchemaClass($request->input('schema'), $apiConfig);
+        $schemaClass = $this->resolveSchemaClass($request->input('schema'));
 
         if (! class_exists($schemaClass)) {
             return new JsonResponse(['success' => false, 'message' => "Schema class [{$schemaClass}] not found."], 404);
@@ -407,7 +393,7 @@ class GenerateController
         ]);
 
         $apiConfig = ConfigResolver::resolve($request->input('api'));
-        $schemaClass = $this->resolveSchemaClass($request->input('schema'), $apiConfig);
+        $schemaClass = $this->resolveSchemaClass($request->input('schema'));
         $force = $request->boolean('force', false);
 
         if (! class_exists($schemaClass)) {
@@ -454,6 +440,8 @@ class GenerateController
             'schema' => ['required', 'string'],
             'action' => ['required', 'string'],
             'api' => ['sometimes', 'string'],
+            'method' => ['sometimes', 'string', 'in:get,post,put,delete'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
         ]);
 
         return $this->handleAction($request, false);
@@ -468,9 +456,118 @@ class GenerateController
             'schema' => ['required', 'string'],
             'action' => ['required', 'string'],
             'api' => ['sometimes', 'string'],
+            'method' => ['sometimes', 'string', 'in:get,post,put,delete'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:255'],
         ]);
 
         return $this->handleAction($request, true, $fs);
+    }
+
+    /**
+     * Create a service class for an existing API stack.
+     */
+    public function createService(Request $request, Filesystem $fs): JsonResponse
+    {
+        $request->validate([
+            'schema' => ['required', 'string'],
+            'api' => ['sometimes', 'string'],
+            'force' => ['sometimes', 'boolean'],
+        ]);
+
+        $schemaClass = $this->resolveSchemaClass($request->input('schema'));
+        $modelName = $this->resolveModelName($schemaClass);
+        $force = $request->boolean('force', false);
+
+        if (! class_exists($schemaClass)) {
+            return new JsonResponse(['success' => false, 'message' => "Schema class [{$schemaClass}] not found."], 404);
+        }
+
+        $scanner = new SchemaScanner($schemaClass);
+        $table = $scanner->scan();
+
+        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+
+        $stubsPath = $this->resolveStubsPath();
+        $generator = new ApiCodeGenerator($stubsPath);
+
+        $file = $generator->generateService(
+            table: $table,
+            modelName: $modelName,
+            modelNamespace: $connectionConfig->modelNamespace,
+            serviceNamespace: $connectionConfig->serviceNamespace,
+        );
+
+        $absolutePath = base_path($file->path);
+
+        if (! $force && $fs->exists($absolutePath)) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => "Service class already exists at {$file->path}.",
+            ], 422);
+        }
+
+        $fs->ensureDirectoryExists(dirname($absolutePath));
+        $fs->put($absolutePath, $file->content);
+
+        return new JsonResponse([
+            'success' => true,
+            'message' => "{$modelName}Service created.",
+            'path' => $file->path,
+        ]);
+    }
+
+    /**
+     * Create a controller test class for an existing API stack.
+     */
+    public function createTest(Request $request, Filesystem $fs): JsonResponse
+    {
+        $request->validate([
+            'schema' => ['required', 'string'],
+            'api' => ['sometimes', 'string'],
+            'force' => ['sometimes', 'boolean'],
+        ]);
+
+        $apiConfig = ConfigResolver::resolve($request->input('api'));
+        $schemaClass = $this->resolveSchemaClass($request->input('schema'));
+        $modelName = $this->resolveModelName($schemaClass);
+        $force = $request->boolean('force', false);
+
+        if (! class_exists($schemaClass)) {
+            return new JsonResponse(['success' => false, 'message' => "Schema class [{$schemaClass}] not found."], 404);
+        }
+
+        $scanner = new SchemaScanner($schemaClass);
+        $table = $scanner->scan();
+
+        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+
+        $testGenerator = new ControllerTestGenerator;
+        $content = $testGenerator->generate(
+            $table,
+            $modelName,
+            $connectionConfig->modelNamespace,
+            routePrefix: $apiConfig->routePrefix,
+        );
+
+        $testDir = $apiConfig->testDirectory();
+        $testPath = "{$testDir}/{$modelName}ControllerTest.php";
+        $absolutePath = base_path($testPath);
+
+        if (! $force && $fs->exists($absolutePath)) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => "Test class already exists at {$testPath}.",
+            ], 422);
+        }
+
+        $fs->ensureDirectoryExists(dirname($absolutePath));
+        $fs->put($absolutePath, $content);
+
+        return new JsonResponse([
+            'success' => true,
+            'message' => "{$modelName}ControllerTest created.",
+            'path' => $testPath,
+        ]);
     }
 
     /**
@@ -753,18 +850,24 @@ class GenerateController
         $scanner = new SchemaScanner($schemaClass);
         $table = $scanner->scan();
 
+        // Resolve connection-specific namespaces from the schema's $connection
+        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+        $modelNamespace = $connectionConfig->modelNamespace;
+        $serviceNamespace = $connectionConfig->serviceNamespace;
+        $schemaNamespace = $connectionConfig->schemaNamespace;
+
         $stubsPath = $this->resolveStubsPath();
         $generator = new ApiCodeGenerator($stubsPath);
 
         $generatedFiles = $generator->generate(
             table: $table,
             modelName: $modelName,
-            modelNamespace: $apiConfig->modelNamespace,
+            modelNamespace: $modelNamespace,
             controllerNamespace: $apiConfig->controllerNamespace,
-            serviceNamespace: $apiConfig->serviceNamespace,
+            serviceNamespace: $serviceNamespace,
             requestNamespace: $apiConfig->requestNamespace,
             resourceNamespace: $apiConfig->resourceNamespace,
-            schemaNamespace: $apiConfig->schemaNamespace,
+            schemaNamespace: $schemaNamespace,
         );
 
         // Dependency resources
@@ -786,7 +889,7 @@ class GenerateController
         if ($withFactory) {
             $generatedFiles['factory'] = new GeneratedFile(
                 path: "database/factories/{$modelName}Factory.php",
-                content: (new FactoryGenerator)->generate($table, $modelName, $apiConfig->modelNamespace),
+                content: (new FactoryGenerator)->generate($table, $modelName, $modelNamespace),
             );
         }
 
@@ -794,19 +897,15 @@ class GenerateController
         if ($withTests) {
             $generatedFiles['model_test'] = new GeneratedFile(
                 path: "tests/Unit/{$modelName}ModelTest.php",
-                content: (new ModelTestGenerator)->generate($table, $modelName, $apiConfig->modelNamespace),
+                content: (new ModelTestGenerator)->generate($table, $modelName, $modelNamespace),
             );
 
-            $testDir = $apiConfig->name === 'default'
-                ? 'tests/Feature/Controllers'
-                : 'tests/Feature/Controllers/'.ucfirst($apiConfig->name).'Api';
-
             $generatedFiles['controller_test'] = new GeneratedFile(
-                path: "{$testDir}/{$modelName}ControllerTest.php",
+                path: $apiConfig->testDirectory()."/{$modelName}ControllerTest.php",
                 content: (new ControllerTestGenerator)->generate(
                     $table,
                     $modelName,
-                    $apiConfig->modelNamespace,
+                    $modelNamespace,
                     routePrefix: $apiConfig->routePrefix,
                 ),
             );
@@ -821,9 +920,17 @@ class GenerateController
     private function handleAction(Request $request, bool $write, ?Filesystem $fs = null): JsonResponse
     {
         $apiConfig = ConfigResolver::resolve($request->input('api'));
-        $schemaClass = $this->resolveSchemaClass($request->input('schema'), $apiConfig);
+        $schemaClass = $this->resolveSchemaClass($request->input('schema'));
         $actionName = $request->input('action');
+        $httpMethod = strtolower($request->input('method', 'put'));
+        $description = $request->input('description');
         $modelName = $this->resolveModelName($schemaClass);
+
+        // Determine if this HTTP method requires a custom request class
+        $needsRequest = ApiCodeGenerator::methodRequiresRequest($httpMethod);
+
+        // Derive action type from HTTP method: post → create, put → update
+        $actionType = $httpMethod === 'post' ? 'create' : 'update';
 
         $controllerPath = $apiConfig->controllerPath($modelName);
         $servicePath = $apiConfig->servicePath($modelName);
@@ -834,37 +941,87 @@ class GenerateController
 
         $hasService = file_exists($servicePath);
 
+        // Scan schema for context
+        $scanner = new SchemaScanner($schemaClass);
+        $table = $scanner->scan();
+        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+
         $fs = $fs ?? new Filesystem;
         $writer = new ApiFileWriter;
 
         $modelVariable = Str::camel($modelName);
         $routePrefix = Str::snake(Str::pluralStudly($modelName), '-');
         $routeParam = $modelVariable;
-        $requestClass = ucfirst($actionName).$modelName.'Request';
-        $requestFqcn = "{$apiConfig->requestNamespace}\\{$requestClass}";
+        $actionSlug = Str::snake($actionName, '-');
+        $controllerClass = $modelName.'Controller';
 
         $stubsPath = $this->resolveStubsPath();
         $generator = new ApiCodeGenerator($stubsPath);
-        $requestFile = $generator->generateAction($actionName, $modelName, $apiConfig->requestNamespace);
 
-        // Build patched controller content
-        $controllerContent = $fs->get($controllerPath);
-        $controllerContent = $writer->addImport($controllerContent, $requestFqcn);
-        $controllerContent = $writer->addRoute(
-            $controllerContent,
-            'put',
+        // Generate request file only for POST/PUT methods
+        $requestFile = null;
+        $requestClass = null;
+        $requestFqcn = null;
+
+        if ($needsRequest) {
+            $requestClass = ucfirst($actionName).$modelName.'Request';
+            $requestFqcn = "{$apiConfig->requestNamespace}\\{$requestClass}";
+            $requestFile = $generator->generateAction(
+                $actionName,
+                $modelName,
+                $apiConfig->requestNamespace,
+                $table,
+                $connectionConfig->schemaNamespace,
+                $actionType,
+            );
+        }
+
+        // Render action fragments from stubs (template engine handles directives/modifiers)
+        $renderedRoute = $generator->renderActionRoute(
+            $httpMethod,
             $routePrefix,
-            $actionName,
-            $modelName.'Controller',
             $routeParam,
+            $actionSlug,
+            $actionName,
+            $controllerClass,
         );
-        $controllerContent = $writer->addControllerMethod(
-            $controllerContent,
+
+        $renderedControllerMethod = $generator->renderActionControllerMethod(
+            $httpMethod,
             $actionName,
             $modelName,
             $modelVariable,
-            $requestClass,
+            $routeParam,
+            $needsRequest ? $requestClass : null,
+            $table,
+            $description,
         );
+
+        $renderedServiceMethod = $generator->renderActionServiceMethod(
+            $httpMethod,
+            $actionName,
+            $modelName,
+            $modelVariable,
+            $table,
+        );
+
+        // Build patched controller content
+        $controllerContent = $fs->get($controllerPath);
+
+        if ($needsRequest && $requestFqcn) {
+            $controllerContent = $writer->addImport($controllerContent, $requestFqcn);
+        }
+
+        // Add FK model imports for decoded request properties
+        if ($needsRequest) {
+            $fkImports = $generator->getDecodedPropertyImports($table);
+            foreach ($fkImports as $fkImport) {
+                $controllerContent = $writer->addImport($controllerContent, $fkImport);
+            }
+        }
+
+        $controllerContent = $writer->addRoute($controllerContent, $renderedRoute);
+        $controllerContent = $writer->addControllerMethod($controllerContent, $renderedControllerMethod);
 
         // Build patched service content (only if service exists)
         $serviceContent = null;
@@ -872,35 +1029,59 @@ class GenerateController
 
         if ($hasService) {
             $serviceContent = $fs->get($servicePath);
-            $serviceContent = $writer->addServiceMethod(
-                $serviceContent,
+            $serviceContent = $writer->addServiceMethod($serviceContent, $renderedServiceMethod);
+            $serviceRelPath = str_replace(base_path().'/', '', $servicePath);
+        }
+
+        // Build patched test content (only if test file exists)
+        $testPath = $apiConfig->testPath($modelName);
+        $hasTest = file_exists($testPath);
+        $testContent = null;
+        $testRelPath = null;
+
+        if ($hasTest) {
+            $fullRoutePrefix = rtrim($apiConfig->routePrefix, '/').'/'.$routePrefix;
+            $renderedTestMethod = $generator->renderActionTestMethod(
+                $httpMethod,
                 $actionName,
                 $modelName,
                 $modelVariable,
+                $fullRoutePrefix,
+                $table,
             );
-            $serviceRelPath = str_replace(base_path().'/', '', $servicePath);
+
+            $testContent = $fs->get($testPath);
+            $testContent = $writer->addTestMethod($testContent, $renderedTestMethod);
+            $testRelPath = str_replace(base_path().'/', '', $testPath);
         }
 
         $controllerRelPath = str_replace(base_path().'/', '', $controllerPath);
 
         if ($write) {
-            // Write request file
-            $requestAbsPath = base_path($requestFile->path);
-            $fs->ensureDirectoryExists(dirname($requestAbsPath));
-            $fs->put($requestAbsPath, $requestFile->content);
+            $resultFiles = [];
+
+            // Write request file only for POST/PUT
+            if ($needsRequest && $requestFile !== null) {
+                $requestAbsPath = base_path($requestFile->path);
+                $fs->ensureDirectoryExists(dirname($requestAbsPath));
+                $fs->put($requestAbsPath, $requestFile->content);
+                $resultFiles[] = ['path' => $requestFile->path, 'created' => true];
+            }
 
             // Write patched controller
             $fs->put($controllerPath, $controllerContent);
-
-            $resultFiles = [
-                ['path' => $requestFile->path, 'created' => true],
-                ['path' => $controllerRelPath, 'updated' => true],
-            ];
+            $resultFiles[] = ['path' => $controllerRelPath, 'updated' => true];
 
             // Write patched service if it exists
             if ($hasService && $serviceContent !== null) {
                 $fs->put($servicePath, $serviceContent);
                 $resultFiles[] = ['path' => $serviceRelPath, 'updated' => true];
+            }
+
+            // Write patched test if it exists
+            if ($hasTest && $testContent !== null) {
+                $fs->put($testPath, $testContent);
+                $resultFiles[] = ['path' => $testRelPath, 'updated' => true];
             }
 
             return new JsonResponse([
@@ -911,13 +1092,20 @@ class GenerateController
         }
 
         // Preview mode
-        $previewFiles = [
-            ['path' => $requestFile->path, 'content' => $requestFile->content, 'exists' => false],
-            ['path' => $controllerRelPath, 'content' => $controllerContent, 'exists' => true],
-        ];
+        $previewFiles = [];
+
+        if ($needsRequest && $requestFile !== null) {
+            $previewFiles[] = ['path' => $requestFile->path, 'content' => $requestFile->content, 'exists' => false];
+        }
+
+        $previewFiles[] = ['path' => $controllerRelPath, 'content' => $controllerContent, 'exists' => true];
 
         if ($hasService && $serviceContent !== null) {
             $previewFiles[] = ['path' => $serviceRelPath, 'content' => $serviceContent, 'exists' => true];
+        }
+
+        if ($hasTest && $testContent !== null) {
+            $previewFiles[] = ['path' => $testRelPath, 'content' => $testContent, 'exists' => true];
         }
 
         return new JsonResponse([
@@ -1014,7 +1202,7 @@ class GenerateController
         return $request->input('path') ?? $apiConfig->sdkPath;
     }
 
-    private function resolveSchemaClass(string $input, ApiConfig $apiConfig): string
+    private function resolveSchemaClass(string $input): string
     {
         if (str_contains($input, '\\')) {
             return $input;
@@ -1024,7 +1212,20 @@ class GenerateController
             $input .= 'Schema';
         }
 
-        return "{$apiConfig->schemaNamespace}\\{$input}";
+        // Search all connection schema namespaces for a matching class
+        foreach (ConfigResolver::allConnectionNames() as $name) {
+            $config = ConfigResolver::resolveConnection($name);
+            $fqcn = "{$config->schemaNamespace}\\{$input}";
+
+            if (class_exists($fqcn)) {
+                return $fqcn;
+            }
+        }
+
+        // Fallback to default namespace
+        $default = ConfigResolver::connectionDefaults();
+
+        return "{$default->schemaNamespace}\\{$input}";
     }
 
     private function resolveModelName(string $schemaClass): string

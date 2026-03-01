@@ -3,6 +3,7 @@
 namespace SchemaCraft\Tests\Feature;
 
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Support\Str;
 use SchemaCraft\Tests\TestCase;
 
 class GenerateControllerTest extends TestCase
@@ -100,16 +101,27 @@ PHP;
 
     private function createFakeController(string $modelName): void
     {
+        $routePrefix = Str::snake(Str::pluralStudly($modelName), '-');
+        $routeParam = Str::camel($modelName);
+
         $path = $this->tempDir."/app/Http/Controllers/Api/{$modelName}Controller.php";
         $content = <<<PHP
 <?php
 
 namespace App\Http\Controllers\Api;
 
+use Illuminate\Support\Facades\Route;
+
 class {$modelName}Controller
 {
-    // routes
-    // end routes
+    public static function apiRoutes(): void
+    {
+        Route::get('{$routePrefix}', [{$modelName}Controller::class, 'getCollection']);
+        Route::get('{$routePrefix}/{{$routeParam}}', [{$modelName}Controller::class, 'get']);
+        Route::post('{$routePrefix}', [{$modelName}Controller::class, 'create']);
+        Route::put('{$routePrefix}/{{{$routeParam}}}', [{$modelName}Controller::class, 'update']);
+        Route::delete('{$routePrefix}/{{{$routeParam}}}', [{$modelName}Controller::class, 'delete']);
+    }
 
     public function getCollection() {}
     public function get() {}
@@ -500,17 +512,27 @@ PHP);
             ['name' => 'title', 'phpType' => 'string'],
         ]);
 
-        // Create a controller with custom actions
+        // Create a controller with custom actions and Route definitions
         $path = $this->tempDir.'/app/Http/Controllers/Api/GenTaskController.php';
         $content = <<<'PHP'
 <?php
 
 namespace App\Http\Controllers\Api;
 
+use Illuminate\Support\Facades\Route;
+
 class GenTaskController
 {
-    // routes
-    // end routes
+    public static function apiRoutes(): void
+    {
+        Route::get('gen-tasks', [GenTaskController::class, 'getCollection']);
+        Route::get('gen-tasks/{genTask}', [GenTaskController::class, 'get']);
+        Route::post('gen-tasks', [GenTaskController::class, 'create']);
+        Route::put('gen-tasks/{genTask}', [GenTaskController::class, 'update']);
+        Route::delete('gen-tasks/{genTask}', [GenTaskController::class, 'delete']);
+        Route::put('gen-tasks/{genTask}/complete', [GenTaskController::class, 'complete']);
+        Route::delete('gen-tasks/{genTask}/archive', [GenTaskController::class, 'archive']);
+    }
 
     public function getCollection() {}
     public function get() {}
@@ -539,6 +561,40 @@ PHP;
         $customActions = collect($customEndpoints)->pluck('action')->all();
         $this->assertContains('complete', $customActions);
         $this->assertContains('archive', $customActions);
+
+        // Custom actions should have their actual HTTP methods from the Route:: definitions
+        $archiveEndpoint = collect($customEndpoints)->firstWhere('action', 'archive');
+        $this->assertEquals('DELETE', $archiveEndpoint['method']);
+    }
+
+    public function test_stack_detail_with_empty_routes_returns_no_endpoints(): void
+    {
+        $this->createSchemaFile('GenEmpty', [
+            ['name' => 'name', 'phpType' => 'string'],
+        ]);
+
+        // Create a controller with an empty apiRoutes() method
+        $path = $this->tempDir.'/app/Http/Controllers/Api/GenEmptyController.php';
+        $content = <<<'PHP'
+<?php
+
+namespace App\Http\Controllers\Api;
+
+class GenEmptyController
+{
+    public static function apiRoutes(): void
+    {
+    }
+}
+PHP;
+        $this->files->put($path, $content);
+
+        $response = $this->getJson('/_schema-craft/api/generate/stack-detail?schema=App%5CSchemas%5CGenEmptySchema');
+
+        $response->assertOk();
+
+        $endpoints = $response->json('endpoints');
+        $this->assertCount(0, $endpoints);
     }
 
     public function test_config_includes_endpoint_count(): void

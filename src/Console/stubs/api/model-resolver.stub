@@ -1,0 +1,1 @@
+{{ modelClass }}::forAuthUser()->findOrFail({{ modelId }})

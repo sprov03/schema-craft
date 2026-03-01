@@ -110,6 +110,24 @@ class ApiConfig
     }
 
     /**
+     * Get the test directory path relative to base_path().
+     */
+    public function testDirectory(): string
+    {
+        return $this->name === 'default'
+            ? 'tests/Feature/Controllers'
+            : 'tests/Feature/Controllers/'.ucfirst($this->name).'Api';
+    }
+
+    /**
+     * Get the absolute path to a specific controller test file.
+     */
+    public function testPath(string $modelName): string
+    {
+        return base_path($this->testDirectory().'/'.$modelName.'ControllerTest.php');
+    }
+
+    /**
      * Convert a namespace to a directory path relative to base_path().
      *
      * App\Http\Controllers\Api → app/Http/Controllers/Api

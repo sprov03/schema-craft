@@ -4,12 +4,14 @@ namespace SchemaCraft\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
+use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Generator\SchemaFileGenerator;
 use SchemaCraft\Migration\DatabaseReader;
 
 class SchemaFromDatabaseCommand extends Command
 {
     protected $signature = 'schema:from-database
+        {--db-connection= : DB connection config name from schema-craft.php}
         {--connection= : Database connection to read from}
         {--table=* : Specific tables to import (default: all)}
         {--exclude=* : Tables to exclude}
@@ -46,19 +48,44 @@ class SchemaFromDatabaseCommand extends Command
 
     public function handle(Filesystem $files): int
     {
-        $connection = $this->option('connection') ?: null;
-        $reader = new DatabaseReader($connection);
-        $generator = new SchemaFileGenerator;
+        // Resolve connection config (if --db-connection is provided)
+        $dbConnectionName = $this->option('db-connection');
+        $connectionConfig = $dbConnectionName !== null
+            ? ConfigResolver::resolveConnection($dbConnectionName)
+            : null;
 
-        // Resolve output paths and namespaces
+        // CLI options override config values; config provides defaults
+        $connection = $this->option('connection')
+            ?: ($connectionConfig?->connection)
+            ?: null;
+
+        $schemaNamespace = $this->option('schema-namespace')
+            ?? $connectionConfig?->schemaNamespace
+            ?? 'App\\Schemas';
+
+        $modelNamespace = $this->option('model-namespace')
+            ?? $connectionConfig?->modelNamespace
+            ?? 'App\\Models';
+
         $schemaDir = $this->option('schema-path')
             ? base_path($this->option('schema-path'))
-            : app_path('Schemas');
+            : $this->namespaceToAppPath($schemaNamespace);
+
         $modelDir = $this->option('model-path')
             ? base_path($this->option('model-path'))
-            : app_path('Models');
-        $schemaNamespace = $this->option('schema-namespace') ?? 'App\\Schemas';
-        $modelNamespace = $this->option('model-namespace') ?? 'App\\Models';
+            : $this->namespaceToAppPath($modelNamespace);
+
+        $schemaPrefix = $connectionConfig?->schemaPrefix ?? '';
+        $modelPrefix = $connectionConfig?->modelPrefix ?? '';
+
+        // Determine the connection name to emit in generated files
+        // Only emit if using a non-default connection
+        $emitConnection = $connectionConfig?->needsConnectionProperty() === true
+            ? $connectionConfig->connection
+            : null;
+
+        $reader = new DatabaseReader($connection);
+        $generator = new SchemaFileGenerator;
 
         // 1. Get all table names
         $allTableNames = $reader->tables();
@@ -128,6 +155,9 @@ class SchemaFromDatabaseCommand extends Command
                 pivotRelationships: $pivotRelationships,
                 schemaNamespace: $schemaNamespace,
                 modelNamespace: $modelNamespace,
+                schemaPrefix: $schemaPrefix,
+                modelPrefix: $modelPrefix,
+                connection: $emitConnection,
             );
 
             // Write schema file
@@ -183,6 +213,24 @@ class SchemaFromDatabaseCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Convert a namespace to an absolute directory path using app_path().
+     *
+     * App\Schemas → app_path('Schemas')
+     * App\Schemas\Crm → app_path('Schemas/Crm')
+     * Custom\Namespace → base_path('Custom/Namespace')
+     */
+    private function namespaceToAppPath(string $namespace): string
+    {
+        $path = str_replace('\\', '/', $namespace);
+
+        if (str_starts_with($path, 'App/')) {
+            return app_path(substr($path, 4));
+        }
+
+        return base_path($path);
     }
 
     /**

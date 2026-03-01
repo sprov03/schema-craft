@@ -1,8 +1,22 @@
 <?php
 
+/**
+ * Template variables:
+ *   {{ serviceNamespace }}      - Service namespace
+ *   {{ modelFqcn }}             - Full model class path (e.g., "App\Models\Post")
+ *   {{ relatedModelImports }}   - Use-imports for related models (e.g., "use App\Models\User;")
+ *   {{ serviceClass }}          - Service class name (e.g., "PostService")
+ *   {{ modelClass }}            - Model class name (e.g., "Post")
+ *   {{ modelVariable }}         - camelCase model variable (e.g., "post")
+ *   {{ createParams }}          - Create method parameters (model-typed for FK columns)
+ *   {{ createAssignments }}     - Create method assignments (associate() for BelongsTo)
+ *   {{ updateParams }}          - Update method parameters (model-typed for FK columns)
+ *   {{ updateAssignments }}     - Update method assignments (associate/dissociate for BelongsTo)
+ */
+
 namespace {{ serviceNamespace }};
 
-use {{ modelFqcn }};
+use {{ modelFqcn }};{{ relatedModelImports }}
 
 class {{ serviceClass }}
 {
