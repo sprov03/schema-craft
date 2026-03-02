@@ -93,7 +93,14 @@ class SchemaController
         $stub = $files->get($this->resolveStubPath('base-model.stub'));
 
         $files->ensureDirectoryExists(dirname($path));
-        $files->put($path, $stub);
+        $written = $files->put($path, $stub);
+
+        if ($written === false || ! $files->exists($path)) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => 'Failed to write BaseModel. Check file permissions for: '.dirname($path),
+            ], 500);
+        }
 
         return new JsonResponse([
             'success' => true,
@@ -230,9 +237,6 @@ class SchemaController
             fn (string $t) => ! in_array($t, self::LARAVEL_INTERNAL_TABLES, true),
         ));
 
-        // Detect pivots in one pass
-        $pivotMap = $this->detectPivotTables($reader, $importableNames);
-
         $schemaDir = $this->namespaceToAppPath($connectionConfig->schemaNamespace);
         $modelDir = $this->namespaceToAppPath($connectionConfig->modelNamespace);
 
@@ -241,15 +245,12 @@ class SchemaController
             $modelName = $this->tableToModelName($tableName);
             $prefixedSchema = $connectionConfig->prefixedSchemaName($modelName);
             $prefixedModel = $connectionConfig->prefixedModelName($modelName);
-            $isPivot = isset($pivotMap[$tableName]);
 
             $hasSchema = file_exists("{$schemaDir}/{$prefixedSchema}.php");
             $tables[] = [
                 'name' => $tableName,
                 'modelName' => $modelName,
                 'dbConnection' => $connectionConfig->name,
-                'isPivot' => $isPivot,
-                'pivotTables' => $isPivot ? $pivotMap[$tableName] : null,
                 'hasSchema' => $hasSchema,
                 'schemaClass' => $hasSchema ? $connectionConfig->schemaNamespace.'\\'.$prefixedSchema : null,
                 'hasModel' => file_exists("{$modelDir}/{$prefixedModel}.php"),
@@ -284,18 +285,15 @@ class SchemaController
             $byDb[$dbKey]['configs'][$name] = $config;
         }
 
-        // Read tables + detect pivots once per unique DB connection
+        // Read table names once per unique DB connection
         $tablesByDb = [];
-        $pivotsByDb = [];
         foreach ($byDb as $dbKey => $group) {
             $reader = new DatabaseReader($group['dbConn']);
             $allNames = $reader->tables();
-            $importableNames = array_values(array_filter(
+            $tablesByDb[$dbKey] = array_values(array_filter(
                 $allNames,
                 fn (string $t) => ! in_array($t, self::LARAVEL_INTERNAL_TABLES, true),
             ));
-            $tablesByDb[$dbKey] = $importableNames;
-            $pivotsByDb[$dbKey] = $this->detectPivotTables($reader, $importableNames);
         }
 
         // Build output: one entry per (table, connection config) pair
@@ -309,15 +307,12 @@ class SchemaController
                     $modelName = $this->tableToModelName($tableName);
                     $prefixedSchema = $config->prefixedSchemaName($modelName);
                     $prefixedModel = $config->prefixedModelName($modelName);
-                    $isPivot = isset($pivotsByDb[$dbKey][$tableName]);
 
                     $hasSchema = file_exists("{$schemaDir}/{$prefixedSchema}.php");
                     $tables[] = [
                         'name' => $tableName,
                         'modelName' => $modelName,
                         'dbConnection' => $configName,
-                        'isPivot' => $isPivot,
-                        'pivotTables' => $isPivot ? $pivotsByDb[$dbKey][$tableName] : null,
                         'hasSchema' => $hasSchema,
                         'schemaClass' => $hasSchema ? $config->schemaNamespace.'\\'.$prefixedSchema : null,
                         'hasModel' => file_exists("{$modelDir}/{$prefixedModel}.php"),
@@ -1255,34 +1250,6 @@ class SchemaController
         }
 
         return dirname(__DIR__).'/Console/stubs';
-    }
-
-    /**
-     * Detect which table names are pivot tables using DatabaseReader.
-     *
-     * Returns a map of tableName => ['tableA' => ..., 'tableB' => ..., 'extraColumns' => [...]] for pivots.
-     *
-     * @param  string[]  $tableNames
-     * @return array<string, array{tableA: string, tableB: string, extraColumns: array<string, string>}>
-     */
-    private function detectPivotTables(DatabaseReader $reader, array $tableNames): array
-    {
-        $generator = new SchemaFileGenerator;
-        $pivots = [];
-
-        foreach ($tableNames as $tableName) {
-            $tableState = $reader->read($tableName);
-            if ($tableState === null) {
-                continue;
-            }
-
-            $pivot = $generator->detectPivotTable($tableState);
-            if ($pivot !== null) {
-                $pivots[$tableName] = $pivot;
-            }
-        }
-
-        return $pivots;
     }
 
     /**

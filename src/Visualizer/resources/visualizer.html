@@ -1071,13 +1071,6 @@
             color: var(--accent, #6366f1);
             white-space: nowrap; flex-shrink: 0;
         }
-        .sc-pivot-tag {
-            padding: 1px 6px; border-radius: 8px; font-size: 9px;
-            background: rgba(245, 158, 11, 0.15);
-            color: #d97706;
-            white-space: nowrap; flex-shrink: 0;
-            cursor: help;
-        }
         .sc-table-actions { display: flex; gap: 6px; }
         .sc-search-bar {
             display: flex; gap: 8px; margin-bottom: 12px; align-items: center;
@@ -4657,7 +4650,6 @@
                                 '<button class="sc-filter-tab" data-filter="not-imported">Not Imported</button>' +
                                 '<button class="sc-filter-tab" data-filter="needs-factory-test">Needs Factory+Test</button>' +
                                 '<button class="sc-filter-tab" data-filter="needs-service">Needs Service</button>' +
-                                '<button class="sc-filter-tab" data-filter="pivot">Pivot</button>' +
                                 '<button class="sc-filter-tab" data-filter="complete">Complete</button>' +
                             '</div>' +
                             '<div class="sc-search-bar">' +
@@ -4841,7 +4833,6 @@
                 case 'not-imported': return !t.hasSchema;
                 case 'needs-factory-test': return t.hasSchema && t.hasModel && (!t.hasFactory || !t.hasModelTest);
                 case 'needs-service': return t.hasSchema && t.hasModel && t.hasFactory && t.hasModelTest && !t.hasService;
-                case 'pivot': return !!t.isPivot;
                 case 'complete': return t.hasSchema && t.hasModel && t.hasFactory && t.hasModelTest && t.hasService;
                 default: return true;
             }
@@ -4849,7 +4840,7 @@
 
         function updateFilterCounts() {
             if (!schemasState.tables) return;
-            var filters = ['all', 'not-imported', 'needs-factory-test', 'needs-service', 'pivot', 'complete'];
+            var filters = ['all', 'not-imported', 'needs-factory-test', 'needs-service', 'complete'];
             filters.forEach(function(f) {
                 var count = f === 'all' ? schemasState.tables.length : schemasState.tables.filter(function(t) { return matchesImportFilter(t, f); }).length;
                 var btn = document.querySelector('#sc-import-filters .sc-filter-tab[data-filter="' + f + '"]');
@@ -4891,16 +4882,6 @@
                 var connTag = isAllMode && t.dbConnection
                     ? '<span class="sc-conn-tag">' + escapeHtml(t.dbConnection) + '</span>'
                     : '';
-                var pivotTag = '';
-                if (t.isPivot) {
-                    var pivotTitle = 'Pivot: ' + t.pivotTables.tableA + ' \u2194 ' + t.pivotTables.tableB;
-                    var extraCols = t.pivotTables.extraColumns ? Object.keys(t.pivotTables.extraColumns) : [];
-                    if (extraCols.length > 0) {
-                        pivotTitle += '\nExtra columns: ' + extraCols.join(', ');
-                    }
-                    var pivotLabel = extraCols.length > 0 ? 'Pivot (+' + extraCols.length + ')' : 'Pivot';
-                    pivotTag = '<span class="sc-pivot-tag" title="' + escapeAttr(pivotTitle) + '">' + pivotLabel + '</span>';
-                }
                 var tableKey = t.dbConnection ? t.name + '::' + t.dbConnection : t.name;
                 var editBtn = t.hasSchema && t.schemaClass
                     ? '<button class="sc-btn sm se-edit-schema-btn" data-schema="' + escapeAttr(t.schemaClass) + '" data-conn="' + escapeAttr(t.dbConnection || '') + '" title="Edit Schema" style="padding:2px 8px;font-size:11px;">Edit</button>'
@@ -4908,7 +4889,6 @@
                 return '<div class="sc-table-item">' +
                     '<input type="checkbox" class="sc-table-cb" data-table="' + escapeAttr(tableKey) + '"' + (t.selected ? ' checked' : '') + '>' +
                     '<span class="sc-table-name">' + escapeHtml(t.name) + '</span>' +
-                    pivotTag +
                     connTag +
                     '<span class="sc-table-badges">' + badges + '</span>' +
                     editBtn +
@@ -6444,10 +6424,13 @@
                                 '<span class="sc-banner-text">Filament panel is installed and configured.</span>' +
                             '</div>';
                     } else {
+                        var message = data.packageInstalled
+                            ? 'Filament package is installed but the panel is not configured yet.'
+                            : 'Filament is not installed. This will install the composer package and set up the admin panel.';
                         area.innerHTML =
                             '<div class="gen-filament-install-banner">' +
                                 '<span class="sc-banner-icon">\u26A0</span>' +
-                                '<span class="sc-banner-text">Filament is not installed yet. Install it to set up the admin panel.</span>' +
+                                '<span class="sc-banner-text">' + message + '</span>' +
                                 '<button class="sc-btn sm primary" id="gen-filament-install-btn">Install Filament</button>' +
                             '</div>';
                         document.getElementById('gen-filament-install-btn').addEventListener('click', doFilamentInstall);
@@ -6463,7 +6446,7 @@
         function doFilamentInstall() {
             var btn = document.getElementById('gen-filament-install-btn');
             btn.disabled = true;
-            btn.textContent = 'Installing...';
+            btn.textContent = 'Installing\u2026 (this may take a minute)';
 
             fetch('/_schema-craft/api/filament/install', {
                 method: 'POST',

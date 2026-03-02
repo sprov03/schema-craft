@@ -1372,21 +1372,24 @@ PHP;
     public function filamentInstallStatus(): JsonResponse
     {
         $panelProviderPath = app_path('Providers/Filament/AdminPanelProvider.php');
+        $packageInstalled = class_exists(\Filament\FilamentServiceProvider::class);
 
         return new JsonResponse([
-            'installed' => file_exists($panelProviderPath),
+            'installed' => $packageInstalled && file_exists($panelProviderPath),
+            'packageInstalled' => $packageInstalled,
+            'panelConfigured' => file_exists($panelProviderPath),
             'path' => 'app/Providers/Filament/AdminPanelProvider.php',
         ]);
     }
 
     /**
-     * Run Filament install command.
+     * Run Filament install command, installing the composer package first if needed.
      */
     public function filamentInstall(): JsonResponse
     {
         $panelProviderPath = app_path('Providers/Filament/AdminPanelProvider.php');
 
-        if (file_exists($panelProviderPath)) {
+        if (class_exists(\Filament\FilamentServiceProvider::class) && file_exists($panelProviderPath)) {
             return new JsonResponse([
                 'success' => true,
                 'message' => 'Filament is already installed.',
@@ -1394,11 +1397,19 @@ PHP;
         }
 
         try {
+            $output = '';
+
+            // Step 1: Install composer package if not present
+            if (! class_exists(\Filament\FilamentServiceProvider::class)) {
+                $composerOutput = $this->runProcess(['composer', 'require', 'filament/filament:^5.0', '--no-interaction']);
+                $output .= $composerOutput."\n";
+            }
+
+            // Step 2: Run filament:install to set up the panel
             Artisan::call('filament:install', [
                 '--no-interaction' => true,
             ]);
-
-            $output = Artisan::output();
+            $output .= Artisan::output();
 
             return new JsonResponse([
                 'success' => true,
@@ -1411,5 +1422,21 @@ PHP;
                 'message' => 'Failed to install Filament: '.$e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Run an external process and return its output.
+     */
+    private function runProcess(array $command): string
+    {
+        $process = new \Symfony\Component\Process\Process($command, base_path());
+        $process->setTimeout(300);
+        $process->run();
+
+        if (! $process->isSuccessful()) {
+            throw new \RuntimeException($process->getErrorOutput() ?: $process->getOutput());
+        }
+
+        return $process->getOutput();
     }
 }
