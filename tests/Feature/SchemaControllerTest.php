@@ -1234,4 +1234,658 @@ class SchemaControllerTest extends TestCase
         $this->assertFileExists($this->tempDir.'/database/factories/GalaxyNebulaFactory.php');
         $this->assertFileExists($this->tempDir.'/tests/Unit/GalaxyNebulaModelTest.php');
     }
+
+    // ─── Schema Detail (Editor) ─────────────────────────────
+
+    public function test_schema_detail_returns_404_for_missing_schema(): void
+    {
+        $response = $this->getJson('/_schema-craft/api/schema/detail?schema=App\\Schemas\\NonExistentSchema');
+
+        $response->assertNotFound();
+        $response->assertJson(['success' => false]);
+    }
+
+    public function test_schema_detail_returns_404_without_schema_param(): void
+    {
+        $response = $this->getJson('/_schema-craft/api/schema/detail');
+
+        $response->assertNotFound();
+        $response->assertJson(['success' => false]);
+    }
+
+    public function test_schema_detail_returns_column_data(): void
+    {
+        // Create a real schema file via import so SchemaScanner can load it
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+        $schema->create('planets', function ($table) {
+            $table->id();
+            $table->string('name', 100);
+            $table->text('description')->nullable();
+            $table->integer('population')->unsigned()->default(0);
+            $table->boolean('habitable')->default(false);
+            $table->timestamps();
+        });
+
+        $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['planets'],
+            'createModel' => true,
+        ])->assertOk();
+
+        require_once $this->tempDir.'/app/Schemas/PlanetSchema.php';
+
+        $response = $this->getJson('/_schema-craft/api/schema/detail?schema=App\\Schemas\\PlanetSchema');
+
+        $response->assertOk();
+        $response->assertJson([
+            'success' => true,
+            'schemaName' => 'PlanetSchema',
+            'hasTimestamps' => true,
+        ]);
+
+        $columns = $response->json('columns');
+        $columnNames = array_column($columns, 'name');
+
+        $this->assertContains('id', $columnNames);
+        $this->assertContains('name', $columnNames);
+        $this->assertContains('description', $columnNames);
+        $this->assertContains('population', $columnNames);
+        $this->assertContains('habitable', $columnNames);
+
+        // Check specific column properties
+        $nameCol = collect($columns)->firstWhere('name', 'name');
+        $this->assertEquals('string', $nameCol['phpType']);
+        $this->assertFalse($nameCol['nullable']);
+
+        $descCol = collect($columns)->firstWhere('name', 'description');
+        $this->assertTrue($descCol['nullable']);
+
+        $popCol = collect($columns)->firstWhere('name', 'population');
+        $this->assertTrue($popCol['hasDefault']);
+    }
+
+    public function test_schema_detail_returns_relationship_data(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+        $schema->create('solar_systems', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('moons', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->foreignId('solar_system_id')->constrained('solar_systems');
+            $table->timestamps();
+        });
+
+        $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['solar_systems', 'moons'],
+            'createModel' => true,
+        ])->assertOk();
+
+        require_once $this->tempDir.'/app/Schemas/MoonSchema.php';
+
+        $response = $this->getJson('/_schema-craft/api/schema/detail?schema=App\\Schemas\\MoonSchema');
+
+        $response->assertOk();
+
+        $relationships = $response->json('relationships');
+        $this->assertNotEmpty($relationships);
+
+        $belongsTo = collect($relationships)->firstWhere('type', 'belongsTo');
+        $this->assertNotNull($belongsTo);
+        $this->assertEquals('App\\Models\\SolarSystem', $belongsTo['relatedModel']);
+    }
+
+    public function test_schema_detail_returns_timestamps_and_soft_deletes(): void
+    {
+        // Write a schema file directly with SoftDeletes trait
+        $content = <<<'PHP'
+<?php
+
+namespace App\Schemas;
+
+use App\Models\BaseModel;
+use SchemaCraft\Attributes\AutoIncrement;
+use SchemaCraft\Attributes\Primary;
+use SchemaCraft\Schema;
+use SchemaCraft\Traits\SoftDeletesSchema;
+use SchemaCraft\Traits\TimestampsSchema;
+
+class ArchiveSchema extends Schema
+{
+    use SoftDeletesSchema;
+    use TimestampsSchema;
+
+    #[Primary]
+    #[AutoIncrement]
+    public int $id;
+
+    public string $title;
+}
+PHP;
+
+        $this->files->put($this->tempDir.'/app/Schemas/ArchiveSchema.php', $content);
+        require_once $this->tempDir.'/app/Schemas/ArchiveSchema.php';
+
+        $response = $this->getJson('/_schema-craft/api/schema/detail?schema=App\\Schemas\\ArchiveSchema');
+
+        $response->assertOk();
+        $response->assertJson([
+            'hasTimestamps' => true,
+            'hasSoftDeletes' => true,
+        ]);
+    }
+
+    // ─── Schema Save Preview ─────────────────────────────────
+
+    public function test_schema_save_preview_returns_content_without_writing(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save/preview', [
+            'schemaName' => 'VehicleSchema',
+            'schemaNamespace' => 'App\\Schemas',
+            'modelNamespace' => 'App\\Models',
+            'hasTimestamps' => true,
+            'hasSoftDeletes' => false,
+            'columns' => [
+                [
+                    'name' => 'id',
+                    'phpType' => 'int',
+                    'primary' => true,
+                    'autoIncrement' => true,
+                    'nullable' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+                [
+                    'name' => 'make',
+                    'phpType' => 'string',
+                    'nullable' => false,
+                    'primary' => false,
+                    'autoIncrement' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => true,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+            ],
+            'relationships' => [],
+            'compositeIndexes' => [],
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        $files = $response->json('files');
+        $this->assertCount(1, $files);
+        $this->assertEquals('schema', $files[0]['type']);
+        $this->assertStringContainsString('VehicleSchema', $files[0]['content']);
+        $this->assertStringContainsString('#[Primary]', $files[0]['content']);
+        $this->assertStringContainsString('#[Fillable]', $files[0]['content']);
+        $this->assertStringContainsString('public string $make', $files[0]['content']);
+
+        // Nothing on disk
+        $this->assertFileDoesNotExist($this->tempDir.'/app/Schemas/VehicleSchema.php');
+    }
+
+    public function test_schema_save_preview_includes_model_when_requested(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save/preview', [
+            'schemaName' => 'BikeSchema',
+            'schemaNamespace' => 'App\\Schemas',
+            'modelNamespace' => 'App\\Models',
+            'hasTimestamps' => true,
+            'columns' => [
+                [
+                    'name' => 'id',
+                    'phpType' => 'int',
+                    'primary' => true,
+                    'autoIncrement' => true,
+                    'nullable' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+            ],
+            'relationships' => [],
+            'compositeIndexes' => [],
+            'createModel' => true,
+        ]);
+
+        $response->assertOk();
+
+        $files = $response->json('files');
+        $this->assertCount(2, $files);
+
+        $types = collect($files)->pluck('type')->all();
+        $this->assertContains('schema', $types);
+        $this->assertContains('model', $types);
+
+        $modelFile = collect($files)->firstWhere('type', 'model');
+        $this->assertStringContainsString('class Bike', $modelFile['content']);
+        $this->assertStringContainsString('BikeSchema', $modelFile['content']);
+    }
+
+    public function test_schema_save_preview_validates_required_fields(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save/preview', [
+            // Missing required fields
+            'hasTimestamps' => true,
+        ]);
+
+        $response->assertUnprocessable();
+    }
+
+    public function test_schema_save_preview_with_relationships(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save/preview', [
+            'schemaName' => 'CommentSchema',
+            'schemaNamespace' => 'App\\Schemas',
+            'modelNamespace' => 'App\\Models',
+            'hasTimestamps' => true,
+            'columns' => [
+                [
+                    'name' => 'id',
+                    'phpType' => 'int',
+                    'primary' => true,
+                    'autoIncrement' => true,
+                    'nullable' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+                [
+                    'name' => 'body',
+                    'phpType' => 'string',
+                    'typeOverride' => 'Text',
+                    'nullable' => false,
+                    'primary' => false,
+                    'autoIncrement' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => true,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+            ],
+            'relationships' => [
+                [
+                    'name' => 'post',
+                    'type' => 'belongsTo',
+                    'relatedModel' => 'App\\Models\\Post',
+                    'nullable' => false,
+                    'onDelete' => 'cascade',
+                    'index' => true,
+                ],
+            ],
+            'compositeIndexes' => [],
+        ]);
+
+        $response->assertOk();
+
+        $schemaFile = collect($response->json('files'))->firstWhere('type', 'schema');
+        $this->assertStringContainsString('#[BelongsTo(Post::class)]', $schemaFile['content']);
+        $this->assertStringContainsString("#[OnDelete('cascade')]", $schemaFile['content']);
+        $this->assertStringContainsString('#[Text]', $schemaFile['content']);
+        $this->assertStringContainsString('#[Index]', $schemaFile['content']);
+    }
+
+    // ─── Schema Save (Write) ─────────────────────────────────
+
+    public function test_schema_save_creates_new_file(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save', [
+            'schemaName' => 'RocketSchema',
+            'schemaNamespace' => 'App\\Schemas',
+            'modelNamespace' => 'App\\Models',
+            'hasTimestamps' => true,
+            'hasSoftDeletes' => false,
+            'columns' => [
+                [
+                    'name' => 'id',
+                    'phpType' => 'int',
+                    'primary' => true,
+                    'autoIncrement' => true,
+                    'nullable' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+                [
+                    'name' => 'name',
+                    'phpType' => 'string',
+                    'nullable' => false,
+                    'primary' => false,
+                    'autoIncrement' => false,
+                    'unsigned' => false,
+                    'unique' => true,
+                    'index' => false,
+                    'fillable' => true,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+            ],
+            'relationships' => [],
+            'compositeIndexes' => [],
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        $schemaPath = $this->tempDir.'/app/Schemas/RocketSchema.php';
+        $this->assertFileExists($schemaPath);
+
+        $content = $this->files->get($schemaPath);
+        $this->assertStringContainsString('class RocketSchema extends Schema', $content);
+        $this->assertStringContainsString('#[Primary]', $content);
+        $this->assertStringContainsString('#[Unique]', $content);
+        $this->assertStringContainsString('#[Fillable]', $content);
+        $this->assertStringContainsString('public string $name', $content);
+    }
+
+    public function test_schema_save_overwrites_existing_file(): void
+    {
+        // Write an initial schema file
+        $schemaPath = $this->tempDir.'/app/Schemas/ShuttleSchema.php';
+        $this->files->put($schemaPath, '<?php // old content');
+
+        $response = $this->postJson('/_schema-craft/api/schema/save', [
+            'schemaName' => 'ShuttleSchema',
+            'schemaNamespace' => 'App\\Schemas',
+            'modelNamespace' => 'App\\Models',
+            'hasTimestamps' => true,
+            'columns' => [
+                [
+                    'name' => 'id',
+                    'phpType' => 'int',
+                    'primary' => true,
+                    'autoIncrement' => true,
+                    'nullable' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+            ],
+            'relationships' => [],
+            'compositeIndexes' => [],
+        ]);
+
+        $response->assertOk();
+
+        $content = $this->files->get($schemaPath);
+        $this->assertStringContainsString('class ShuttleSchema extends Schema', $content);
+        $this->assertStringNotContainsString('old content', $content);
+    }
+
+    public function test_schema_save_with_model_creates_both_files(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save', [
+            'schemaName' => 'SatelliteSchema',
+            'schemaNamespace' => 'App\\Schemas',
+            'modelNamespace' => 'App\\Models',
+            'hasTimestamps' => true,
+            'columns' => [
+                [
+                    'name' => 'id',
+                    'phpType' => 'int',
+                    'primary' => true,
+                    'autoIncrement' => true,
+                    'nullable' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+            ],
+            'relationships' => [],
+            'compositeIndexes' => [],
+            'createModel' => true,
+        ]);
+
+        $response->assertOk();
+        $this->assertFileExists($this->tempDir.'/app/Schemas/SatelliteSchema.php');
+        $this->assertFileExists($this->tempDir.'/app/Models/Satellite.php');
+
+        $modelContent = $this->files->get($this->tempDir.'/app/Models/Satellite.php');
+        $this->assertStringContainsString('class Satellite', $modelContent);
+        $this->assertStringContainsString('SatelliteSchema', $modelContent);
+    }
+
+    public function test_schema_save_validates_required_fields(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save', [
+            // Missing schemaName, schemaNamespace, modelNamespace
+            'hasTimestamps' => true,
+        ]);
+
+        $response->assertUnprocessable();
+    }
+
+    public function test_schema_save_with_custom_table_name_and_connection(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save', [
+            'schemaName' => 'ProbeSchema',
+            'schemaNamespace' => 'App\\Schemas',
+            'modelNamespace' => 'App\\Models',
+            'tableName' => 'deep_space_probes',
+            'connection' => 'mysql',
+            'hasTimestamps' => false,
+            'hasSoftDeletes' => false,
+            'columns' => [
+                [
+                    'name' => 'id',
+                    'phpType' => 'int',
+                    'primary' => true,
+                    'autoIncrement' => true,
+                    'nullable' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+            ],
+            'relationships' => [],
+            'compositeIndexes' => [],
+        ]);
+
+        $response->assertOk();
+
+        $content = $this->files->get($this->tempDir.'/app/Schemas/ProbeSchema.php');
+        $this->assertStringContainsString("'deep_space_probes'", $content);
+        $this->assertStringContainsString("'mysql'", $content);
+        // Should NOT have TimestampsSchema since timestamps disabled
+        $this->assertStringNotContainsString('TimestampsSchema', $content);
+    }
+
+    public function test_schema_save_with_composite_indexes(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save', [
+            'schemaName' => 'FlightSchema',
+            'schemaNamespace' => 'App\\Schemas',
+            'modelNamespace' => 'App\\Models',
+            'hasTimestamps' => true,
+            'columns' => [
+                [
+                    'name' => 'id',
+                    'phpType' => 'int',
+                    'primary' => true,
+                    'autoIncrement' => true,
+                    'nullable' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+                [
+                    'name' => 'origin',
+                    'phpType' => 'string',
+                    'nullable' => false,
+                    'primary' => false,
+                    'autoIncrement' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => true,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+                [
+                    'name' => 'destination',
+                    'phpType' => 'string',
+                    'nullable' => false,
+                    'primary' => false,
+                    'autoIncrement' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => true,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+            ],
+            'relationships' => [],
+            'compositeIndexes' => [['origin', 'destination']],
+        ]);
+
+        $response->assertOk();
+
+        $content = $this->files->get($this->tempDir.'/app/Schemas/FlightSchema.php');
+        $this->assertStringContainsString("'origin'", $content);
+        $this->assertStringContainsString("'destination'", $content);
+        $this->assertStringContainsString('#[Index(', $content);
+    }
+
+    public function test_schema_save_generates_correct_imports(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/schema/save', [
+            'schemaName' => 'SpaceStationSchema',
+            'schemaNamespace' => 'App\\Schemas',
+            'modelNamespace' => 'App\\Models',
+            'hasTimestamps' => true,
+            'hasSoftDeletes' => true,
+            'columns' => [
+                [
+                    'name' => 'id',
+                    'phpType' => 'int',
+                    'primary' => true,
+                    'autoIncrement' => true,
+                    'nullable' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+                [
+                    'name' => 'name',
+                    'phpType' => 'string',
+                    'nullable' => false,
+                    'primary' => false,
+                    'autoIncrement' => false,
+                    'unsigned' => false,
+                    'unique' => true,
+                    'index' => false,
+                    'fillable' => true,
+                    'hidden' => false,
+                    'hasDefault' => false,
+                ],
+                [
+                    'name' => 'secret_code',
+                    'phpType' => 'string',
+                    'nullable' => false,
+                    'primary' => false,
+                    'autoIncrement' => false,
+                    'unsigned' => false,
+                    'unique' => false,
+                    'index' => false,
+                    'fillable' => false,
+                    'hidden' => true,
+                    'hasDefault' => false,
+                ],
+            ],
+            'relationships' => [],
+            'compositeIndexes' => [],
+        ]);
+
+        $response->assertOk();
+
+        $content = $this->files->get($this->tempDir.'/app/Schemas/SpaceStationSchema.php');
+        $this->assertStringContainsString('use SchemaCraft\\Attributes\\AutoIncrement;', $content);
+        $this->assertStringContainsString('use SchemaCraft\\Attributes\\Fillable;', $content);
+        $this->assertStringContainsString('use SchemaCraft\\Attributes\\Hidden;', $content);
+        $this->assertStringContainsString('use SchemaCraft\\Attributes\\Primary;', $content);
+        $this->assertStringContainsString('use SchemaCraft\\Attributes\\Unique;', $content);
+        $this->assertStringContainsString('use SchemaCraft\\Traits\\SoftDeletesSchema;', $content);
+        $this->assertStringContainsString('use SchemaCraft\\Traits\\TimestampsSchema;', $content);
+    }
+
+    // ─── Available Models ─────────────────────────────────────
+
+    public function test_available_models_returns_model_list(): void
+    {
+        // Create some model files
+        $this->files->put($this->tempDir.'/app/Models/Rocket.php', '<?php class Rocket {}');
+        $this->files->put($this->tempDir.'/app/Models/Planet.php', '<?php class Planet {}');
+        $this->files->put($this->tempDir.'/app/Models/BaseModel.php', '<?php class BaseModel {}');
+
+        $response = $this->getJson('/_schema-craft/api/schema/available-models');
+
+        $response->assertOk();
+
+        $models = $response->json('models');
+        $this->assertContains('App\\Models\\Rocket', $models);
+        $this->assertContains('App\\Models\\Planet', $models);
+        // BaseModel should be excluded
+        $this->assertNotContains('App\\Models\\BaseModel', $models);
+    }
+
+    public function test_available_models_returns_empty_when_no_models(): void
+    {
+        // Remove the Models directory to test empty state
+        $this->files->deleteDirectory($this->tempDir.'/app/Models');
+
+        $response = $this->getJson('/_schema-craft/api/schema/available-models');
+
+        $response->assertOk();
+        $this->assertEmpty($response->json('models'));
+    }
+
+    public function test_available_models_returns_sorted(): void
+    {
+        $this->files->put($this->tempDir.'/app/Models/Zebra.php', '<?php class Zebra {}');
+        $this->files->put($this->tempDir.'/app/Models/Alpha.php', '<?php class Alpha {}');
+        $this->files->put($this->tempDir.'/app/Models/Middle.php', '<?php class Middle {}');
+
+        $response = $this->getJson('/_schema-craft/api/schema/available-models');
+
+        $models = $response->json('models');
+        $this->assertEquals('App\\Models\\Alpha', $models[0]);
+        $this->assertEquals('App\\Models\\Middle', $models[1]);
+        $this->assertEquals('App\\Models\\Zebra', $models[2]);
+    }
 }

@@ -103,6 +103,14 @@ class SchemaCraftServiceProvider extends ServiceProvider
             Route::post('/api/schema/import/extras', [SchemaController::class, 'generateExtras'])
                 ->withoutMiddleware($noCsrf);
 
+            // Schema Editor API
+            Route::get('/api/schema/detail', [SchemaController::class, 'schemaDetail']);
+            Route::get('/api/schema/available-models', [SchemaController::class, 'availableModels']);
+            Route::post('/api/schema/save/preview', [SchemaController::class, 'schemaSavePreview'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/schema/save', [SchemaController::class, 'schemaSave'])
+                ->withoutMiddleware($noCsrf);
+
             // Status & Migrate API
             Route::get('/api/status', [StatusController::class, 'status']);
             Route::post('/api/migrate/preview', [StatusController::class, 'migratePreview'])

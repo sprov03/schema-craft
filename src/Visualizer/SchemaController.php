@@ -6,11 +6,30 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use SchemaCraft\Attributes\BigInt;
+use SchemaCraft\Attributes\Cast;
+use SchemaCraft\Attributes\ColumnType;
+use SchemaCraft\Attributes\Date;
+use SchemaCraft\Attributes\Fillable;
+use SchemaCraft\Attributes\FloatColumn;
+use SchemaCraft\Attributes\Hidden;
+use SchemaCraft\Attributes\LongText;
+use SchemaCraft\Attributes\MediumText;
+use SchemaCraft\Attributes\Rules;
+use SchemaCraft\Attributes\SmallInt;
+use SchemaCraft\Attributes\Text;
+use SchemaCraft\Attributes\Time;
+use SchemaCraft\Attributes\TinyInt;
+use SchemaCraft\Attributes\Year;
 use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Config\ConnectionConfig;
 use SchemaCraft\Generator\Api\ApiCodeGenerator;
+use SchemaCraft\Generator\EditorColumn;
+use SchemaCraft\Generator\EditorRelationship;
 use SchemaCraft\Generator\FactoryGenerator;
 use SchemaCraft\Generator\ModelTestGenerator;
+use SchemaCraft\Generator\SchemaContentRenderer;
+use SchemaCraft\Generator\SchemaEditorPayload;
 use SchemaCraft\Generator\SchemaFileGenerator;
 use SchemaCraft\Migration\DatabaseReader;
 use SchemaCraft\Migration\DatabaseTableState;
@@ -224,13 +243,15 @@ class SchemaController
             $prefixedModel = $connectionConfig->prefixedModelName($modelName);
             $isPivot = isset($pivotMap[$tableName]);
 
+            $hasSchema = file_exists("{$schemaDir}/{$prefixedSchema}.php");
             $tables[] = [
                 'name' => $tableName,
                 'modelName' => $modelName,
                 'dbConnection' => $connectionConfig->name,
                 'isPivot' => $isPivot,
                 'pivotTables' => $isPivot ? $pivotMap[$tableName] : null,
-                'hasSchema' => file_exists("{$schemaDir}/{$prefixedSchema}.php"),
+                'hasSchema' => $hasSchema,
+                'schemaClass' => $hasSchema ? $connectionConfig->schemaNamespace.'\\'.$prefixedSchema : null,
                 'hasModel' => file_exists("{$modelDir}/{$prefixedModel}.php"),
                 'hasFactory' => file_exists($connectionConfig->factoryPath($modelName)),
                 'hasModelTest' => file_exists($connectionConfig->modelTestPath($modelName)),
@@ -290,13 +311,15 @@ class SchemaController
                     $prefixedModel = $config->prefixedModelName($modelName);
                     $isPivot = isset($pivotsByDb[$dbKey][$tableName]);
 
+                    $hasSchema = file_exists("{$schemaDir}/{$prefixedSchema}.php");
                     $tables[] = [
                         'name' => $tableName,
                         'modelName' => $modelName,
                         'dbConnection' => $configName,
                         'isPivot' => $isPivot,
                         'pivotTables' => $isPivot ? $pivotsByDb[$dbKey][$tableName] : null,
-                        'hasSchema' => file_exists("{$schemaDir}/{$prefixedSchema}.php"),
+                        'hasSchema' => $hasSchema,
+                        'schemaClass' => $hasSchema ? $config->schemaNamespace.'\\'.$prefixedSchema : null,
                         'hasModel' => file_exists("{$modelDir}/{$prefixedModel}.php"),
                         'hasFactory' => file_exists($config->factoryPath($modelName)),
                         'hasModelTest' => file_exists($config->modelTestPath($modelName)),
@@ -861,6 +884,351 @@ class SchemaController
         $files->put($path, $content);
         $outputFiles[] = ['path' => $relPath, 'created' => true, 'type' => 'service'];
         $summary['services']++;
+    }
+
+    /**
+     * Return the full editable schema data for the visual editor.
+     */
+    public function schemaDetail(Request $request): JsonResponse
+    {
+        $schemaClass = $request->query('schema');
+
+        if (! $schemaClass || ! class_exists($schemaClass)) {
+            return new JsonResponse(['success' => false, 'message' => 'Schema class not found.'], 404);
+        }
+
+        $scanner = new SchemaScanner($schemaClass);
+        $table = $scanner->scan();
+
+        $columns = array_map(fn (ColumnDefinition $col) => $this->columnDefinitionToEditorArray($col), $table->columns);
+        $relationships = array_map(fn (RelationshipDefinition $rel) => $this->relationshipDefinitionToEditorArray($rel, $table), $table->relationships);
+
+        // Determine the schema and model namespaces from the class
+        $reflection = new \ReflectionClass($schemaClass);
+        $schemaNamespace = $reflection->getNamespaceName();
+        $schemaName = $reflection->getShortName();
+
+        // Resolve model namespace from connection config
+        $dbConnection = $request->query('db_connection');
+        $connectionConfig = ConfigResolver::resolveConnection($dbConnection);
+
+        // Check for custom table name override
+        $conventionTable = Str::snake(Str::pluralStudly(Str::replaceLast('Schema', '', $schemaName)));
+        $customTableName = ($table->tableName !== $conventionTable) ? $table->tableName : null;
+
+        return new JsonResponse([
+            'success' => true,
+            'schemaName' => $schemaName,
+            'schemaClass' => $schemaClass,
+            'schemaNamespace' => $schemaNamespace,
+            'modelNamespace' => $connectionConfig->modelNamespace,
+            'tableName' => $table->tableName,
+            'customTableName' => $customTableName,
+            'connection' => $table->connection,
+            'hasTimestamps' => $table->hasTimestamps,
+            'hasSoftDeletes' => $table->hasSoftDeletes,
+            'columns' => $columns,
+            'relationships' => $relationships,
+            'compositeIndexes' => $table->compositeIndexes,
+            'fillable' => $table->fillable,
+            'hidden' => $table->hidden,
+            'with' => $table->with,
+        ]);
+    }
+
+    /**
+     * Preview schema file content from the visual editor without writing.
+     */
+    public function schemaSavePreview(Request $request): JsonResponse
+    {
+        $payload = $this->buildEditorPayload($request);
+        $renderer = new SchemaContentRenderer;
+
+        $schemaContent = $renderer->render($payload);
+        $schemaRelPath = str_replace('\\', '/', $payload->schemaNamespace).'/'.$payload->schemaName.'.php';
+        if (str_starts_with($schemaRelPath, 'App/')) {
+            $schemaRelPath = 'app/'.substr($schemaRelPath, 4);
+        }
+
+        $files = [
+            ['path' => $schemaRelPath, 'content' => $schemaContent, 'exists' => false, 'type' => 'schema'],
+        ];
+
+        if ($request->boolean('createModel')) {
+            $modelContent = $renderer->renderModel($payload);
+            $modelName = Str::replaceLast('Schema', '', $payload->schemaName);
+            $modelRelPath = str_replace('\\', '/', $payload->modelNamespace).'/'.$modelName.'.php';
+            if (str_starts_with($modelRelPath, 'App/')) {
+                $modelRelPath = 'app/'.substr($modelRelPath, 4);
+            }
+            $files[] = ['path' => $modelRelPath, 'content' => $modelContent, 'exists' => false, 'type' => 'model'];
+        }
+
+        return new JsonResponse(['success' => true, 'files' => $files]);
+    }
+
+    /**
+     * Save schema (and optionally model) file from the visual editor.
+     */
+    public function schemaSave(Request $request, Filesystem $files): JsonResponse
+    {
+        $payload = $this->buildEditorPayload($request);
+        $renderer = new SchemaContentRenderer;
+
+        $schemaContent = $renderer->render($payload);
+        $schemaDir = $this->namespaceToAppPath($payload->schemaNamespace);
+        $schemaFullPath = "{$schemaDir}/{$payload->schemaName}.php";
+        $schemaRelPath = str_replace(base_path().'/', '', $schemaFullPath);
+
+        $files->ensureDirectoryExists(dirname($schemaFullPath));
+        $files->put($schemaFullPath, $schemaContent);
+
+        $outputFiles = [
+            ['path' => $schemaRelPath, 'created' => true, 'message' => "{$payload->schemaName} saved.", 'type' => 'schema'],
+        ];
+
+        if ($request->boolean('createModel')) {
+            $modelContent = $renderer->renderModel($payload);
+            $modelName = Str::replaceLast('Schema', '', $payload->schemaName);
+            $modelDir = $this->namespaceToAppPath($payload->modelNamespace);
+            $modelFullPath = "{$modelDir}/{$modelName}.php";
+            $modelRelPath = str_replace(base_path().'/', '', $modelFullPath);
+
+            $files->ensureDirectoryExists(dirname($modelFullPath));
+            $files->put($modelFullPath, $modelContent);
+            $outputFiles[] = ['path' => $modelRelPath, 'created' => true, 'message' => "{$modelName} saved.", 'type' => 'model'];
+        }
+
+        return new JsonResponse([
+            'success' => true,
+            'files' => $outputFiles,
+            'message' => "{$payload->schemaName} saved successfully.",
+        ]);
+    }
+
+    /**
+     * List available model classes for the relationship picker.
+     */
+    public function availableModels(Request $request): JsonResponse
+    {
+        $dbConnection = $request->query('db_connection');
+        $connectionConfig = ConfigResolver::resolveConnection($dbConnection);
+        $modelDir = $this->namespaceToAppPath($connectionConfig->modelNamespace);
+
+        $models = [];
+        if (is_dir($modelDir)) {
+            $phpFiles = glob("{$modelDir}/*.php");
+            foreach ($phpFiles as $file) {
+                $className = pathinfo($file, PATHINFO_FILENAME);
+                if ($className === 'BaseModel') {
+                    continue;
+                }
+                $models[] = $connectionConfig->modelNamespace.'\\'.$className;
+            }
+            sort($models);
+        }
+
+        return new JsonResponse(['models' => $models]);
+    }
+
+    /**
+     * Build a SchemaEditorPayload from a request.
+     */
+    private function buildEditorPayload(Request $request): SchemaEditorPayload
+    {
+        $request->validate([
+            'schemaName' => ['required', 'string'],
+            'schemaNamespace' => ['required', 'string'],
+            'modelNamespace' => ['required', 'string'],
+            'tableName' => ['sometimes', 'nullable', 'string'],
+            'connection' => ['sometimes', 'nullable', 'string'],
+            'hasTimestamps' => ['sometimes', 'boolean'],
+            'hasSoftDeletes' => ['sometimes', 'boolean'],
+            'columns' => ['sometimes', 'array'],
+            'relationships' => ['sometimes', 'array'],
+            'compositeIndexes' => ['sometimes', 'array'],
+        ]);
+
+        $columns = [];
+        foreach ($request->input('columns', []) as $colData) {
+            $columns[] = new EditorColumn(
+                name: $colData['name'],
+                phpType: $colData['phpType'] ?? 'string',
+                typeOverride: $colData['typeOverride'] ?? null,
+                columnType: $colData['columnType'] ?? null,
+                nullable: $colData['nullable'] ?? false,
+                primary: $colData['primary'] ?? false,
+                autoIncrement: $colData['autoIncrement'] ?? false,
+                unsigned: $colData['unsigned'] ?? false,
+                unique: $colData['unique'] ?? false,
+                index: $colData['index'] ?? false,
+                fillable: $colData['fillable'] ?? false,
+                hidden: $colData['hidden'] ?? false,
+                length: isset($colData['length']) ? (int) $colData['length'] : null,
+                precision: isset($colData['precision']) ? (int) $colData['precision'] : null,
+                scale: isset($colData['scale']) ? (int) $colData['scale'] : null,
+                default: $colData['default'] ?? null,
+                hasDefault: $colData['hasDefault'] ?? false,
+                expressionDefault: $colData['expressionDefault'] ?? null,
+                castClass: $colData['castClass'] ?? null,
+                renamedFrom: $colData['renamedFrom'] ?? null,
+                rules: $colData['rules'] ?? null,
+            );
+        }
+
+        $relationships = [];
+        foreach ($request->input('relationships', []) as $relData) {
+            $relationships[] = new EditorRelationship(
+                name: $relData['name'],
+                type: $relData['type'],
+                relatedModel: $relData['relatedModel'] ?? 'Illuminate\\Database\\Eloquent\\Model',
+                nullable: $relData['nullable'] ?? false,
+                foreignColumn: $relData['foreignColumn'] ?? null,
+                onDelete: $relData['onDelete'] ?? null,
+                onUpdate: $relData['onUpdate'] ?? null,
+                noConstraint: $relData['noConstraint'] ?? false,
+                pivotTable: $relData['pivotTable'] ?? null,
+                pivotColumns: $relData['pivotColumns'] ?? null,
+                morphName: $relData['morphName'] ?? null,
+                pivotModel: $relData['pivotModel'] ?? null,
+                index: $relData['index'] ?? false,
+                columnType: $relData['columnType'] ?? null,
+                with: $relData['with'] ?? false,
+            );
+        }
+
+        return new SchemaEditorPayload(
+            schemaName: $request->input('schemaName'),
+            schemaNamespace: $request->input('schemaNamespace'),
+            modelNamespace: $request->input('modelNamespace'),
+            tableName: $request->input('tableName'),
+            connection: $request->input('connection'),
+            hasTimestamps: $request->boolean('hasTimestamps', true),
+            hasSoftDeletes: $request->boolean('hasSoftDeletes', false),
+            columns: $columns,
+            relationships: $relationships,
+            compositeIndexes: $request->input('compositeIndexes', []),
+        );
+    }
+
+    /**
+     * Convert a ColumnDefinition to an editor-friendly array.
+     *
+     * @return array<string, mixed>
+     */
+    private function columnDefinitionToEditorArray(ColumnDefinition $col): array
+    {
+        $typeOverride = null;
+        $fillable = false;
+        $hidden = false;
+        $castClass = null;
+        $rules = null;
+        $columnTypeOverride = null;
+
+        foreach ($col->attributes as $attr) {
+            match (true) {
+                $attr instanceof Text => $typeOverride = 'Text',
+                $attr instanceof MediumText => $typeOverride = 'MediumText',
+                $attr instanceof LongText => $typeOverride = 'LongText',
+                $attr instanceof BigInt => $typeOverride = 'BigInt',
+                $attr instanceof SmallInt => $typeOverride = 'SmallInt',
+                $attr instanceof TinyInt => $typeOverride = 'TinyInt',
+                $attr instanceof FloatColumn => $typeOverride = 'FloatColumn',
+                $attr instanceof \SchemaCraft\Attributes\Decimal => $typeOverride = 'Decimal',
+                $attr instanceof Date => $typeOverride = 'Date',
+                $attr instanceof Time => $typeOverride = 'Time',
+                $attr instanceof Year => $typeOverride = 'Year',
+                $attr instanceof Fillable => $fillable = true,
+                $attr instanceof Hidden => $hidden = true,
+                $attr instanceof Cast => $castClass = $attr->castClass,
+                $attr instanceof Rules => $rules = $attr->rules,
+                $attr instanceof ColumnType => $columnTypeOverride = $attr->type,
+                default => null,
+            };
+        }
+
+        return [
+            'name' => $col->name,
+            'phpType' => $this->inferPhpTypeFromColumnType($col->columnType),
+            'typeOverride' => $typeOverride,
+            'columnType' => $columnTypeOverride,
+            'nullable' => $col->nullable,
+            'primary' => $col->primary,
+            'autoIncrement' => $col->autoIncrement,
+            'unsigned' => $col->unsigned,
+            'unique' => $col->unique,
+            'index' => $col->index,
+            'fillable' => $fillable,
+            'hidden' => $hidden,
+            'length' => $col->length,
+            'precision' => $col->precision,
+            'scale' => $col->scale,
+            'default' => $col->default,
+            'hasDefault' => $col->hasDefault,
+            'expressionDefault' => $col->expressionDefault,
+            'castClass' => $castClass,
+            'renamedFrom' => $col->renamedFrom,
+            'rules' => $rules,
+        ];
+    }
+
+    /**
+     * Convert a RelationshipDefinition to an editor-friendly array.
+     *
+     * @return array<string, mixed>
+     */
+    private function relationshipDefinitionToEditorArray(RelationshipDefinition $rel, TableDefinition $table): array
+    {
+        // Check if the relationship property has #[With]
+        $with = in_array($rel->name, $table->with, true);
+
+        // Check for #[Index] on the relationship — infer from the generated FK column
+        $index = false;
+        if ($rel->type === 'belongsTo') {
+            $fkColName = $rel->foreignColumn ?? Str::snake($rel->name).'_id';
+            foreach ($table->columns as $col) {
+                if ($col->name === $fkColName) {
+                    $index = $col->index;
+                    break;
+                }
+            }
+        }
+
+        return [
+            'name' => $rel->name,
+            'type' => $rel->type,
+            'relatedModel' => $rel->relatedModel,
+            'nullable' => $rel->nullable,
+            'foreignColumn' => $rel->foreignColumn,
+            'onDelete' => $rel->onDelete,
+            'onUpdate' => $rel->onUpdate,
+            'noConstraint' => $rel->noConstraint,
+            'pivotTable' => $rel->pivotTable,
+            'pivotColumns' => $rel->pivotColumns,
+            'morphName' => $rel->morphName,
+            'pivotModel' => $rel->pivotModel,
+            'index' => $index,
+            'columnType' => null,
+            'with' => $with,
+        ];
+    }
+
+    /**
+     * Infer the base PHP type from a canonical column type.
+     */
+    private function inferPhpTypeFromColumnType(string $columnType): string
+    {
+        return match ($columnType) {
+            'string', 'text', 'mediumText', 'longText', 'binary', 'uuid', 'ulid' => 'string',
+            'integer', 'bigInteger', 'smallInteger', 'tinyInteger',
+            'unsignedBigInteger', 'unsignedInteger', 'unsignedSmallInteger', 'unsignedTinyInteger',
+            'year' => 'int',
+            'boolean' => 'bool',
+            'double', 'float', 'decimal' => 'float',
+            'json' => 'array',
+            'timestamp', 'date', 'time' => 'Carbon',
+            default => 'string',
+        };
     }
 
     /**

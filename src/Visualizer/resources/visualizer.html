@@ -1465,6 +1465,124 @@
         /* New stack form / new API form */
         .gen-new-stack-form { padding: 24px; max-width: 600px; }
         .gen-new-api-form { max-width: 500px; margin: 0 auto; padding-top: 20px; }
+
+        /* ── Schema Editor Modal ─────────────────────────── */
+        .se-overlay {
+            position: fixed; inset: 0; z-index: 9500;
+            background: rgba(0,0,0,0.6); display: flex;
+            align-items: center; justify-content: center;
+            animation: fp-fade-in 0.2s ease-out;
+        }
+        .se-modal {
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 12px; width: 95vw; max-width: 900px; max-height: 90vh;
+            display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .se-header {
+            display: flex; align-items: center; gap: 12px;
+            padding: 16px 20px; border-bottom: 1px solid var(--border);
+        }
+        .se-header-title { font-size: 16px; font-weight: 700; flex: 1; }
+        .se-header-close {
+            background: none; border: none; color: var(--text-muted); font-size: 20px;
+            cursor: pointer; padding: 4px 8px; border-radius: 4px; flex-shrink: 0;
+        }
+        .se-header-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .se-tabs {
+            display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 20px;
+        }
+        .se-tab {
+            padding: 10px 20px; border: none; background: transparent; color: var(--text-secondary);
+            font-size: 13px; font-weight: 500; cursor: pointer; position: relative;
+            transition: color 0.15s;
+        }
+        .se-tab:hover { color: var(--text-primary); }
+        .se-tab.active { color: var(--accent); }
+        .se-tab.active::after {
+            content: ''; position: absolute; bottom: -1px; left: 0; right: 0;
+            height: 2px; background: var(--accent); border-radius: 1px 1px 0 0;
+        }
+        .se-tab .se-tab-count {
+            display: inline-block; padding: 0 5px; margin-left: 4px;
+            font-size: 10px; background: var(--bg-tertiary); border-radius: 8px;
+            color: var(--text-muted); min-width: 16px; text-align: center;
+        }
+        .se-body { flex: 1; overflow-y: auto; padding: 20px; }
+        .se-footer {
+            display: flex; gap: 8px; justify-content: flex-end;
+            padding: 12px 20px; border-top: 1px solid var(--border);
+        }
+        .se-item-row {
+            display: flex; gap: 8px; align-items: center; padding: 8px 12px;
+            border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px;
+            cursor: pointer; transition: border-color 0.15s;
+        }
+        .se-item-row:hover { border-color: var(--accent); }
+        .se-item-row.active { border-color: var(--accent); background: var(--accent-dim); }
+        .se-item-name { font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
+        .se-type-badge {
+            padding: 1px 6px; border-radius: 8px; font-size: 9px;
+            background: var(--accent-dim); color: var(--accent);
+        }
+        .se-constraint-badge {
+            padding: 1px 6px; border-radius: 8px; font-size: 9px;
+            background: var(--bg-tertiary); color: var(--text-muted);
+        }
+        .se-constraint-badge.pk { background: var(--accent-dim); color: var(--accent); }
+        .se-constraint-badge.ai { background: var(--info-dim); color: var(--info); }
+        .se-constraint-badge.nullable { background: var(--warning-dim); color: var(--warning); }
+        .se-constraint-badge.unique { background: var(--warning-dim); color: var(--warning); }
+        .se-constraint-badge.idx { background: var(--success-dim); color: var(--success); }
+        .se-constraint-badge.fillable { background: var(--success-dim); color: var(--success); }
+        .se-constraint-badge.hidden { background: var(--error-dim); color: var(--error); }
+        .se-item-actions { margin-left: auto; display: flex; gap: 4px; }
+        .se-item-btn {
+            background: none; border: none; color: var(--text-muted); cursor: pointer;
+            padding: 2px 6px; border-radius: 4px; font-size: 13px;
+        }
+        .se-item-btn:hover { color: var(--error); background: var(--error-dim); }
+        .se-edit-form {
+            padding: 16px; background: var(--bg-secondary); border-radius: 0 0 6px 6px;
+            border: 1px solid var(--border); border-top: none; margin-top: -7px; margin-bottom: 6px;
+        }
+        .se-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+        .se-field { flex: 1; min-width: 120px; }
+        .se-field label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+        .se-field input[type="text"],
+        .se-field input[type="number"],
+        .se-field select {
+            width: 100%; padding: 6px 10px; font-size: 13px;
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text-primary); outline: none;
+        }
+        .se-field input:focus, .se-field select:focus { border-color: var(--accent); }
+        .se-field select { appearance: auto; }
+        .se-checks { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .se-check {
+            display: flex; align-items: center; gap: 4px;
+            font-size: 12px; color: var(--text-secondary); cursor: pointer;
+        }
+        .se-check input[type="checkbox"] { accent-color: var(--accent); }
+        .se-form-actions { display: flex; gap: 8px; margin-top: 12px; }
+        .se-add-btn {
+            padding: 6px 12px; font-size: 12px; border: 1px dashed var(--border);
+            border-radius: 6px; background: none; color: var(--text-muted);
+            cursor: pointer; width: 100%; text-align: center; transition: all 0.15s;
+        }
+        .se-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .se-empty {
+            text-align: center; padding: 30px 0; color: var(--text-muted); font-size: 13px;
+        }
+        .se-section { margin-bottom: 20px; }
+        .se-section-title {
+            font-size: 11px; font-weight: 600; text-transform: uppercase;
+            color: var(--text-muted); margin-bottom: 8px; letter-spacing: 0.5px;
+        }
+        .se-composite-row {
+            display: flex; gap: 8px; align-items: center; margin-bottom: 6px;
+            padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+        }
+        .se-composite-cols { flex: 1; font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); }
     </style>
 </head>
 <body>
@@ -4522,6 +4640,7 @@
                             '</div>' +
                         '</div>' +
                         '<div class="sc-panel-footer">' +
+                            '<button class="sc-btn" id="sc-create-editor" style="margin-right:auto;" title="Open the visual schema editor for full control">Schema Editor</button>' +
                             '<button class="sc-btn" id="sc-create-preview">Preview</button>' +
                             '<button class="sc-btn primary" id="sc-create-submit">Create</button>' +
                         '</div>' +
@@ -4568,6 +4687,7 @@
 
             // Bind events
             document.getElementById('sc-install-btn').addEventListener('click', doInstallBaseModel);
+            document.getElementById('sc-create-editor').addEventListener('click', function() { SchemaEditor.openNew(schemasDbConnection); });
             document.getElementById('sc-create-preview').addEventListener('click', function() { doCreateSchema(true); });
             document.getElementById('sc-create-submit').addEventListener('click', function() { doCreateSchema(false); });
             document.getElementById('sc-import-preview').addEventListener('click', function() { doImportSchema(true); });
@@ -4782,12 +4902,16 @@
                     pivotTag = '<span class="sc-pivot-tag" title="' + escapeAttr(pivotTitle) + '">' + pivotLabel + '</span>';
                 }
                 var tableKey = t.dbConnection ? t.name + '::' + t.dbConnection : t.name;
+                var editBtn = t.hasSchema && t.schemaClass
+                    ? '<button class="sc-btn sm se-edit-schema-btn" data-schema="' + escapeAttr(t.schemaClass) + '" data-conn="' + escapeAttr(t.dbConnection || '') + '" title="Edit Schema" style="padding:2px 8px;font-size:11px;">Edit</button>'
+                    : '';
                 return '<div class="sc-table-item">' +
                     '<input type="checkbox" class="sc-table-cb" data-table="' + escapeAttr(tableKey) + '"' + (t.selected ? ' checked' : '') + '>' +
                     '<span class="sc-table-name">' + escapeHtml(t.name) + '</span>' +
                     pivotTag +
                     connTag +
                     '<span class="sc-table-badges">' + badges + '</span>' +
+                    editBtn +
                 '</div>';
             }).join('');
 
@@ -4802,6 +4926,14 @@
                         return t.name === tableName && (!conn || t.dbConnection === conn);
                     });
                     if (table) table.selected = cb.checked;
+                });
+            });
+
+            // Bind schema edit buttons
+            list.querySelectorAll('.se-edit-schema-btn').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    SchemaEditor.openEdit(btn.dataset.schema, btn.dataset.conn || schemasDbConnection);
                 });
             });
         }
@@ -6523,6 +6655,685 @@
                 .catch(function() { remaining--; });
             });
         }
+
+        // ── Schema Editor ─────────────────────────────────
+        var SchemaEditor = {
+            state: null,
+            isNew: false,
+            originalClass: null,
+            dbConnection: null,
+            activeTab: 'columns',
+            editingIndex: null,
+            editingType: null,
+            overlayEl: null,
+            availableModels: [],
+
+            openNew: function(dbConnection) {
+                this.isNew = true;
+                this.originalClass = null;
+                this.dbConnection = dbConnection;
+                this.state = {
+                    schemaName: '',
+                    schemaNamespace: 'App\\Schemas',
+                    modelNamespace: 'App\\Models',
+                    tableName: null,
+                    connection: null,
+                    hasTimestamps: true,
+                    hasSoftDeletes: false,
+                    columns: [
+                        { name: 'id', phpType: 'int', typeOverride: null, columnType: null, nullable: false, primary: true, autoIncrement: true, unsigned: false, unique: false, index: false, fillable: false, hidden: false, length: null, precision: null, scale: null, default: null, hasDefault: false, expressionDefault: null, castClass: null, renamedFrom: null, rules: null }
+                    ],
+                    relationships: [],
+                    compositeIndexes: []
+                };
+                this.activeTab = 'columns';
+                this.editingIndex = null;
+                this.loadModels();
+                this.render();
+            },
+
+            openEdit: function(schemaClass, dbConn) {
+                var self = this;
+                self.isNew = false;
+                self.originalClass = schemaClass;
+                self.dbConnection = dbConn;
+                self.activeTab = 'columns';
+                self.editingIndex = null;
+
+                var url = '/_schema-craft/api/schema/detail?schema=' + encodeURIComponent(schemaClass);
+                if (dbConn) url += '&db_connection=' + encodeURIComponent(dbConn);
+
+                fetch(url)
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data.success) { showToast(data.message || 'Failed to load schema', 'error'); return; }
+                        self.state = {
+                            schemaName: data.schemaName,
+                            schemaNamespace: data.schemaNamespace,
+                            modelNamespace: data.modelNamespace,
+                            tableName: data.customTableName || null,
+                            connection: data.connection || null,
+                            hasTimestamps: data.hasTimestamps,
+                            hasSoftDeletes: data.hasSoftDeletes,
+                            columns: data.columns || [],
+                            relationships: data.relationships || [],
+                            compositeIndexes: data.compositeIndexes || []
+                        };
+                        self.loadModels();
+                        self.render();
+                    })
+                    .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            },
+
+            loadModels: function() {
+                var self = this;
+                var url = '/_schema-craft/api/schema/available-models';
+                if (self.dbConnection && self.dbConnection !== 'all') url += '?db_connection=' + encodeURIComponent(self.dbConnection);
+                fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+                    self.availableModels = data.models || [];
+                    // Re-render relationship forms if open
+                    if (self.activeTab === 'relationships' && self.overlayEl) {
+                        self.renderBody();
+                    }
+                }).catch(function() {});
+            },
+
+            close: function() {
+                if (this.overlayEl) { this.overlayEl.remove(); this.overlayEl = null; }
+                this.state = null;
+            },
+
+            render: function() {
+                var self = this;
+                if (self.overlayEl) self.overlayEl.remove();
+
+                var overlay = document.createElement('div');
+                overlay.className = 'se-overlay';
+                self.overlayEl = overlay;
+
+                var title = self.isNew ? 'New Schema' : 'Edit ' + self.state.schemaName;
+
+                overlay.innerHTML =
+                    '<div class="se-modal">' +
+                        '<div class="se-header">' +
+                            '<span class="se-header-title">' + escapeHtml(title) + '</span>' +
+                            '<button class="se-header-close se-close-btn">&times;</button>' +
+                        '</div>' +
+                        '<div class="se-tabs" id="se-tabs"></div>' +
+                        '<div class="se-body" id="se-body"></div>' +
+                        '<div class="se-footer">' +
+                            '<button class="sc-btn" id="se-cancel">Cancel</button>' +
+                            '<button class="sc-btn" id="se-preview">Preview</button>' +
+                            '<button class="sc-btn primary" id="se-save">Save</button>' +
+                        '</div>' +
+                    '</div>';
+
+                document.body.appendChild(overlay);
+
+                // Close handlers
+                overlay.querySelector('.se-close-btn').addEventListener('click', function() { self.close(); });
+                overlay.querySelector('#se-cancel').addEventListener('click', function() { self.close(); });
+                overlay.addEventListener('click', function(e) { if (e.target === overlay) self.close(); });
+                document.addEventListener('keydown', function onEsc(e) {
+                    if (e.key === 'Escape' && self.overlayEl) {
+                        self.close();
+                        document.removeEventListener('keydown', onEsc);
+                    }
+                });
+
+                overlay.querySelector('#se-preview').addEventListener('click', function() { self.doPreview(); });
+                overlay.querySelector('#se-save').addEventListener('click', function() { self.doSave(); });
+
+                self.renderTabs();
+                self.renderBody();
+            },
+
+            renderTabs: function() {
+                var self = this;
+                var tabs = document.getElementById('se-tabs');
+                if (!tabs) return;
+                var colCount = self.state.columns.length;
+                var relCount = self.state.relationships.length;
+
+                tabs.innerHTML =
+                    '<button class="se-tab' + (self.activeTab === 'columns' ? ' active' : '') + '" data-se-tab="columns">Columns <span class="se-tab-count">' + colCount + '</span></button>' +
+                    '<button class="se-tab' + (self.activeTab === 'relationships' ? ' active' : '') + '" data-se-tab="relationships">Relationships <span class="se-tab-count">' + relCount + '</span></button>' +
+                    '<button class="se-tab' + (self.activeTab === 'settings' ? ' active' : '') + '" data-se-tab="settings">Settings</button>';
+
+                tabs.querySelectorAll('.se-tab').forEach(function(tab) {
+                    tab.addEventListener('click', function() {
+                        self.commitOpenEdit();
+                        self.activeTab = tab.dataset.seTab;
+                        self.editingIndex = null;
+                        self.renderTabs();
+                        self.renderBody();
+                    });
+                });
+            },
+
+            renderBody: function() {
+                var body = document.getElementById('se-body');
+                if (!body) return;
+                if (this.activeTab === 'columns') this.renderColumnsList(body);
+                else if (this.activeTab === 'relationships') this.renderRelationshipsList(body);
+                else if (this.activeTab === 'settings') this.renderSettings(body);
+            },
+
+            // ── Columns Tab ──
+            renderColumnsList: function(body) {
+                var self = this;
+                var html = '';
+
+                if (self.state.columns.length === 0) {
+                    html = '<div class="se-empty">No columns defined. Add one below.</div>';
+                } else {
+                    self.state.columns.forEach(function(col, i) {
+                        var badges = '';
+                        if (col.primary) badges += '<span class="se-constraint-badge pk">PK</span>';
+                        if (col.autoIncrement) badges += '<span class="se-constraint-badge ai">AI</span>';
+                        if (col.nullable) badges += '<span class="se-constraint-badge nullable">Null</span>';
+                        if (col.unique) badges += '<span class="se-constraint-badge unique">Unique</span>';
+                        if (col.index) badges += '<span class="se-constraint-badge idx">Index</span>';
+                        if (col.fillable) badges += '<span class="se-constraint-badge fillable">Fill</span>';
+                        if (col.hidden) badges += '<span class="se-constraint-badge hidden">Hide</span>';
+
+                        var typeLabel = col.typeOverride || col.columnType || col.phpType;
+
+                        html += '<div class="se-item-row' + (self.editingIndex === i && self.editingType === 'column' ? ' active' : '') + '" data-se-col-idx="' + i + '">' +
+                            '<span class="se-item-name">' + escapeHtml(col.name) + '</span>' +
+                            '<span class="se-type-badge">' + escapeHtml(typeLabel) + '</span>' +
+                            badges +
+                            '<span class="se-item-actions">' +
+                                '<button class="se-item-btn se-remove-col" data-idx="' + i + '" title="Remove">&times;</button>' +
+                            '</span>' +
+                        '</div>';
+
+                        if (self.editingIndex === i && self.editingType === 'column') {
+                            html += self.renderColumnEditForm(col, i);
+                        }
+                    });
+                }
+
+                html += '<button class="se-add-btn" id="se-add-column">+ Add Column</button>';
+                body.innerHTML = html;
+
+                // Bind row clicks to toggle edit form
+                body.querySelectorAll('.se-item-row[data-se-col-idx]').forEach(function(row) {
+                    row.addEventListener('click', function(e) {
+                        if (e.target.closest('.se-item-btn')) return;
+                        var idx = parseInt(row.dataset.seColIdx, 10);
+                        self.commitOpenEdit();
+                        if (self.editingIndex === idx && self.editingType === 'column') {
+                            self.editingIndex = null; self.editingType = null;
+                        } else {
+                            self.editingIndex = idx; self.editingType = 'column';
+                        }
+                        self.renderBody();
+                    });
+                });
+
+                // Remove buttons
+                body.querySelectorAll('.se-remove-col').forEach(function(btn) {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        var idx = parseInt(btn.dataset.idx, 10);
+                        self.state.columns.splice(idx, 1);
+                        if (self.editingIndex === idx) { self.editingIndex = null; self.editingType = null; }
+                        else if (self.editingIndex > idx) self.editingIndex--;
+                        self.renderTabs();
+                        self.renderBody();
+                    });
+                });
+
+                // Add column
+                document.getElementById('se-add-column').addEventListener('click', function() {
+                    self.commitOpenEdit();
+                    self.state.columns.push({
+                        name: '', phpType: 'string', typeOverride: null, columnType: null,
+                        nullable: false, primary: false, autoIncrement: false, unsigned: false,
+                        unique: false, index: false, fillable: true, hidden: false,
+                        length: null, precision: null, scale: null, default: null, hasDefault: false,
+                        expressionDefault: null, castClass: null, renamedFrom: null, rules: null
+                    });
+                    self.editingIndex = self.state.columns.length - 1;
+                    self.editingType = 'column';
+                    self.renderTabs();
+                    self.renderBody();
+                    // Focus the name field
+                    var nameInput = document.getElementById('se-col-name');
+                    if (nameInput) nameInput.focus();
+                });
+            },
+
+            renderColumnEditForm: function(col, idx) {
+                var typeOptions = ['', 'Text', 'MediumText', 'LongText', 'BigInt', 'SmallInt', 'TinyInt', 'FloatColumn', 'Decimal', 'Date', 'Time', 'Year'];
+                var phpTypes = ['string', 'int', 'float', 'bool', 'array', 'Carbon'];
+
+                var typeOptHtml = typeOptions.map(function(t) {
+                    var label = t || '(none)';
+                    return '<option value="' + t + '"' + (col.typeOverride === t ? ' selected' : '') + '>' + label + '</option>';
+                }).join('');
+
+                var phpTypeHtml = phpTypes.map(function(t) {
+                    return '<option value="' + t + '"' + (col.phpType === t ? ' selected' : '') + '>' + t + '</option>';
+                }).join('');
+
+                var showLength = !col.typeOverride && (col.phpType === 'string');
+                var showPrecision = col.typeOverride === 'Decimal';
+
+                return '<div class="se-edit-form" data-se-edit-idx="' + idx + '">' +
+                    '<div class="se-row">' +
+                        '<div class="se-field" style="flex:2"><label>Name</label><input type="text" id="se-col-name" value="' + escapeAttr(col.name) + '" data-field="name"></div>' +
+                        '<div class="se-field"><label>PHP Type</label><select data-field="phpType">' + phpTypeHtml + '</select></div>' +
+                        '<div class="se-field"><label>Type Override</label><select data-field="typeOverride">' + typeOptHtml + '</select></div>' +
+                    '</div>' +
+                    '<div class="se-row">' +
+                        '<div class="se-field"><label>Column Type</label><input type="text" value="' + escapeAttr(col.columnType || '') + '" data-field="columnType" placeholder="e.g. uuid, ulid"></div>' +
+                        (showLength ? '<div class="se-field"><label>Length</label><input type="number" value="' + (col.length || '') + '" data-field="length" placeholder="255"></div>' : '') +
+                        (showPrecision ? '<div class="se-field"><label>Precision</label><input type="number" value="' + (col.precision || '') + '" data-field="precision"></div><div class="se-field"><label>Scale</label><input type="number" value="' + (col.scale || '') + '" data-field="scale"></div>' : '') +
+                    '</div>' +
+                    '<div class="se-row"><div class="se-checks">' +
+                        '<label class="se-check"><input type="checkbox" data-field="primary"' + (col.primary ? ' checked' : '') + '> Primary</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="autoIncrement"' + (col.autoIncrement ? ' checked' : '') + '> AutoIncrement</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="nullable"' + (col.nullable ? ' checked' : '') + '> Nullable</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="unsigned"' + (col.unsigned ? ' checked' : '') + '> Unsigned</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="unique"' + (col.unique ? ' checked' : '') + '> Unique</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="index"' + (col.index ? ' checked' : '') + '> Index</label>' +
+                    '</div></div>' +
+                    '<div class="se-row"><div class="se-checks">' +
+                        '<label class="se-check"><input type="checkbox" data-field="fillable"' + (col.fillable ? ' checked' : '') + '> Fillable</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="hidden"' + (col.hidden ? ' checked' : '') + '> Hidden</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="hasDefault"' + (col.hasDefault ? ' checked' : '') + '> Has Default</label>' +
+                    '</div></div>' +
+                    (col.hasDefault ? '<div class="se-row"><div class="se-field"><label>Default Value</label><input type="text" value="' + escapeAttr(col.default != null ? String(col.default) : '') + '" data-field="default"></div></div>' : '') +
+                    '<div class="se-row">' +
+                        '<div class="se-field"><label>Expression Default</label><input type="text" value="' + escapeAttr(col.expressionDefault || '') + '" data-field="expressionDefault" placeholder="e.g. CURRENT_TIMESTAMP"></div>' +
+                        '<div class="se-field"><label>Cast Class</label><input type="text" value="' + escapeAttr(col.castClass || '') + '" data-field="castClass" placeholder="e.g. AsCollection::class"></div>' +
+                    '</div>' +
+                    '<div class="se-row">' +
+                        '<div class="se-field"><label>Rules</label><input type="text" value="' + escapeAttr(col.rules ? col.rules.join(', ') : '') + '" data-field="rules" placeholder="required, email, max:255"></div>' +
+                        '<div class="se-field"><label>Renamed From</label><input type="text" value="' + escapeAttr(col.renamedFrom || '') + '" data-field="renamedFrom" placeholder="old_column_name"></div>' +
+                    '</div>' +
+                '</div>';
+            },
+
+            // ── Relationships Tab ──
+            renderRelationshipsList: function(body) {
+                var self = this;
+                var html = '';
+
+                if (self.state.relationships.length === 0) {
+                    html = '<div class="se-empty">No relationships defined. Add one below.</div>';
+                } else {
+                    self.state.relationships.forEach(function(rel, i) {
+                        var badges = '';
+                        if (rel.nullable) badges += '<span class="se-constraint-badge nullable">Null</span>';
+                        if (rel.index) badges += '<span class="se-constraint-badge idx">Index</span>';
+                        if (rel.with) badges += '<span class="se-constraint-badge fillable">Eager</span>';
+                        var modelShort = rel.relatedModel ? rel.relatedModel.split('\\').pop() : '';
+
+                        html += '<div class="se-item-row' + (self.editingIndex === i && self.editingType === 'rel' ? ' active' : '') + '" data-se-rel-idx="' + i + '">' +
+                            '<span class="se-item-name">' + escapeHtml(rel.name) + '</span>' +
+                            '<span class="se-type-badge">' + escapeHtml(rel.type) + '</span>' +
+                            (modelShort ? '<span class="se-constraint-badge">' + escapeHtml(modelShort) + '</span>' : '') +
+                            badges +
+                            '<span class="se-item-actions">' +
+                                '<button class="se-item-btn se-remove-rel" data-idx="' + i + '" title="Remove">&times;</button>' +
+                            '</span>' +
+                        '</div>';
+
+                        if (self.editingIndex === i && self.editingType === 'rel') {
+                            html += self.renderRelationshipEditForm(rel, i);
+                        }
+                    });
+                }
+
+                html += '<button class="se-add-btn" id="se-add-rel">+ Add Relationship</button>';
+                body.innerHTML = html;
+
+                // Bind row clicks
+                body.querySelectorAll('.se-item-row[data-se-rel-idx]').forEach(function(row) {
+                    row.addEventListener('click', function(e) {
+                        if (e.target.closest('.se-item-btn')) return;
+                        var idx = parseInt(row.dataset.seRelIdx, 10);
+                        self.commitOpenEdit();
+                        if (self.editingIndex === idx && self.editingType === 'rel') {
+                            self.editingIndex = null; self.editingType = null;
+                        } else {
+                            self.editingIndex = idx; self.editingType = 'rel';
+                        }
+                        self.renderBody();
+                    });
+                });
+
+                // Remove buttons
+                body.querySelectorAll('.se-remove-rel').forEach(function(btn) {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        var idx = parseInt(btn.dataset.idx, 10);
+                        self.state.relationships.splice(idx, 1);
+                        if (self.editingIndex === idx) { self.editingIndex = null; self.editingType = null; }
+                        else if (self.editingIndex > idx) self.editingIndex--;
+                        self.renderTabs();
+                        self.renderBody();
+                    });
+                });
+
+                // Add relationship
+                document.getElementById('se-add-rel').addEventListener('click', function() {
+                    self.commitOpenEdit();
+                    self.state.relationships.push({
+                        name: '', type: 'belongsTo', relatedModel: '',
+                        nullable: false, foreignColumn: null, onDelete: null, onUpdate: null,
+                        noConstraint: false, pivotTable: null, pivotColumns: null,
+                        morphName: null, pivotModel: null, index: false, columnType: null, with: false
+                    });
+                    self.editingIndex = self.state.relationships.length - 1;
+                    self.editingType = 'rel';
+                    self.renderTabs();
+                    self.renderBody();
+                    var nameInput = document.getElementById('se-rel-name');
+                    if (nameInput) nameInput.focus();
+                });
+            },
+
+            renderRelationshipEditForm: function(rel, idx) {
+                var self = this;
+                var relTypes = ['belongsTo', 'hasOne', 'hasMany', 'belongsToMany', 'morphTo', 'morphOne', 'morphMany', 'morphToMany'];
+                var relTypeHtml = relTypes.map(function(t) {
+                    return '<option value="' + t + '"' + (rel.type === t ? ' selected' : '') + '>' + t + '</option>';
+                }).join('');
+
+                var modelHtml = '<option value="">(select model)</option>';
+                self.availableModels.forEach(function(m) {
+                    modelHtml += '<option value="' + escapeAttr(m) + '"' + (rel.relatedModel === m ? ' selected' : '') + '>' + m.split('\\').pop() + ' (' + m + ')</option>';
+                });
+
+                var isMorphTo = rel.type === 'morphTo';
+                var isBelongsTo = rel.type === 'belongsTo';
+                var isBTM = rel.type === 'belongsToMany';
+                var isMorphX = ['morphOne', 'morphMany', 'morphToMany'].indexOf(rel.type) !== -1;
+                var needsMorphName = isMorphTo || isMorphX;
+
+                var onDeleteOptions = ['', 'cascade', 'restrict', 'set null', 'no action'];
+                var onDeleteHtml = onDeleteOptions.map(function(o) {
+                    var label = o || '(none)';
+                    return '<option value="' + o + '"' + ((rel.onDelete || '') === o ? ' selected' : '') + '>' + label + '</option>';
+                }).join('');
+                var onUpdateHtml = onDeleteOptions.map(function(o) {
+                    var label = o || '(none)';
+                    return '<option value="' + o + '"' + ((rel.onUpdate || '') === o ? ' selected' : '') + '>' + label + '</option>';
+                }).join('');
+
+                var html = '<div class="se-edit-form" data-se-edit-idx="' + idx + '" data-se-edit-type="rel">' +
+                    '<div class="se-row">' +
+                        '<div class="se-field" style="flex:2"><label>Name</label><input type="text" id="se-rel-name" value="' + escapeAttr(rel.name) + '" data-field="name"></div>' +
+                        '<div class="se-field"><label>Type</label><select data-field="type">' + relTypeHtml + '</select></div>' +
+                    '</div>';
+
+                if (!isMorphTo) {
+                    html += '<div class="se-row">' +
+                        '<div class="se-field" style="flex:2"><label>Related Model</label><select data-field="relatedModel">' + modelHtml + '</select></div>' +
+                    '</div>';
+                }
+
+                if (needsMorphName) {
+                    html += '<div class="se-row"><div class="se-field"><label>Morph Name</label><input type="text" value="' + escapeAttr(rel.morphName || '') + '" data-field="morphName" placeholder="e.g. commentable"></div></div>';
+                }
+
+                if (isBelongsTo) {
+                    html += '<div class="se-row">' +
+                        '<div class="se-field"><label>On Delete</label><select data-field="onDelete">' + onDeleteHtml + '</select></div>' +
+                        '<div class="se-field"><label>On Update</label><select data-field="onUpdate">' + onUpdateHtml + '</select></div>' +
+                        '<div class="se-field"><label>Foreign Column</label><input type="text" value="' + escapeAttr(rel.foreignColumn || '') + '" data-field="foreignColumn" placeholder="custom_fk_id"></div>' +
+                    '</div>' +
+                    '<div class="se-row"><div class="se-field"><label>Column Type</label><input type="text" value="' + escapeAttr(rel.columnType || '') + '" data-field="columnType" placeholder="e.g. unsignedInteger"></div></div>';
+                }
+
+                if (isBTM) {
+                    html += '<div class="se-row">' +
+                        '<div class="se-field"><label>Pivot Table</label><input type="text" value="' + escapeAttr(rel.pivotTable || '') + '" data-field="pivotTable" placeholder="auto-detected"></div>' +
+                        '<div class="se-field"><label>Pivot Model</label><input type="text" value="' + escapeAttr(rel.pivotModel || '') + '" data-field="pivotModel" placeholder="App\\Models\\FooPivot"></div>' +
+                    '</div>' +
+                    '<div class="se-row"><div class="se-field"><label>Pivot Columns (JSON)</label><input type="text" value="' + escapeAttr(rel.pivotColumns ? JSON.stringify(rel.pivotColumns) : '') + '" data-field="pivotColumns" placeholder=\'{"role":"string"}\'></div></div>';
+                }
+
+                if (isMorphTo) {
+                    html += '<div class="se-row"><div class="se-field"><label>Column Type</label><input type="text" value="' + escapeAttr(rel.columnType || '') + '" data-field="columnType" placeholder="e.g. unsignedInteger"></div></div>';
+                }
+
+                html += '<div class="se-row"><div class="se-checks">';
+                if (isBelongsTo || isMorphTo) {
+                    html += '<label class="se-check"><input type="checkbox" data-field="nullable"' + (rel.nullable ? ' checked' : '') + '> Nullable</label>';
+                    html += '<label class="se-check"><input type="checkbox" data-field="index"' + (rel.index ? ' checked' : '') + '> Index</label>';
+                }
+                if (isBelongsTo) {
+                    html += '<label class="se-check"><input type="checkbox" data-field="noConstraint"' + (rel.noConstraint ? ' checked' : '') + '> No Constraint</label>';
+                }
+                html += '<label class="se-check"><input type="checkbox" data-field="with"' + (rel.with ? ' checked' : '') + '> Eager Load</label>';
+                html += '</div></div>';
+
+                html += '</div>';
+                return html;
+            },
+
+            // ── Settings Tab ──
+            renderSettings: function(body) {
+                var self = this;
+                var s = self.state;
+                var html = '<div class="se-section"><div class="se-section-title">Identity</div>' +
+                    '<div class="se-row">' +
+                        '<div class="se-field" style="flex:2"><label>Schema Name</label><input type="text" id="se-set-name" value="' + escapeAttr(s.schemaName) + '"></div>' +
+                        '<div class="se-field"><label>Table Name</label><input type="text" id="se-set-table" value="' + escapeAttr(s.tableName || '') + '" placeholder="(convention-based)"></div>' +
+                    '</div>' +
+                    '<div class="se-row">' +
+                        '<div class="se-field"><label>Schema Namespace</label><input type="text" id="se-set-sns" value="' + escapeAttr(s.schemaNamespace) + '"></div>' +
+                        '<div class="se-field"><label>Model Namespace</label><input type="text" id="se-set-mns" value="' + escapeAttr(s.modelNamespace) + '"></div>' +
+                        '<div class="se-field"><label>Connection</label><input type="text" id="se-set-conn" value="' + escapeAttr(s.connection || '') + '" placeholder="(default)"></div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="se-section"><div class="se-section-title">Traits</div>' +
+                    '<div class="se-row"><div class="se-checks">' +
+                        '<label class="se-check"><input type="checkbox" id="se-set-ts"' + (s.hasTimestamps ? ' checked' : '') + '> Timestamps (created_at, updated_at)</label>' +
+                        '<label class="se-check"><input type="checkbox" id="se-set-sd"' + (s.hasSoftDeletes ? ' checked' : '') + '> Soft Deletes (deleted_at)</label>' +
+                    '</div></div>' +
+                '</div>' +
+                '<div class="se-section"><div class="se-section-title">Composite Indexes</div>';
+
+                if (s.compositeIndexes.length > 0) {
+                    s.compositeIndexes.forEach(function(ci, i) {
+                        html += '<div class="se-composite-row">' +
+                            '<span class="se-composite-cols">' + escapeHtml(ci.join(', ')) + '</span>' +
+                            '<button class="se-item-btn se-remove-ci" data-idx="' + i + '" title="Remove">&times;</button>' +
+                        '</div>';
+                    });
+                }
+
+                // Get column names for composite index picker
+                var colNames = s.columns.map(function(c) { return c.name; }).filter(function(n) { return n; });
+                html += '<div class="se-row" style="gap:8px;align-items:flex-end;">' +
+                    '<div class="se-field" style="flex:3"><label>Add Composite Index</label><input type="text" id="se-ci-input" placeholder="col1, col2, col3"></div>' +
+                    '<button class="sc-btn sm" id="se-add-ci" style="margin-bottom:0;height:33px;">Add</button>' +
+                '</div>';
+
+                html += '</div>';
+                body.innerHTML = html;
+
+                // Bind settings changes
+                var settingsFields = [
+                    { id: 'se-set-name', key: 'schemaName' },
+                    { id: 'se-set-table', key: 'tableName', nullable: true },
+                    { id: 'se-set-sns', key: 'schemaNamespace' },
+                    { id: 'se-set-mns', key: 'modelNamespace' },
+                    { id: 'se-set-conn', key: 'connection', nullable: true }
+                ];
+                settingsFields.forEach(function(sf) {
+                    var el = document.getElementById(sf.id);
+                    if (!el) return;
+                    el.addEventListener('change', function() {
+                        s[sf.key] = sf.nullable && !el.value ? null : el.value;
+                        if (sf.key === 'schemaName') {
+                            var titleEl = self.overlayEl.querySelector('.se-header-title');
+                            if (titleEl) titleEl.textContent = (self.isNew ? 'New Schema' : 'Edit ') + (s.schemaName || '');
+                        }
+                    });
+                });
+
+                document.getElementById('se-set-ts').addEventListener('change', function() { s.hasTimestamps = this.checked; });
+                document.getElementById('se-set-sd').addEventListener('change', function() { s.hasSoftDeletes = this.checked; });
+
+                // Remove composite indexes
+                body.querySelectorAll('.se-remove-ci').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        s.compositeIndexes.splice(parseInt(btn.dataset.idx, 10), 1);
+                        self.renderBody();
+                    });
+                });
+
+                // Add composite index
+                document.getElementById('se-add-ci').addEventListener('click', function() {
+                    var val = document.getElementById('se-ci-input').value.trim();
+                    if (!val) return;
+                    var cols = val.split(',').map(function(c) { return c.trim(); }).filter(Boolean);
+                    if (cols.length < 2) { showToast('Composite index needs at least 2 columns', 'warning'); return; }
+                    s.compositeIndexes.push(cols);
+                    self.renderBody();
+                });
+            },
+
+            // ── Commit open edit form values back to state ──
+            commitOpenEdit: function() {
+                if (this.editingIndex === null) return;
+                var form = this.overlayEl ? this.overlayEl.querySelector('.se-edit-form') : null;
+                if (!form) return;
+
+                var item = this.editingType === 'column'
+                    ? this.state.columns[this.editingIndex]
+                    : this.state.relationships[this.editingIndex];
+                if (!item) return;
+
+                form.querySelectorAll('[data-field]').forEach(function(el) {
+                    var field = el.dataset.field;
+                    if (el.type === 'checkbox') {
+                        item[field] = el.checked;
+                    } else if (el.type === 'number') {
+                        item[field] = el.value ? parseInt(el.value, 10) : null;
+                    } else if (field === 'rules') {
+                        var val = el.value.trim();
+                        item[field] = val ? val.split(',').map(function(r) { return r.trim(); }).filter(Boolean) : null;
+                    } else if (field === 'pivotColumns') {
+                        try { item[field] = el.value ? JSON.parse(el.value) : null; } catch(e) { item[field] = null; }
+                    } else if (field === 'default') {
+                        item[field] = el.value;
+                    } else {
+                        item[field] = el.value || null;
+                    }
+                });
+            },
+
+            // ── Build payload for API ──
+            buildPayload: function() {
+                this.commitOpenEdit();
+                var s = this.state;
+                if (!s.schemaName) { showToast('Schema name is required', 'warning'); return null; }
+                // Ensure schemaName ends with Schema
+                if (s.schemaName.indexOf('Schema') === -1) {
+                    s.schemaName = s.schemaName + 'Schema';
+                }
+                return {
+                    schemaName: s.schemaName,
+                    schemaNamespace: s.schemaNamespace,
+                    modelNamespace: s.modelNamespace,
+                    tableName: s.tableName || null,
+                    connection: s.connection || null,
+                    hasTimestamps: s.hasTimestamps,
+                    hasSoftDeletes: s.hasSoftDeletes,
+                    columns: s.columns,
+                    relationships: s.relationships,
+                    compositeIndexes: s.compositeIndexes,
+                    createModel: true
+                };
+            },
+
+            doPreview: function() {
+                var payload = this.buildPayload();
+                if (!payload) return;
+                fetch('/_schema-craft/api/schema/save/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Preview failed', 'error'); return; }
+                    showFilePreviewModal(data.files, function() { SchemaEditor.doSave(); }, 'Save Files');
+                })
+                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            },
+
+            doSave: function() {
+                var self = this;
+                var payload = self.buildPayload();
+                if (!payload) return;
+                fetch('/_schema-craft/api/schema/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Save failed', 'error'); return; }
+                    showToast(data.message || 'Schema saved', 'success');
+                    self.close();
+                    self.promptRegenerateExtras(payload);
+                    loadDatabaseTables();
+                    refreshSchemaData();
+                })
+                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            },
+
+            promptRegenerateExtras: function(payload) {
+                // Convention: table name from schema name
+                var modelName = payload.schemaName.replace(/Schema$/, '');
+                var tableName = modelName.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+                tableName = tableName.replace(/([A-Z]+)/g, function(m) { return m.toLowerCase(); });
+                // Simple pluralize
+                if (!tableName.endsWith('s')) tableName += 's';
+
+                showConfirmDialog(
+                    'Regenerate Extras?',
+                    'Would you like to regenerate Factory, Model Test, and Service for ' + modelName + '?',
+                    function() {
+                        var conn = SchemaEditor.dbConnection;
+                        if (conn === 'all') conn = null;
+                        fetch('/_schema-craft/api/schema/import/extras', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({
+                                tables: [tableName],
+                                createFactory: true,
+                                createModelTest: true,
+                                createService: true,
+                                force: true,
+                                db_connection: conn
+                            })
+                        })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.success) {
+                                var s = data.summary || {};
+                                var parts = [];
+                                if (s.factories > 0) parts.push(s.factories + ' factory');
+                                if (s.tests > 0) parts.push(s.tests + ' test');
+                                if (s.services > 0) parts.push(s.services + ' service');
+                                showToast(parts.join(', ') + ' generated', 'success');
+                            }
+                        })
+                        .catch(function() {});
+                    }
+                );
+            }
+        };
 
         // ── Helpers ────────────────────────────────────────
         function shortName(fqcn) { return fqcn.split('\\').pop(); }

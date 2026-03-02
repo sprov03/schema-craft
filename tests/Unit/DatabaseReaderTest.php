@@ -16,14 +16,14 @@ class DatabaseReaderTest extends TestCase
         $this->reader = new DatabaseReader;
     }
 
-    public function testReturnsNullForNonExistentTable(): void
+    public function test_returns_null_for_non_existent_table(): void
     {
         $result = $this->reader->read('non_existent_table');
 
         $this->assertNull($result);
     }
 
-    public function testReadsBasicTableStructure(): void
+    public function test_reads_basic_table_structure(): void
     {
         Schema::create('test_tags', function ($table) {
             $table->id();
@@ -47,7 +47,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertSame('string', $nameColumn->type);
     }
 
-    public function testReadsNullableColumn(): void
+    public function test_reads_nullable_column(): void
     {
         Schema::create('test_nullable', function ($table) {
             $table->id();
@@ -61,7 +61,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertTrue($bioColumn->nullable);
     }
 
-    public function testReadsTimestampColumns(): void
+    public function test_reads_timestamp_columns(): void
     {
         Schema::create('test_timestamps', function ($table) {
             $table->id();
@@ -75,7 +75,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertNotNull($state->getColumn('updated_at'));
     }
 
-    public function testDetectsAbsenceOfTimestamps(): void
+    public function test_detects_absence_of_timestamps(): void
     {
         Schema::create('test_no_timestamps', function ($table) {
             $table->id();
@@ -87,7 +87,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertFalse($state->hasTimestamps());
     }
 
-    public function testReadsIndexes(): void
+    public function test_reads_indexes(): void
     {
         Schema::create('test_indexes', function ($table) {
             $table->id();
@@ -105,7 +105,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertTrue($slugIndex->unique);
     }
 
-    public function testReadsForeignKeys(): void
+    public function test_reads_foreign_keys(): void
     {
         Schema::create('test_users', function ($table) {
             $table->id();
@@ -126,7 +126,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertSame('id', $fk->foreignColumn);
     }
 
-    public function testReadsSoftDeletesColumn(): void
+    public function test_reads_soft_deletes_column(): void
     {
         Schema::create('test_soft_deletes', function ($table) {
             $table->id();
@@ -141,7 +141,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertTrue($deletedAt->nullable);
     }
 
-    public function testListsAllTables(): void
+    public function test_lists_all_tables(): void
     {
         Schema::create('test_alpha', function ($table) {
             $table->id();
@@ -157,7 +157,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertContains('test_beta', $tables);
     }
 
-    public function testReadsTextColumnType(): void
+    public function test_reads_text_column_type(): void
     {
         Schema::create('test_text', function ($table) {
             $table->id();
@@ -171,7 +171,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertSame('text', $bodyColumn->type);
     }
 
-    public function testReadsBooleanColumn(): void
+    public function test_reads_boolean_column(): void
     {
         Schema::create('test_boolean', function ($table) {
             $table->id();
@@ -186,7 +186,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertContains($column->type, ['boolean', 'integer', 'tinyInteger']);
     }
 
-    public function testReadsJsonColumn(): void
+    public function test_reads_json_column(): void
     {
         Schema::create('test_json', function ($table) {
             $table->id();
@@ -201,7 +201,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertContains($column->type, ['json', 'text']);
     }
 
-    public function testReadsDecimalColumn(): void
+    public function test_reads_decimal_column(): void
     {
         Schema::create('test_decimal', function ($table) {
             $table->id();
@@ -214,7 +214,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertNotNull($column);
     }
 
-    public function testReadsColumnWithDefault(): void
+    public function test_reads_column_with_default(): void
     {
         Schema::create('test_defaults', function ($table) {
             $table->id();
@@ -229,7 +229,7 @@ class DatabaseReaderTest extends TestCase
         $this->assertSame('draft', $column->default);
     }
 
-    public function testReadsMultipleColumnsCorrectly(): void
+    public function test_reads_multiple_columns_correctly(): void
     {
         Schema::create('test_multi', function ($table) {
             $table->id();
