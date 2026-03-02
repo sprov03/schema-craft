@@ -1065,11 +1065,37 @@
             background: var(--bg-tertiary); color: var(--text-muted);
         }
         .sc-mini-badge.has { background: var(--success-dim); color: var(--success); }
+        .sc-conn-tag {
+            padding: 1px 6px; border-radius: 8px; font-size: 9px;
+            background: var(--accent-dim, rgba(99, 102, 241, 0.15));
+            color: var(--accent, #6366f1);
+            white-space: nowrap; flex-shrink: 0;
+        }
+        .sc-pivot-tag {
+            padding: 1px 6px; border-radius: 8px; font-size: 9px;
+            background: rgba(245, 158, 11, 0.15);
+            color: #d97706;
+            white-space: nowrap; flex-shrink: 0;
+            cursor: help;
+        }
         .sc-table-actions { display: flex; gap: 6px; }
         .sc-search-bar {
             display: flex; gap: 8px; margin-bottom: 12px; align-items: center;
         }
         .sc-search-bar .sc-input { flex: 1; }
+        .sc-import-filters {
+            display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px;
+        }
+        .sc-filter-tab {
+            padding: 4px 10px; font-size: 11px; border-radius: 4px;
+            border: 1px solid var(--border); background: var(--surface);
+            color: var(--text-muted); cursor: pointer; white-space: nowrap;
+        }
+        .sc-filter-tab:hover { border-color: var(--text-muted); }
+        .sc-filter-tab.active {
+            background: var(--accent-dim); color: var(--accent); border-color: var(--accent);
+        }
+        .sc-filter-count { opacity: 0.7; margin-left: 2px; }
 
         /* ── Status Tab ───────────────────────────────────── */
         #status-tab { padding: 24px; max-width: 900px; margin: 0 auto; }
@@ -4453,6 +4479,7 @@
             baseModelInstalled: null,
             tables: null,
             tableSearchQuery: '',
+            activeFilter: 'all',
         };
 
         function initSchemasTab() {
@@ -4506,6 +4533,14 @@
                                 '<label class="sc-form-label">Database Connection</label>' +
                                 '<select class="sc-input" id="sc-db-connection" style="width: 100%;"><option>Loading...</option></select>' +
                             '</div>' +
+                            '<div class="sc-import-filters" id="sc-import-filters">' +
+                                '<button class="sc-filter-tab active" data-filter="all">All</button>' +
+                                '<button class="sc-filter-tab" data-filter="not-imported">Not Imported</button>' +
+                                '<button class="sc-filter-tab" data-filter="needs-factory-test">Needs Factory+Test</button>' +
+                                '<button class="sc-filter-tab" data-filter="needs-service">Needs Service</button>' +
+                                '<button class="sc-filter-tab" data-filter="pivot">Pivot</button>' +
+                                '<button class="sc-filter-tab" data-filter="complete">Complete</button>' +
+                            '</div>' +
                             '<div class="sc-search-bar">' +
                                 '<input type="text" class="sc-input" id="sc-import-search" placeholder="Search tables...">' +
                                 '<button class="sc-btn sm" id="sc-select-all">All</button>' +
@@ -4515,7 +4550,10 @@
                                 '<div style="color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center;">Loading tables...</div>' +
                             '</div>' +
                             '<div class="sc-form-group">' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-model" checked> Generate model files</label>' +
+                                '<div class="sc-form-label">Generate:</div>' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-schema" checked> Schema + Model</label>' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-factory-test"> Factory + Model Test</label>' +
+                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-service"> Service</label>' +
                             '</div>' +
                             '<div class="sc-form-group">' +
                                 '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-force"> Force overwrite existing files</label>' +
@@ -4540,6 +4578,14 @@
             });
             document.getElementById('sc-select-all').addEventListener('click', function() { toggleAllTables(true); });
             document.getElementById('sc-deselect-all').addEventListener('click', function() { toggleAllTables(false); });
+            document.getElementById('sc-import-filters').addEventListener('click', function(e) {
+                var btn = e.target.closest('.sc-filter-tab');
+                if (!btn) return;
+                schemasState.activeFilter = btn.dataset.filter;
+                document.querySelectorAll('#sc-import-filters .sc-filter-tab').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                renderTableList();
+            });
             document.getElementById('sc-db-connection').addEventListener('change', function() {
                 schemasDbConnection = this.value;
                 loadDatabaseTables();
@@ -4628,6 +4674,10 @@
                     var select = document.getElementById('sc-db-connection');
                     if (!select) return;
                     select.innerHTML = '';
+                    var allOpt = document.createElement('option');
+                    allOpt.value = 'all';
+                    allOpt.textContent = 'All Connections';
+                    select.appendChild(allOpt);
                     data.connections.forEach(function(conn) {
                         var opt = document.createElement('option');
                         opt.value = conn.name;
@@ -4666,14 +4716,44 @@
                 });
         }
 
+        function matchesImportFilter(t, filter) {
+            switch (filter) {
+                case 'not-imported': return !t.hasSchema;
+                case 'needs-factory-test': return t.hasSchema && t.hasModel && (!t.hasFactory || !t.hasModelTest);
+                case 'needs-service': return t.hasSchema && t.hasModel && t.hasFactory && t.hasModelTest && !t.hasService;
+                case 'pivot': return !!t.isPivot;
+                case 'complete': return t.hasSchema && t.hasModel && t.hasFactory && t.hasModelTest && t.hasService;
+                default: return true;
+            }
+        }
+
+        function updateFilterCounts() {
+            if (!schemasState.tables) return;
+            var filters = ['all', 'not-imported', 'needs-factory-test', 'needs-service', 'pivot', 'complete'];
+            filters.forEach(function(f) {
+                var count = f === 'all' ? schemasState.tables.length : schemasState.tables.filter(function(t) { return matchesImportFilter(t, f); }).length;
+                var btn = document.querySelector('#sc-import-filters .sc-filter-tab[data-filter="' + f + '"]');
+                if (btn) {
+                    var label = btn.textContent.replace(/\s*\(\d+\)$/, '');
+                    btn.textContent = label + ' (' + count + ')';
+                }
+            });
+        }
+
         function renderTableList() {
             var list = document.getElementById('sc-table-list');
             if (!list || !schemasState.tables) return;
 
+            updateFilterCounts();
+            var isAllMode = schemasDbConnection === 'all';
+
             var filtered = schemasState.tables.filter(function(t) {
+                if (!matchesImportFilter(t, schemasState.activeFilter)) return false;
                 if (!schemasState.tableSearchQuery) return true;
-                return t.name.toLowerCase().indexOf(schemasState.tableSearchQuery) !== -1 ||
-                    t.modelName.toLowerCase().indexOf(schemasState.tableSearchQuery) !== -1;
+                var q = schemasState.tableSearchQuery;
+                return t.name.toLowerCase().indexOf(q) !== -1 ||
+                    t.modelName.toLowerCase().indexOf(q) !== -1 ||
+                    (t.dbConnection && t.dbConnection.toLowerCase().indexOf(q) !== -1);
             });
 
             if (filtered.length === 0) {
@@ -4682,20 +4762,45 @@
             }
 
             list.innerHTML = filtered.map(function(t) {
-                var schemaBadge = t.hasSchema ? '<span class="sc-mini-badge has">Schema</span>' : '';
-                var modelBadge = t.hasModel ? '<span class="sc-mini-badge has">Model</span>' : '';
+                var badges = '';
+                badges += t.hasSchema ? '<span class="sc-mini-badge has">Schema</span>' : '';
+                badges += t.hasModel ? '<span class="sc-mini-badge has">Model</span>' : '';
+                badges += t.hasFactory ? '<span class="sc-mini-badge has">Factory</span>' : '';
+                badges += t.hasModelTest ? '<span class="sc-mini-badge has">Test</span>' : '';
+                badges += t.hasService ? '<span class="sc-mini-badge has">Service</span>' : '';
+                var connTag = isAllMode && t.dbConnection
+                    ? '<span class="sc-conn-tag">' + escapeHtml(t.dbConnection) + '</span>'
+                    : '';
+                var pivotTag = '';
+                if (t.isPivot) {
+                    var pivotTitle = 'Pivot: ' + t.pivotTables.tableA + ' \u2194 ' + t.pivotTables.tableB;
+                    var extraCols = t.pivotTables.extraColumns ? Object.keys(t.pivotTables.extraColumns) : [];
+                    if (extraCols.length > 0) {
+                        pivotTitle += '\nExtra columns: ' + extraCols.join(', ');
+                    }
+                    var pivotLabel = extraCols.length > 0 ? 'Pivot (+' + extraCols.length + ')' : 'Pivot';
+                    pivotTag = '<span class="sc-pivot-tag" title="' + escapeAttr(pivotTitle) + '">' + pivotLabel + '</span>';
+                }
+                var tableKey = t.dbConnection ? t.name + '::' + t.dbConnection : t.name;
                 return '<div class="sc-table-item">' +
-                    '<input type="checkbox" class="sc-table-cb" data-table="' + escapeAttr(t.name) + '"' + (t.selected ? ' checked' : '') + '>' +
+                    '<input type="checkbox" class="sc-table-cb" data-table="' + escapeAttr(tableKey) + '"' + (t.selected ? ' checked' : '') + '>' +
                     '<span class="sc-table-name">' + escapeHtml(t.name) + '</span>' +
-                    '<span class="sc-table-badges">' + schemaBadge + modelBadge + '</span>' +
+                    pivotTag +
+                    connTag +
+                    '<span class="sc-table-badges">' + badges + '</span>' +
                 '</div>';
             }).join('');
 
-            // Bind checkbox events
+            // Bind checkbox events (use composite key for lookup)
             list.querySelectorAll('.sc-table-cb').forEach(function(cb) {
                 cb.addEventListener('change', function() {
-                    var tableName = cb.dataset.table;
-                    var table = schemasState.tables.find(function(t) { return t.name === tableName; });
+                    var key = cb.dataset.table;
+                    var parts = key.split('::');
+                    var tableName = parts[0];
+                    var conn = parts[1] || null;
+                    var table = schemasState.tables.find(function(t) {
+                        return t.name === tableName && (!conn || t.dbConnection === conn);
+                    });
                     if (table) table.selected = cb.checked;
                 });
             });
@@ -4705,9 +4810,11 @@
             if (!schemasState.tables) return;
             var query = schemasState.tableSearchQuery;
             schemasState.tables.forEach(function(t) {
+                if (!matchesImportFilter(t, schemasState.activeFilter)) return;
                 var matches = !query ||
                     t.name.toLowerCase().indexOf(query) !== -1 ||
-                    t.modelName.toLowerCase().indexOf(query) !== -1;
+                    t.modelName.toLowerCase().indexOf(query) !== -1 ||
+                    (t.dbConnection && t.dbConnection.toLowerCase().indexOf(query) !== -1);
                 if (matches) t.selected = select;
             });
             renderTableList();
@@ -4715,53 +4822,145 @@
 
         function getSelectedTables() {
             if (!schemasState.tables) return [];
-            return schemasState.tables.filter(function(t) { return t.selected; }).map(function(t) { return t.name; });
+            return schemasState.tables.filter(function(t) { return t.selected; });
         }
 
         function doImportSchema(previewOnly) {
-            var tables = getSelectedTables();
-            if (tables.length === 0) {
+            var selected = getSelectedTables();
+            if (selected.length === 0) {
                 showToast('Please select at least one table', 'warning');
                 return;
             }
 
-            var createModel = document.getElementById('sc-import-model').checked;
+            var createSchema = document.getElementById('sc-import-schema').checked;
+            var createFactoryTest = document.getElementById('sc-import-factory-test').checked;
+            var createService = document.getElementById('sc-import-service').checked;
             var force = document.getElementById('sc-import-force').checked;
-            var url = previewOnly ? '/_schema-craft/api/schema/import/preview' : '/_schema-craft/api/schema/import';
 
-            var body = { tables: tables, createModel: createModel };
-            if (schemasDbConnection) body.db_connection = schemasDbConnection;
-            if (!previewOnly) body.force = force;
+            if (!createSchema && !createFactoryTest && !createService) {
+                showToast('Select at least one option to generate', 'warning');
+                return;
+            }
 
-            fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify(body),
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(result) {
-                if (!result.success) {
-                    showToast(result.message || 'Import failed', 'error');
-                    return;
+            // Group selected tables by connection
+            var groups = {};
+            selected.forEach(function(t) {
+                var conn = t.dbConnection || schemasDbConnection || 'default';
+                if (!groups[conn]) groups[conn] = [];
+                groups[conn].push(t.name);
+            });
+
+            var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+            var chain = Promise.resolve();
+            var connectionKeys = Object.keys(groups);
+            var isAllMode = schemasDbConnection === 'all';
+
+            connectionKeys.forEach(function(connName) {
+                var tables = groups[connName];
+
+                if (createSchema) {
+                    // Consolidated: schema + model + extras in a single request
+                    chain = chain.then(function(prev) {
+                        if (prev === 'previewed') return prev;
+                        var url = previewOnly ? '/_schema-craft/api/schema/import/preview' : '/_schema-craft/api/schema/import';
+                        var body = {
+                            tables: tables,
+                            createModel: true,
+                            createFactory: createFactoryTest,
+                            createModelTest: createFactoryTest,
+                            createService: createService,
+                            db_connection: connName,
+                        };
+                        if (!previewOnly) body.force = force;
+
+                        return fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(body) })
+                            .then(function(r) { return r.json(); })
+                            .then(function(result) {
+                                if (!result.success) throw new Error(result.message || 'Import failed');
+                                if (previewOnly) {
+                                    var pivotNote = result.pivots && result.pivots.length > 0
+                                        ? result.pivots.length + ' pivot table(s) detected and handled as relationships'
+                                        : '';
+                                    showFilePreviewModal(result.files, function() { doImportSchema(false); }, 'Write Files');
+                                    if (pivotNote) showToast(pivotNote, 'info');
+                                    return 'previewed';
+                                }
+                                var s = result.summary || {};
+                                var prefix = isAllMode ? '[' + connName + '] ' : '';
+                                var parts = [];
+                                if (s.schemas > 0) parts.push(s.schemas + ' schema(s)');
+                                if (s.models > 0) parts.push(s.models + ' model(s)');
+                                if (s.factories > 0) parts.push(s.factories + ' factory(ies)');
+                                if (s.tests > 0) parts.push(s.tests + ' test(s)');
+                                if (s.services > 0) parts.push(s.services + ' service(s)');
+                                if (s.skipped > 0) parts.push(s.skipped + ' skipped');
+                                if (s.pivots > 0) parts.push(s.pivots + ' pivot(s)');
+                                showToast(prefix + parts.join(', '), 'success');
+                                return 'imported';
+                            });
+                    });
+                } else if (createFactoryTest || createService) {
+                    // Extras only (no new schema/model)
+                    chain = chain.then(function(prev) {
+                        if (prev === 'previewed') return prev;
+
+                        if (previewOnly) {
+                            // Preview extras via import/preview, filter out schema files
+                            var body = {
+                                tables: tables,
+                                createModel: false,
+                                createFactory: createFactoryTest,
+                                createModelTest: createFactoryTest,
+                                createService: createService,
+                                db_connection: connName,
+                            };
+                            return fetch('/_schema-craft/api/schema/import/preview', {
+                                method: 'POST', headers: headers, body: JSON.stringify(body),
+                            }).then(function(r) { return r.json(); })
+                            .then(function(result) {
+                                if (!result.success) throw new Error(result.message || 'Preview failed');
+                                var extrasOnly = result.files.filter(function(f) { return f.type !== 'schema'; });
+                                showFilePreviewModal(extrasOnly, function() { doImportSchema(false); }, 'Write Files');
+                                return 'previewed';
+                            });
+                        }
+
+                        // Write mode: use generateExtras endpoint (reads existing schemas from disk)
+                        var body = {
+                            tables: tables,
+                            createFactory: createFactoryTest,
+                            createModelTest: createFactoryTest,
+                            createService: createService,
+                            force: force,
+                            db_connection: connName,
+                        };
+                        return fetch('/_schema-craft/api/schema/import/extras', {
+                            method: 'POST', headers: headers, body: JSON.stringify(body),
+                        }).then(function(r) { return r.json(); })
+                        .then(function(result) {
+                            if (!result.success) throw new Error(result.message || 'Extras generation failed');
+                            var s = result.summary || {};
+                            var parts = [];
+                            if (s.factories > 0) parts.push(s.factories + ' factory(ies)');
+                            if (s.tests > 0) parts.push(s.tests + ' test(s)');
+                            if (s.services > 0) parts.push(s.services + ' service(s)');
+                            if (s.skipped > 0) parts.push(s.skipped + ' skipped');
+                            if (parts.length > 0) {
+                                var prefix = isAllMode ? '[' + connName + '] ' : '';
+                                showToast(prefix + parts.join(', ') + ' created', 'success');
+                            }
+                            return 'imported';
+                        });
+                    });
                 }
+            });
 
-                if (previewOnly) {
-                    var pivotNote = result.pivots && result.pivots.length > 0
-                        ? result.pivots.length + ' pivot table(s) detected and handled as relationships'
-                        : '';
-                    showFilePreviewModal(result.files, function() { doImportSchema(false); }, 'Write Files');
-                    if (pivotNote) showToast(pivotNote, 'info');
-                } else {
-                    var s = result.summary || {};
-                    var msg = (s.schemas || 0) + ' schema(s), ' + (s.models || 0) + ' model(s) created';
-                    if (s.skipped > 0) msg += ', ' + s.skipped + ' skipped';
-                    if (s.pivots > 0) msg += ', ' + s.pivots + ' pivot(s)';
-                    showToast(msg, 'success');
-                    loadDatabaseTables(); // Refresh statuses
+            chain.then(function(prev) {
+                if (prev !== 'previewed') {
+                    loadDatabaseTables();
                     refreshSchemaData();
                 }
-            })
-            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
         }
 
         function refreshSchemaData() {

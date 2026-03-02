@@ -49,6 +49,7 @@ use SchemaCraft\Attributes\Time;
 use SchemaCraft\Attributes\TinyInt;
 use SchemaCraft\Attributes\Unique;
 use SchemaCraft\Attributes\Unsigned;
+use SchemaCraft\Attributes\UsingPivot;
 use SchemaCraft\Attributes\With;
 use SchemaCraft\Attributes\Year;
 use SchemaCraft\Migration\CanonicalColumn;
@@ -365,6 +366,7 @@ class SchemaScanner
         $noConstraint = $this->hasAttribute($property, NoConstraint::class);
         $pivotTable = $this->getAttributeInstance($property, PivotTable::class)?->table;
         $pivotColumns = $this->getAttributeInstance($property, PivotColumns::class)?->columns;
+        $pivotModel = $this->getAttributeInstance($property, UsingPivot::class)?->model;
 
         $relType = match (true) {
             $relationAttr instanceof BelongsTo => 'belongsTo',
@@ -397,6 +399,7 @@ class SchemaScanner
             pivotTable: $pivotTable,
             pivotColumns: $pivotColumns,
             morphName: $morphName,
+            pivotModel: $pivotModel,
         );
     }
 

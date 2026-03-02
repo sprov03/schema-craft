@@ -95,6 +95,8 @@ return [
                 'service' => 'App\\Models\\Services',
                 'schema' => 'App\\Schemas',
                 'model' => 'App\\Models',
+                'factory' => 'Database\\Factories',
+                'test' => 'Tests\\Unit',
             ],
             // DB Connection
             'connection' => 'default',
@@ -109,6 +111,8 @@ return [
                 'service' => 'App\\Models\\Services',
                 'schema' => 'App\\Schemas',
                 'model' => 'App\\Models',
+                'factory' => 'Database\\Factories',
+                'test' => 'Tests\\Unit',
             ],
             // DB Connection
             'connection' => 'default',
@@ -123,6 +127,8 @@ return [
                 'service' => 'App\\Models\\Services\\Namespaced',
                 'schema' => 'App\\Schemas\\Namespaced',
                 'model' => 'App\\Models\\Namespaced',
+                'factory' => 'Database\\Factories\\Namespaced',
+                'test' => 'Tests\\Unit\\Namespaced',
             ],
             // DB Connection
             'connection' => 'default',

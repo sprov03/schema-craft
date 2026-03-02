@@ -28,6 +28,14 @@ class SchemaFileGenerator
      * @param  string  $modelPrefix  Class name prefix for models (e.g. 'Prefix' → PrefixAccount)
      * @param  string|null  $connection  DB connection name to emit as $connection property (null = default, skip)
      */
+    /**
+     * @param  DatabaseTableState  $table  The table to generate for
+     * @param  array<string, DatabaseTableState>  $allTables  All tables keyed by name (for HasMany inference)
+     * @param  array<string, string>  $pivotRelationships  Pivot table relationships: ['related_table' => 'pivot_table_name']
+     * @param  array<string, string>  $pivotModelNames  Map of pivot table name to model class name for UsingPivot emission
+     * @param  bool  $isPivotModel  Whether this table is being generated as a pivot model (extends Pivot)
+     * @param  array<string, array<string, string>>  $pivotExtraColumns  Map of pivot table name to extra columns ['col' => 'type']
+     */
     public function generate(
         DatabaseTableState $table,
         array $allTables = [],
@@ -37,6 +45,9 @@ class SchemaFileGenerator
         string $schemaPrefix = '',
         string $modelPrefix = '',
         ?string $connection = null,
+        array $pivotModelNames = [],
+        bool $isPivotModel = false,
+        array $pivotExtraColumns = [],
     ): GeneratedSchemaResult {
         $baseModelName = $this->resolveModelName($table->tableName);
         $modelName = $modelPrefix.$baseModelName;
@@ -333,6 +344,24 @@ class SchemaFileGenerator
                 $imports[] = 'SchemaCraft\\Attributes\\PivotTable';
             }
 
+            // Add UsingPivot attribute if a pivot model exists for this pivot table
+            if (isset($pivotModelNames[$pivotTableName])) {
+                $pivotModelClass = $pivotModelNames[$pivotTableName];
+                $attrs[] = "#[UsingPivot({$pivotModelClass}::class)]";
+                $imports[] = 'SchemaCraft\\Attributes\\UsingPivot';
+                $imports[] = $modelNamespace.'\\'.$pivotModelClass;
+            }
+
+            // Add PivotColumns attribute if pivot has extra columns
+            if (isset($pivotExtraColumns[$pivotTableName]) && ! empty($pivotExtraColumns[$pivotTableName])) {
+                $colPairs = [];
+                foreach ($pivotExtraColumns[$pivotTableName] as $colName => $colType) {
+                    $colPairs[] = "'{$colName}' => '{$colType}'";
+                }
+                $attrs[] = '#[PivotColumns(['.implode(', ', $colPairs).'])]';
+                $imports[] = 'SchemaCraft\\Attributes\\PivotColumns';
+            }
+
             $belongsToManyProperties[] = new GeneratedProperty(
                 name: $propertyName,
                 phpType: 'Collection',
@@ -389,14 +418,20 @@ class SchemaFileGenerator
             connection: $connection,
         );
 
-        $modelContent = $this->buildModelFileContent(
-            modelNamespace: $modelNamespace,
-            schemaNamespace: $schemaNamespace,
-            modelName: $modelName,
-            schemaName: $schemaName,
-            hasSoftDeletes: $hasSoftDeletes,
-            connection: $connection,
-        );
+        $modelContent = $isPivotModel
+            ? $this->buildPivotModelFileContent(
+                modelNamespace: $modelNamespace,
+                modelName: $modelName,
+                connection: $connection,
+            )
+            : $this->buildModelFileContent(
+                modelNamespace: $modelNamespace,
+                schemaNamespace: $schemaNamespace,
+                modelName: $modelName,
+                schemaName: $schemaName,
+                hasSoftDeletes: $hasSoftDeletes,
+                connection: $connection,
+            );
 
         return new GeneratedSchemaResult(
             schemaContent: $schemaContent,
@@ -404,6 +439,7 @@ class SchemaFileGenerator
             schemaClassName: $schemaName,
             modelClassName: $modelName,
             hasSoftDeletes: $hasSoftDeletes,
+            isPivotModel: $isPivotModel,
         );
     }
 
@@ -416,11 +452,17 @@ class SchemaFileGenerator
     }
 
     /**
-     * Detect if a table is a pivot table.
+     * Detect whether a table is a pivot table.
      *
-     * A pivot table has exactly 2 FK columns and no other non-PK/timestamp columns.
+     * A pivot table must:
+     * 1. Have exactly two foreign keys pointing to two different tables
+     * 2. Follow Laravel's pivot naming convention: singularA_singularB (alphabetical)
      *
-     * @return array{tableA: string, tableB: string}|null
+     * Extra columns beyond the FKs, PK, and timestamps are allowed — they
+     * represent pivot metadata (e.g. sort_order, role) and are returned as
+     * `extraColumns` so callers can emit #[PivotColumns].
+     *
+     * @return null|array{tableA: string, tableB: string, extraColumns: array<string, string>}
      */
     public function detectPivotTable(DatabaseTableState $table): ?array
     {
@@ -428,10 +470,23 @@ class SchemaFileGenerator
             return null;
         }
 
-        $nonManagedColumns = [];
+        // Both FKs must point to different tables (self-referential is not a pivot)
+        $tableA = $table->foreignKeys[0]->foreignTable;
+        $tableB = $table->foreignKeys[1]->foreignTable;
+        if ($tableA === $tableB) {
+            return null;
+        }
+
+        // Table name must match Laravel's pivot naming convention
+        $expectedName = $this->expectedPivotTableName($tableA, $tableB);
+        if ($table->tableName !== $expectedName) {
+            return null;
+        }
+
         $managedNames = array_merge(self::TIMESTAMP_COLUMNS, self::SOFT_DELETE_COLUMNS);
         $fkColumnNames = array_map(fn (DatabaseForeignKeyState $fk) => $fk->column, $table->foreignKeys);
 
+        $extraColumns = [];
         foreach ($table->columns as $column) {
             if ($column->primary && $column->autoIncrement) {
                 continue;
@@ -443,17 +498,32 @@ class SchemaFileGenerator
                 continue;
             }
 
-            $nonManagedColumns[] = $column;
-        }
-
-        if (count($nonManagedColumns) > 0) {
-            return null;
+            $extraColumns[$column->name] = $this->columnTypeToPivotType($column);
         }
 
         return [
-            'tableA' => $table->foreignKeys[0]->foreignTable,
-            'tableB' => $table->foreignKeys[1]->foreignTable,
+            'tableA' => $tableA,
+            'tableB' => $tableB,
+            'extraColumns' => $extraColumns,
         ];
+    }
+
+    /**
+     * Map a database column type to a simple PivotColumns cast type.
+     */
+    private function columnTypeToPivotType(DatabaseColumnState $column): string
+    {
+        return match ($column->type) {
+            'boolean', 'tinyInteger' => 'boolean',
+            'integer', 'smallInteger', 'mediumInteger', 'bigInteger',
+            'unsignedInteger', 'unsignedSmallInteger', 'unsignedMediumInteger', 'unsignedBigInteger',
+            'unsignedTinyInteger' => 'integer',
+            'float', 'double', 'decimal' => 'float',
+            'datetime', 'dateTime', 'timestamp' => 'datetime',
+            'date' => 'date',
+            'json', 'jsonb' => 'array',
+            default => 'string',
+        };
     }
 
     /**
@@ -856,6 +926,7 @@ class SchemaFileGenerator
             str_contains($attribute, '#[BelongsToMany') => 'SchemaCraft\\Attributes\\Relations\\BelongsToMany',
             str_contains($attribute, '#[MorphTo') => 'SchemaCraft\\Attributes\\Relations\\MorphTo',
             str_contains($attribute, '#[PivotTable') => 'SchemaCraft\\Attributes\\PivotTable',
+            str_contains($attribute, '#[PivotColumns') => 'SchemaCraft\\Attributes\\PivotColumns',
             str_contains($attribute, '#[ForeignColumn') => 'SchemaCraft\\Attributes\\ForeignColumn',
             str_contains($attribute, '#[ColumnType') => 'SchemaCraft\\Attributes\\ColumnType',
             str_contains($attribute, '#[DefaultExpression') => 'SchemaCraft\\Attributes\\DefaultExpression',
@@ -1027,6 +1098,34 @@ class SchemaFileGenerator
 
         if ($connection !== null) {
             $lines[] = '';
+            $lines[] = "    protected \$connection = '{$connection}';";
+        }
+
+        $lines[] = '}';
+        $lines[] = '';
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Build the file content for a pivot model that extends Pivot.
+     */
+    private function buildPivotModelFileContent(
+        string $modelNamespace,
+        string $modelName,
+        ?string $connection = null,
+    ): string {
+        $lines = [];
+        $lines[] = '<?php';
+        $lines[] = '';
+        $lines[] = "namespace {$modelNamespace};";
+        $lines[] = '';
+        $lines[] = 'use Illuminate\\Database\\Eloquent\\Relations\\Pivot;';
+        $lines[] = '';
+        $lines[] = "class {$modelName} extends Pivot";
+        $lines[] = '{';
+
+        if ($connection !== null) {
             $lines[] = "    protected \$connection = '{$connection}';";
         }
 

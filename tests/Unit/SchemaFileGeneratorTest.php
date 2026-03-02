@@ -800,6 +800,48 @@ class SchemaFileGeneratorTest extends TestCase
         $this->assertNotNull($pivot);
         $this->assertSame('dogs', $pivot['tableA']);
         $this->assertSame('owners', $pivot['tableB']);
+        $this->assertEmpty($pivot['extraColumns']);
+    }
+
+    public function test_detects_pivot_table_with_extra_columns(): void
+    {
+        $table = $this->makeTable('course_student', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('course_id', 'unsignedBigInteger'),
+            $this->col('student_id', 'unsignedBigInteger'),
+            $this->col('grade', 'integer'),
+            $this->col('semester', 'string'),
+        ], foreignKeys: [
+            new DatabaseForeignKeyState('course_id', 'courses', 'id'),
+            new DatabaseForeignKeyState('student_id', 'students', 'id'),
+        ]);
+
+        $pivot = $this->generator->detectPivotTable($table);
+
+        $this->assertNotNull($pivot);
+        $this->assertSame('courses', $pivot['tableA']);
+        $this->assertSame('students', $pivot['tableB']);
+        $this->assertSame(['grade' => 'integer', 'semester' => 'string'], $pivot['extraColumns']);
+    }
+
+    public function test_detects_pivot_table_with_timestamps_and_extra_columns(): void
+    {
+        $table = $this->makeTable('project_user', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('project_id', 'unsignedBigInteger'),
+            $this->col('user_id', 'unsignedBigInteger'),
+            $this->col('role', 'string'),
+            $this->col('created_at', 'timestamp', nullable: true),
+            $this->col('updated_at', 'timestamp', nullable: true),
+        ], foreignKeys: [
+            new DatabaseForeignKeyState('project_id', 'projects', 'id'),
+            new DatabaseForeignKeyState('user_id', 'users', 'id'),
+        ]);
+
+        $pivot = $this->generator->detectPivotTable($table);
+
+        $this->assertNotNull($pivot);
+        $this->assertSame(['role' => 'string'], $pivot['extraColumns']);
     }
 
     public function test_does_not_detect_non_pivot_table(): void
@@ -810,6 +852,26 @@ class SchemaFileGeneratorTest extends TestCase
             $this->col('owner_id', 'unsignedBigInteger'),
         ], foreignKeys: [
             new DatabaseForeignKeyState('owner_id', 'owners', 'id'),
+        ]);
+
+        $pivot = $this->generator->detectPivotTable($table);
+
+        $this->assertNull($pivot);
+    }
+
+    public function test_does_not_detect_pivot_when_name_does_not_match_convention(): void
+    {
+        // add_task_automations has 2 FKs but its name doesn't match
+        // the expected pivot name: account_status (from accounts + statuses)
+        $table = $this->makeTable('add_task_automations', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('account_id', 'unsignedBigInteger'),
+            $this->col('status_id', 'unsignedBigInteger'),
+            $this->col('hook', 'tinyInteger'),
+            $this->col('minutes', 'integer', nullable: true),
+        ], foreignKeys: [
+            new DatabaseForeignKeyState('account_id', 'accounts', 'id'),
+            new DatabaseForeignKeyState('status_id', 'statuses', 'id'),
         ]);
 
         $pivot = $this->generator->detectPivotTable($table);
@@ -999,6 +1061,175 @@ class SchemaFileGeneratorTest extends TestCase
      * @param  DatabaseIndexState[]  $indexes
      * @param  DatabaseForeignKeyState[]  $foreignKeys
      */
+    // --- Pivot Model Generation ---
+
+    public function test_generates_pivot_model_extending_pivot(): void
+    {
+        $table = $this->makeTable('dog_owner', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('dog_id', 'unsignedBigInteger'),
+            $this->col('owner_id', 'unsignedBigInteger'),
+        ], foreignKeys: [
+            new DatabaseForeignKeyState('dog_id', 'dogs', 'id'),
+            new DatabaseForeignKeyState('owner_id', 'owners', 'id'),
+        ]);
+
+        $result = $this->generator->generate($table, isPivotModel: true);
+
+        $this->assertTrue($result->isPivotModel);
+        $this->assertStringContainsString('extends Pivot', $result->modelContent);
+        $this->assertStringContainsString('use Illuminate\\Database\\Eloquent\\Relations\\Pivot;', $result->modelContent);
+        $this->assertStringNotContainsString('extends BaseModel', $result->modelContent);
+        $this->assertStringNotContainsString('$schema', $result->modelContent);
+    }
+
+    public function test_pivot_model_includes_connection_when_needed(): void
+    {
+        $table = $this->makeTable('dog_owner', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('dog_id', 'unsignedBigInteger'),
+            $this->col('owner_id', 'unsignedBigInteger'),
+        ], foreignKeys: [
+            new DatabaseForeignKeyState('dog_id', 'dogs', 'id'),
+            new DatabaseForeignKeyState('owner_id', 'owners', 'id'),
+        ]);
+
+        $result = $this->generator->generate($table, isPivotModel: true, connection: 'secondary');
+
+        $this->assertStringContainsString("\$connection = 'secondary'", $result->modelContent);
+    }
+
+    public function test_emits_using_pivot_on_belongs_to_many(): void
+    {
+        $dogsTable = $this->makeTable('dogs', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('name', 'string'),
+        ]);
+
+        $result = $this->generator->generate(
+            table: $dogsTable,
+            pivotRelationships: ['owners' => 'dog_owner'],
+            pivotModelNames: ['dog_owner' => 'DogOwner'],
+        );
+
+        $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
+        $this->assertStringContainsString('#[UsingPivot(DogOwner::class)]', $result->schemaContent);
+        $this->assertStringContainsString('use SchemaCraft\\Attributes\\UsingPivot;', $result->schemaContent);
+    }
+
+    public function test_does_not_emit_using_pivot_when_no_pivot_model(): void
+    {
+        $dogsTable = $this->makeTable('dogs', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('name', 'string'),
+        ]);
+
+        $result = $this->generator->generate(
+            table: $dogsTable,
+            pivotRelationships: ['owners' => 'dog_owner'],
+        );
+
+        $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
+        $this->assertStringNotContainsString('UsingPivot', $result->schemaContent);
+    }
+
+    public function test_regular_model_not_marked_as_pivot(): void
+    {
+        $table = $this->makeTable('dogs', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('name', 'string'),
+        ]);
+
+        $result = $this->generator->generate($table);
+
+        $this->assertFalse($result->isPivotModel);
+        $this->assertStringContainsString('extends BaseModel', $result->modelContent);
+    }
+
+    public function test_emits_pivot_columns_on_belongs_to_many(): void
+    {
+        $dogsTable = $this->makeTable('dogs', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('name', 'string'),
+        ]);
+
+        $result = $this->generator->generate(
+            table: $dogsTable,
+            pivotRelationships: ['owners' => 'dog_owner'],
+            pivotExtraColumns: ['dog_owner' => ['sort_order' => 'integer', 'notes' => 'string']],
+        );
+
+        $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
+        $this->assertStringContainsString("#[PivotColumns(['sort_order' => 'integer', 'notes' => 'string'])]", $result->schemaContent);
+        $this->assertStringContainsString('use SchemaCraft\\Attributes\\PivotColumns;', $result->schemaContent);
+    }
+
+    public function test_does_not_emit_pivot_columns_when_no_extra_columns(): void
+    {
+        $dogsTable = $this->makeTable('dogs', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('name', 'string'),
+        ]);
+
+        $result = $this->generator->generate(
+            table: $dogsTable,
+            pivotRelationships: ['owners' => 'dog_owner'],
+        );
+
+        $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
+        $this->assertStringNotContainsString('PivotColumns', $result->schemaContent);
+    }
+
+    public function test_emits_both_using_pivot_and_pivot_columns(): void
+    {
+        $dogsTable = $this->makeTable('dogs', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('name', 'string'),
+        ]);
+
+        $result = $this->generator->generate(
+            table: $dogsTable,
+            pivotRelationships: ['owners' => 'dog_owner'],
+            pivotModelNames: ['dog_owner' => 'DogOwner'],
+            pivotExtraColumns: ['dog_owner' => ['role' => 'string']],
+        );
+
+        $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
+        $this->assertStringContainsString('#[UsingPivot(DogOwner::class)]', $result->schemaContent);
+        $this->assertStringContainsString("#[PivotColumns(['role' => 'string'])]", $result->schemaContent);
+    }
+
+    public function test_column_type_to_pivot_type_mapping(): void
+    {
+        // Test via detectPivotTable which uses columnTypeToPivotType internally
+        $table = $this->makeTable('item_tag', [
+            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
+            $this->col('item_id', 'unsignedBigInteger'),
+            $this->col('tag_id', 'unsignedBigInteger'),
+            $this->col('sort_order', 'integer'),
+            $this->col('weight', 'decimal'),
+            $this->col('is_primary', 'boolean'),
+            $this->col('label', 'text'),
+            $this->col('assigned_at', 'timestamp'),
+            $this->col('metadata', 'json'),
+        ], foreignKeys: [
+            new DatabaseForeignKeyState('item_id', 'items', 'id'),
+            new DatabaseForeignKeyState('tag_id', 'tags', 'id'),
+        ]);
+
+        $pivot = $this->generator->detectPivotTable($table);
+
+        $this->assertNotNull($pivot);
+        $this->assertSame([
+            'sort_order' => 'integer',
+            'weight' => 'float',
+            'is_primary' => 'boolean',
+            'label' => 'string',
+            'assigned_at' => 'datetime',
+            'metadata' => 'array',
+        ], $pivot['extraColumns']);
+    }
+
     private function makeTable(
         string $name,
         array $columns,

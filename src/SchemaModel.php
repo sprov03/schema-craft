@@ -190,6 +190,10 @@ abstract class SchemaModel extends Model
             $rel->pivotTable,
         );
 
+        if ($rel->pivotModel !== null) {
+            $relation->using($rel->pivotModel);
+        }
+
         if ($rel->pivotColumns !== null) {
             $relation->withPivot(array_keys($rel->pivotColumns));
         }

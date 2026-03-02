@@ -10,5 +10,6 @@ class GeneratedSchemaResult
         public string $schemaClassName,
         public string $modelClassName,
         public bool $hasSoftDeletes,
+        public bool $isPivotModel = false,
     ) {}
 }

@@ -100,6 +100,8 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 ->withoutMiddleware($noCsrf);
             Route::post('/api/schema/import', [SchemaController::class, 'import'])
                 ->withoutMiddleware($noCsrf);
+            Route::post('/api/schema/import/extras', [SchemaController::class, 'generateExtras'])
+                ->withoutMiddleware($noCsrf);
 
             // Status & Migrate API
             Route::get('/api/status', [StatusController::class, 'status']);

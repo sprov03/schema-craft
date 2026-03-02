@@ -19,5 +19,6 @@ class RelationshipDefinition
         public ?string $pivotTable = null,
         public ?array $pivotColumns = null,
         public ?string $morphName = null,
+        public ?string $pivotModel = null,
     ) {}
 }

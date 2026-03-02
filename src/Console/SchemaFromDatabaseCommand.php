@@ -119,15 +119,24 @@ class SchemaFromDatabaseCommand extends Command
         $regularTables = [];
         /** @var array<string, array<string, string>> $pivotMap */
         $pivotMap = []; // [regularTable => [relatedTable => pivotTableName]]
+        /** @var array<string, array<string, string>> $pivotExtraColumns */
+        $pivotExtraColumns = []; // [pivotTableName => ['col' => 'type']]
 
         foreach ($allTables as $tableName => $tableState) {
             $pivot = $generator->detectPivotTable($tableState);
             if ($pivot !== null) {
                 $pivotTables[$tableName] = $pivot;
+                $extraLabel = ! empty($pivot['extraColumns'])
+                    ? ' (+'.count($pivot['extraColumns']).' cols)'
+                    : '';
                 $this->components->twoColumnDetail(
-                    "<fg=yellow>Pivot</>  {$tableName}",
+                    "<fg=yellow>Pivot</>  {$tableName}{$extraLabel}",
                     "<fg=gray>{$pivot['tableA']} ↔ {$pivot['tableB']}</>"
                 );
+
+                if (! empty($pivot['extraColumns'])) {
+                    $pivotExtraColumns[$tableName] = $pivot['extraColumns'];
+                }
 
                 // Build pivot map for both sides
                 if (isset($allTables[$pivot['tableA']])) {
@@ -158,6 +167,7 @@ class SchemaFromDatabaseCommand extends Command
                 schemaPrefix: $schemaPrefix,
                 modelPrefix: $modelPrefix,
                 connection: $emitConnection,
+                pivotExtraColumns: $pivotExtraColumns,
             );
 
             // Write schema file

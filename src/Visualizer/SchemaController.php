@@ -7,8 +7,17 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\Config\ConnectionConfig;
+use SchemaCraft\Generator\Api\ApiCodeGenerator;
+use SchemaCraft\Generator\FactoryGenerator;
+use SchemaCraft\Generator\ModelTestGenerator;
 use SchemaCraft\Generator\SchemaFileGenerator;
 use SchemaCraft\Migration\DatabaseReader;
+use SchemaCraft\Migration\DatabaseTableState;
+use SchemaCraft\Scanner\ColumnDefinition;
+use SchemaCraft\Scanner\RelationshipDefinition;
+use SchemaCraft\Scanner\SchemaScanner;
+use SchemaCraft\Scanner\TableDefinition;
 
 class SchemaController
 {
@@ -185,30 +194,116 @@ class SchemaController
      */
     public function listTables(Request $request): JsonResponse
     {
-        $connectionConfig = ConfigResolver::resolveConnection($request->query('db_connection'));
+        $dbConnectionParam = $request->query('db_connection');
+
+        if ($dbConnectionParam === 'all') {
+            return $this->listAllConnectionTables();
+        }
+
+        $connectionConfig = ConfigResolver::resolveConnection($dbConnectionParam);
         $dbConnection = $connectionConfig->needsConnectionProperty() ? $connectionConfig->connection : null;
         $reader = new DatabaseReader($dbConnection);
         $allTableNames = $reader->tables();
+
+        // Filter out Laravel internal tables
+        $importableNames = array_values(array_filter(
+            $allTableNames,
+            fn (string $t) => ! in_array($t, self::LARAVEL_INTERNAL_TABLES, true),
+        ));
+
+        // Detect pivots in one pass
+        $pivotMap = $this->detectPivotTables($reader, $importableNames);
 
         $schemaDir = $this->namespaceToAppPath($connectionConfig->schemaNamespace);
         $modelDir = $this->namespaceToAppPath($connectionConfig->modelNamespace);
 
         $tables = [];
-        foreach ($allTableNames as $tableName) {
-            if (in_array($tableName, self::LARAVEL_INTERNAL_TABLES, true)) {
-                continue;
-            }
-
+        foreach ($importableNames as $tableName) {
             $modelName = $this->tableToModelName($tableName);
             $prefixedSchema = $connectionConfig->prefixedSchemaName($modelName);
             $prefixedModel = $connectionConfig->prefixedModelName($modelName);
+            $isPivot = isset($pivotMap[$tableName]);
 
             $tables[] = [
                 'name' => $tableName,
                 'modelName' => $modelName,
+                'dbConnection' => $connectionConfig->name,
+                'isPivot' => $isPivot,
+                'pivotTables' => $isPivot ? $pivotMap[$tableName] : null,
                 'hasSchema' => file_exists("{$schemaDir}/{$prefixedSchema}.php"),
                 'hasModel' => file_exists("{$modelDir}/{$prefixedModel}.php"),
+                'hasFactory' => file_exists($connectionConfig->factoryPath($modelName)),
+                'hasModelTest' => file_exists($connectionConfig->modelTestPath($modelName)),
+                'hasService' => file_exists($connectionConfig->servicePath($modelName)),
             ];
+        }
+
+        return new JsonResponse(['tables' => $tables]);
+    }
+
+    /**
+     * List tables across all configured connections.
+     *
+     * Groups connections by underlying DB connection to avoid querying the
+     * same physical database multiple times. Returns one entry per
+     * (table, connection config) pair.
+     */
+    private function listAllConnectionTables(): JsonResponse
+    {
+        $allNames = ConfigResolver::allConnectionNames();
+
+        // Group configs by underlying Laravel DB connection
+        /** @var array<string, array{dbConn: ?string, configs: array<string, ConnectionConfig>}> $byDb */
+        $byDb = [];
+        foreach ($allNames as $name) {
+            $config = ConfigResolver::resolveConnection($name);
+            $dbConn = $config->needsConnectionProperty() ? $config->connection : null;
+            $dbKey = $dbConn ?? '__default__';
+            $byDb[$dbKey]['dbConn'] = $dbConn;
+            $byDb[$dbKey]['configs'][$name] = $config;
+        }
+
+        // Read tables + detect pivots once per unique DB connection
+        $tablesByDb = [];
+        $pivotsByDb = [];
+        foreach ($byDb as $dbKey => $group) {
+            $reader = new DatabaseReader($group['dbConn']);
+            $allNames = $reader->tables();
+            $importableNames = array_values(array_filter(
+                $allNames,
+                fn (string $t) => ! in_array($t, self::LARAVEL_INTERNAL_TABLES, true),
+            ));
+            $tablesByDb[$dbKey] = $importableNames;
+            $pivotsByDb[$dbKey] = $this->detectPivotTables($reader, $importableNames);
+        }
+
+        // Build output: one entry per (table, connection config) pair
+        $tables = [];
+        foreach ($byDb as $dbKey => $group) {
+            foreach ($group['configs'] as $configName => $config) {
+                $schemaDir = $this->namespaceToAppPath($config->schemaNamespace);
+                $modelDir = $this->namespaceToAppPath($config->modelNamespace);
+
+                foreach ($tablesByDb[$dbKey] as $tableName) {
+                    $modelName = $this->tableToModelName($tableName);
+                    $prefixedSchema = $config->prefixedSchemaName($modelName);
+                    $prefixedModel = $config->prefixedModelName($modelName);
+                    $isPivot = isset($pivotsByDb[$dbKey][$tableName]);
+
+                    $tables[] = [
+                        'name' => $tableName,
+                        'modelName' => $modelName,
+                        'dbConnection' => $configName,
+                        'isPivot' => $isPivot,
+                        'pivotTables' => $isPivot ? $pivotsByDb[$dbKey][$tableName] : null,
+                        'hasSchema' => file_exists("{$schemaDir}/{$prefixedSchema}.php"),
+                        'hasModel' => file_exists("{$modelDir}/{$prefixedModel}.php"),
+                        'hasFactory' => file_exists($config->factoryPath($modelName)),
+                        'hasModelTest' => file_exists($config->modelTestPath($modelName)),
+                        'hasService' => file_exists($config->servicePath($modelName)),
+                    ];
+                }
+            }
         }
 
         return new JsonResponse(['tables' => $tables]);
@@ -223,13 +318,25 @@ class SchemaController
             'tables' => ['required', 'array', 'min:1'],
             'tables.*' => ['string'],
             'createModel' => ['sometimes', 'boolean'],
+            'createFactory' => ['sometimes', 'boolean'],
+            'createModelTest' => ['sometimes', 'boolean'],
+            'createService' => ['sometimes', 'boolean'],
             'db_connection' => ['sometimes', 'string'],
         ]);
 
         $tableNames = $request->input('tables');
         $createModel = $request->boolean('createModel', true);
 
-        return $this->runImport($tableNames, $createModel, false, false, $request->input('db_connection'));
+        return $this->runImport(
+            $tableNames,
+            $createModel,
+            false,
+            false,
+            $request->input('db_connection'),
+            $request->boolean('createFactory'),
+            $request->boolean('createModelTest'),
+            $request->boolean('createService'),
+        );
     }
 
     /**
@@ -241,6 +348,9 @@ class SchemaController
             'tables' => ['required', 'array', 'min:1'],
             'tables.*' => ['string'],
             'createModel' => ['sometimes', 'boolean'],
+            'createFactory' => ['sometimes', 'boolean'],
+            'createModelTest' => ['sometimes', 'boolean'],
+            'createService' => ['sometimes', 'boolean'],
             'force' => ['sometimes', 'boolean'],
             'db_connection' => ['sometimes', 'string'],
         ]);
@@ -256,14 +366,31 @@ class SchemaController
             $files->put(app_path('Models/BaseModel.php'), $stub);
         }
 
-        return $this->runImport($tableNames, $createModel, true, $force, $request->input('db_connection'));
+        return $this->runImport(
+            $tableNames,
+            $createModel,
+            true,
+            $force,
+            $request->input('db_connection'),
+            $request->boolean('createFactory'),
+            $request->boolean('createModelTest'),
+            $request->boolean('createService'),
+        );
     }
 
     /**
      * Core import logic shared by preview and write.
      */
-    private function runImport(array $tableNames, bool $createModel, bool $write, bool $force, ?string $dbConnectionName = null): JsonResponse
-    {
+    private function runImport(
+        array $tableNames,
+        bool $createModel,
+        bool $write,
+        bool $force,
+        ?string $dbConnectionName = null,
+        bool $createFactory = false,
+        bool $createModelTest = false,
+        bool $createService = false,
+    ): JsonResponse {
         $connectionConfig = ConfigResolver::resolveConnection($dbConnectionName);
         $dbConnection = $connectionConfig->needsConnectionProperty() ? $connectionConfig->connection : null;
         $reader = new DatabaseReader($dbConnection);
@@ -287,6 +414,7 @@ class SchemaController
         $pivotTables = [];
         $regularTables = [];
         $pivotMap = [];
+        $pivotExtraColumns = [];
 
         foreach ($allTables as $tableName => $tableState) {
             $pivot = $generator->detectPivotTable($tableState);
@@ -295,7 +423,12 @@ class SchemaController
                     'table' => $tableName,
                     'tableA' => $pivot['tableA'],
                     'tableB' => $pivot['tableB'],
+                    'extraColumns' => $pivot['extraColumns'],
                 ];
+
+                if (! empty($pivot['extraColumns'])) {
+                    $pivotExtraColumns[$tableName] = $pivot['extraColumns'];
+                }
 
                 if (isset($allTables[$pivot['tableA']])) {
                     $pivotMap[$pivot['tableA']][$pivot['tableB']] = $tableName;
@@ -303,17 +436,37 @@ class SchemaController
                 if (isset($allTables[$pivot['tableB']])) {
                     $pivotMap[$pivot['tableB']][$pivot['tableA']] = $tableName;
                 }
+
+                // Always generate files for pivot tables
+                $regularTables[$tableName] = $tableState;
             } else {
                 $regularTables[$tableName] = $tableState;
             }
         }
 
+        // Build pivot model name map: pivot_table_name => PivotModelClassName
+        $pivotModelNames = [];
+        foreach ($pivotTables as $pivotInfo) {
+            $pivotModelClass = $connectionConfig->modelPrefix.$this->tableToModelName($pivotInfo['table']);
+            $pivotModelNames[$pivotInfo['table']] = $pivotModelClass;
+        }
+
+        // Track which tables are pivots for isPivotModel flag
+        $pivotTableNames = array_column($pivotTables, 'table');
+
         // Generate files
         $outputFiles = [];
-        $summary = ['schemas' => 0, 'models' => 0, 'skipped' => 0, 'pivots' => count($pivotTables)];
+        $summary = [
+            'schemas' => 0, 'models' => 0,
+            'factories' => 0, 'tests' => 0, 'services' => 0,
+            'skipped' => 0, 'pivots' => count($pivotTables),
+        ];
 
         foreach ($regularTables as $tableName => $tableState) {
+            $modelName = $this->tableToModelName($tableName);
+            $prefixedModel = $connectionConfig->prefixedModelName($modelName);
             $pivotRelationships = $pivotMap[$tableName] ?? [];
+            $isThisAPivot = in_array($tableName, $pivotTableNames, true);
 
             $result = $generator->generate(
                 table: $tableState,
@@ -324,8 +477,12 @@ class SchemaController
                 schemaPrefix: $connectionConfig->schemaPrefix,
                 modelPrefix: $connectionConfig->modelPrefix,
                 connection: $emitConnection,
+                pivotModelNames: $pivotModelNames,
+                isPivotModel: $isThisAPivot,
+                pivotExtraColumns: $pivotExtraColumns,
             );
 
+            // Schema file — always generated
             $schemaRelPath = str_replace(base_path().'/', '', "{$schemaDir}/{$result->schemaClassName}.php");
             $schemaFullPath = "{$schemaDir}/{$result->schemaClassName}.php";
             $schemaExists = file_exists($schemaFullPath);
@@ -344,6 +501,7 @@ class SchemaController
                 $outputFiles[] = ['path' => $schemaRelPath, 'content' => $result->schemaContent, 'exists' => $schemaExists, 'type' => 'schema'];
             }
 
+            // Model file — only when createModel is true
             if ($createModel) {
                 $modelRelPath = str_replace(base_path().'/', '', "{$modelDir}/{$result->modelClassName}.php");
                 $modelFullPath = "{$modelDir}/{$result->modelClassName}.php";
@@ -361,6 +519,81 @@ class SchemaController
                     }
                 } else {
                     $outputFiles[] = ['path' => $modelRelPath, 'content' => $result->modelContent, 'exists' => $modelExists, 'type' => 'model'];
+                }
+            }
+
+            // Factory / Test / Service generation
+            if ($createFactory || $createModelTest || $createService) {
+                $tableDef = $this->buildTableDefinitionFromDatabase($tableState, $connectionConfig);
+
+                if ($createFactory) {
+                    $factoryPath = $connectionConfig->factoryPath($modelName);
+                    $factoryRelPath = str_replace(base_path().'/', '', $factoryPath);
+                    $factoryExists = file_exists($factoryPath);
+                    $factoryContent = (new FactoryGenerator)->generate(
+                        $tableDef, $prefixedModel, $connectionConfig->modelNamespace, $connectionConfig->factoryNamespace,
+                    );
+
+                    if ($write) {
+                        if (! $force && $factoryExists) {
+                            $outputFiles[] = ['path' => $factoryRelPath, 'skipped' => true, 'message' => 'Already exists.', 'type' => 'factory'];
+                            $summary['skipped']++;
+                        } else {
+                            $files->ensureDirectoryExists(dirname($factoryPath));
+                            $files->put($factoryPath, $factoryContent);
+                            $outputFiles[] = ['path' => $factoryRelPath, 'created' => true, 'message' => class_basename($factoryPath).' created.', 'type' => 'factory'];
+                            $summary['factories']++;
+                        }
+                    } else {
+                        $outputFiles[] = ['path' => $factoryRelPath, 'content' => $factoryContent, 'exists' => $factoryExists, 'type' => 'factory'];
+                    }
+                }
+
+                if ($createModelTest) {
+                    $testPath = $connectionConfig->modelTestPath($modelName);
+                    $testRelPath = str_replace(base_path().'/', '', $testPath);
+                    $testExists = file_exists($testPath);
+                    $testContent = (new ModelTestGenerator)->generate(
+                        $tableDef, $prefixedModel, $connectionConfig->modelNamespace, $connectionConfig->factoryNamespace, $connectionConfig->testNamespace,
+                    );
+
+                    if ($write) {
+                        if (! $force && $testExists) {
+                            $outputFiles[] = ['path' => $testRelPath, 'skipped' => true, 'message' => 'Already exists.', 'type' => 'model_test'];
+                            $summary['skipped']++;
+                        } else {
+                            $files->ensureDirectoryExists(dirname($testPath));
+                            $files->put($testPath, $testContent);
+                            $outputFiles[] = ['path' => $testRelPath, 'created' => true, 'message' => class_basename($testPath).' created.', 'type' => 'model_test'];
+                            $summary['tests']++;
+                        }
+                    } else {
+                        $outputFiles[] = ['path' => $testRelPath, 'content' => $testContent, 'exists' => $testExists, 'type' => 'model_test'];
+                    }
+                }
+
+                if ($createService) {
+                    $servicePath = $connectionConfig->servicePath($modelName);
+                    $serviceRelPath = str_replace(base_path().'/', '', $servicePath);
+                    $serviceExists = file_exists($servicePath);
+                    $stubsPath = $this->resolveStubsBasePath();
+                    $serviceContent = (new ApiCodeGenerator($stubsPath))->generateService(
+                        $tableDef, $prefixedModel, $connectionConfig->modelNamespace, $connectionConfig->serviceNamespace,
+                    )->content;
+
+                    if ($write) {
+                        if (! $force && $serviceExists) {
+                            $outputFiles[] = ['path' => $serviceRelPath, 'skipped' => true, 'message' => 'Already exists.', 'type' => 'service'];
+                            $summary['skipped']++;
+                        } else {
+                            $files->ensureDirectoryExists(dirname($servicePath));
+                            $files->put($servicePath, $serviceContent);
+                            $outputFiles[] = ['path' => $serviceRelPath, 'created' => true, 'message' => class_basename($servicePath).' created.', 'type' => 'service'];
+                            $summary['services']++;
+                        }
+                    } else {
+                        $outputFiles[] = ['path' => $serviceRelPath, 'content' => $serviceContent, 'exists' => $serviceExists, 'type' => 'service'];
+                    }
                 }
             }
         }
@@ -473,6 +706,275 @@ class SchemaController
         }
 
         return dirname(__DIR__)."/Console/stubs/{$filename}";
+    }
+
+    /**
+     * Generate factory, model test, and/or service for tables with existing schemas.
+     */
+    public function generateExtras(Request $request, Filesystem $files): JsonResponse
+    {
+        $request->validate([
+            'tables' => ['required', 'array', 'min:1'],
+            'tables.*' => ['string'],
+            'createFactory' => ['sometimes', 'boolean'],
+            'createModelTest' => ['sometimes', 'boolean'],
+            'createService' => ['sometimes', 'boolean'],
+            'force' => ['sometimes', 'boolean'],
+            'db_connection' => ['sometimes', 'string'],
+        ]);
+
+        $connectionConfig = ConfigResolver::resolveConnection($request->input('db_connection'));
+        $force = $request->boolean('force', false);
+        $outputFiles = [];
+        $summary = ['factories' => 0, 'tests' => 0, 'services' => 0, 'skipped' => 0];
+
+        foreach ($request->input('tables') as $tableName) {
+            $modelName = $this->tableToModelName($tableName);
+            $schemaClass = $connectionConfig->schemaClass($modelName);
+
+            if (! class_exists($schemaClass)) {
+                continue;
+            }
+
+            $scanner = new SchemaScanner($schemaClass);
+            $table = $scanner->scan();
+            $prefixedModel = $connectionConfig->prefixedModelName($modelName);
+
+            if ($request->boolean('createFactory')) {
+                $this->writeFactory($table, $prefixedModel, $connectionConfig, $files, $force, $outputFiles, $summary);
+            }
+
+            if ($request->boolean('createModelTest')) {
+                $this->writeModelTest($table, $prefixedModel, $connectionConfig, $files, $force, $outputFiles, $summary);
+            }
+
+            if ($request->boolean('createService')) {
+                $this->writeService($table, $prefixedModel, $connectionConfig, $files, $force, $outputFiles, $summary);
+            }
+        }
+
+        return new JsonResponse([
+            'success' => true,
+            'files' => $outputFiles,
+            'summary' => $summary,
+        ]);
+    }
+
+    /**
+     * Generate and write a factory file for a model.
+     *
+     * @param  array<int, array<string, mixed>>  $outputFiles
+     * @param  array<string, int>  $summary
+     */
+    private function writeFactory(
+        TableDefinition $table,
+        string $modelName,
+        ConnectionConfig $config,
+        Filesystem $files,
+        bool $force,
+        array &$outputFiles,
+        array &$summary,
+    ): void {
+        $path = $config->factoryPath($this->baseModelName($modelName, $config));
+        $relPath = str_replace(base_path().'/', '', $path);
+
+        if (! $force && file_exists($path)) {
+            $outputFiles[] = ['path' => $relPath, 'skipped' => true, 'type' => 'factory'];
+            $summary['skipped']++;
+
+            return;
+        }
+
+        $content = (new FactoryGenerator)->generate(
+            $table, $modelName, $config->modelNamespace, $config->factoryNamespace,
+        );
+        $files->ensureDirectoryExists(dirname($path));
+        $files->put($path, $content);
+        $outputFiles[] = ['path' => $relPath, 'created' => true, 'type' => 'factory'];
+        $summary['factories']++;
+    }
+
+    /**
+     * Generate and write a model test file.
+     *
+     * @param  array<int, array<string, mixed>>  $outputFiles
+     * @param  array<string, int>  $summary
+     */
+    private function writeModelTest(
+        TableDefinition $table,
+        string $modelName,
+        ConnectionConfig $config,
+        Filesystem $files,
+        bool $force,
+        array &$outputFiles,
+        array &$summary,
+    ): void {
+        $path = $config->modelTestPath($this->baseModelName($modelName, $config));
+        $relPath = str_replace(base_path().'/', '', $path);
+
+        if (! $force && file_exists($path)) {
+            $outputFiles[] = ['path' => $relPath, 'skipped' => true, 'type' => 'model_test'];
+            $summary['skipped']++;
+
+            return;
+        }
+
+        $content = (new ModelTestGenerator)->generate(
+            $table, $modelName, $config->modelNamespace, $config->factoryNamespace, $config->testNamespace,
+        );
+        $files->ensureDirectoryExists(dirname($path));
+        $files->put($path, $content);
+        $outputFiles[] = ['path' => $relPath, 'created' => true, 'type' => 'model_test'];
+        $summary['tests']++;
+    }
+
+    /**
+     * Generate and write a service file.
+     *
+     * @param  array<int, array<string, mixed>>  $outputFiles
+     * @param  array<string, int>  $summary
+     */
+    private function writeService(
+        TableDefinition $table,
+        string $modelName,
+        ConnectionConfig $config,
+        Filesystem $files,
+        bool $force,
+        array &$outputFiles,
+        array &$summary,
+    ): void {
+        $path = $config->servicePath($this->baseModelName($modelName, $config));
+        $relPath = str_replace(base_path().'/', '', $path);
+
+        if (! $force && file_exists($path)) {
+            $outputFiles[] = ['path' => $relPath, 'skipped' => true, 'type' => 'service'];
+            $summary['skipped']++;
+
+            return;
+        }
+
+        $stubsPath = $this->resolveStubsBasePath();
+        $content = (new ApiCodeGenerator($stubsPath))->generateService(
+            $table, $modelName, $config->modelNamespace, $config->serviceNamespace,
+        )->content;
+        $files->ensureDirectoryExists(dirname($path));
+        $files->put($path, $content);
+        $outputFiles[] = ['path' => $relPath, 'created' => true, 'type' => 'service'];
+        $summary['services']++;
+    }
+
+    /**
+     * Strip the model prefix to get the base model name for path helpers.
+     */
+    private function baseModelName(string $prefixedModelName, ConnectionConfig $config): string
+    {
+        if ($config->modelPrefix !== '' && str_starts_with($prefixedModelName, $config->modelPrefix)) {
+            return substr($prefixedModelName, strlen($config->modelPrefix));
+        }
+
+        return $prefixedModelName;
+    }
+
+    /**
+     * Resolve the API stubs base path, preferring published stubs.
+     */
+    private function resolveStubsBasePath(): string
+    {
+        $publishedPath = base_path('stubs/schema-craft');
+
+        if (is_dir($publishedPath.'/api')) {
+            return $publishedPath;
+        }
+
+        return dirname(__DIR__).'/Console/stubs';
+    }
+
+    /**
+     * Detect which table names are pivot tables using DatabaseReader.
+     *
+     * Returns a map of tableName => ['tableA' => ..., 'tableB' => ..., 'extraColumns' => [...]] for pivots.
+     *
+     * @param  string[]  $tableNames
+     * @return array<string, array{tableA: string, tableB: string, extraColumns: array<string, string>}>
+     */
+    private function detectPivotTables(DatabaseReader $reader, array $tableNames): array
+    {
+        $generator = new SchemaFileGenerator;
+        $pivots = [];
+
+        foreach ($tableNames as $tableName) {
+            $tableState = $reader->read($tableName);
+            if ($tableState === null) {
+                continue;
+            }
+
+            $pivot = $generator->detectPivotTable($tableState);
+            if ($pivot !== null) {
+                $pivots[$tableName] = $pivot;
+            }
+        }
+
+        return $pivots;
+    }
+
+    /**
+     * Build a TableDefinition from a DatabaseTableState for factory/test/service generation.
+     *
+     * Used during preview when schema files aren't on disk yet,
+     * so SchemaScanner can't be used.
+     */
+    private function buildTableDefinitionFromDatabase(
+        DatabaseTableState $tableState,
+        ConnectionConfig $connectionConfig,
+    ): TableDefinition {
+        $modelName = $this->tableToModelName($tableState->tableName);
+        $prefixedSchema = $connectionConfig->prefixedSchemaName($modelName);
+        $schemaClass = $connectionConfig->schemaNamespace.'\\'.$prefixedSchema;
+
+        // Map database columns to ColumnDefinitions
+        $columns = [];
+        foreach ($tableState->columns as $dbCol) {
+            $columns[] = new ColumnDefinition(
+                name: $dbCol->name,
+                columnType: $dbCol->type,
+                nullable: $dbCol->nullable,
+                default: $dbCol->default,
+                hasDefault: $dbCol->hasDefault,
+                unsigned: $dbCol->unsigned,
+                length: $dbCol->length,
+                precision: $dbCol->precision,
+                scale: $dbCol->scale,
+                primary: $dbCol->primary,
+                autoIncrement: $dbCol->autoIncrement,
+                expressionDefault: $dbCol->expressionDefault,
+            );
+        }
+
+        // Map foreign keys to BelongsTo relationships
+        $relationships = [];
+        foreach ($tableState->foreignKeys as $fk) {
+            $relatedModelName = $this->tableToModelName($fk->foreignTable);
+            $relatedClass = $connectionConfig->modelNamespace.'\\'.$connectionConfig->prefixedModelName($relatedModelName);
+            $relationName = Str::camel(Str::replaceLast('_id', '', $fk->column));
+            $fkColumn = $tableState->getColumn($fk->column);
+
+            $relationships[] = new RelationshipDefinition(
+                name: $relationName,
+                type: 'belongsTo',
+                relatedModel: $relatedClass,
+                nullable: $fkColumn?->nullable ?? false,
+                foreignColumn: $fk->column,
+            );
+        }
+
+        return new TableDefinition(
+            tableName: $tableState->tableName,
+            schemaClass: $schemaClass,
+            columns: $columns,
+            relationships: $relationships,
+            hasTimestamps: $tableState->hasTimestamps(),
+            hasSoftDeletes: $tableState->hasSoftDeletes(),
+        );
     }
 
     /**

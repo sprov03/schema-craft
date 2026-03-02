@@ -22,6 +22,7 @@ class ModelTestGenerator
         string $modelName,
         string $modelNamespace = 'App\\Models',
         string $factoryNamespace = 'Database\\Factories',
+        string $testNamespace = 'Tests\\Unit',
     ): string {
         $testClass = $modelName.'ModelTest';
         $factoryClass = $modelName.'Factory';
@@ -39,7 +40,7 @@ class ModelTestGenerator
         $lines = [];
         $lines[] = '<?php';
         $lines[] = '';
-        $lines[] = 'namespace Tests\Unit;';
+        $lines[] = "namespace {$testNamespace};";
         $lines[] = '';
 
         foreach ($imports as $import) {

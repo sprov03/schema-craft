@@ -404,4 +404,834 @@ class SchemaControllerTest extends TestCase
 
         $response->assertUnprocessable();
     }
+
+    // ─── List Tables — dbConnection field ───────────────────
+
+    public function test_list_tables_includes_db_connection_field(): void
+    {
+        $this->app['db']->connection()->getSchemaBuilder()->create('widgets', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+
+        $response = $this->getJson('/_schema-craft/api/database/tables');
+
+        $response->assertOk();
+        $tables = collect($response->json('tables'));
+        $widget = $tables->firstWhere('name', 'widgets');
+        $this->assertNotNull($widget);
+        $this->assertArrayHasKey('dbConnection', $widget);
+        $this->assertIsString($widget['dbConnection']);
+    }
+
+    // ─── List Tables — All Mode ─────────────────────────────
+
+    public function test_list_tables_all_mode_returns_tables_per_connection(): void
+    {
+        // Set up multi-connection config
+        $this->app['config']->set('schema-craft.db_connections', [
+            'default' => [
+                'connection' => 'default',
+                'prefixes' => ['schema' => '', 'model' => '', 'service' => ''],
+                'namespaces' => [
+                    'schema' => 'App\\Schemas',
+                    'model' => 'App\\Models',
+                    'service' => 'App\\Models\\Services',
+                    'factory' => 'Database\\Factories',
+                    'test' => 'Tests\\Unit',
+                ],
+            ],
+            'prefixed' => [
+                'connection' => 'default',
+                'prefixes' => ['schema' => 'Pfx', 'model' => 'Pfx', 'service' => 'Pfx'],
+                'namespaces' => [
+                    'schema' => 'App\\Schemas',
+                    'model' => 'App\\Models',
+                    'service' => 'App\\Models\\Services',
+                    'factory' => 'Database\\Factories',
+                    'test' => 'Tests\\Unit',
+                ],
+            ],
+        ]);
+
+        $this->app['db']->connection()->getSchemaBuilder()->create('orders', function ($table) {
+            $table->id();
+            $table->string('ref');
+        });
+
+        $response = $this->getJson('/_schema-craft/api/database/tables?db_connection=all');
+
+        $response->assertOk();
+        $tables = collect($response->json('tables'));
+
+        // orders should appear twice — once per connection config
+        $orderEntries = $tables->where('name', 'orders');
+        $this->assertCount(2, $orderEntries);
+
+        $connections = $orderEntries->pluck('dbConnection')->sort()->values()->all();
+        $this->assertEquals(['default', 'prefixed'], $connections);
+    }
+
+    public function test_list_tables_all_mode_excludes_laravel_internals(): void
+    {
+        $this->app['config']->set('schema-craft.db_connections', [
+            'default' => [
+                'connection' => 'default',
+                'prefixes' => ['schema' => '', 'model' => '', 'service' => ''],
+                'namespaces' => [
+                    'schema' => 'App\\Schemas',
+                    'model' => 'App\\Models',
+                    'service' => 'App\\Models\\Services',
+                    'factory' => 'Database\\Factories',
+                    'test' => 'Tests\\Unit',
+                ],
+            ],
+        ]);
+
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+        $schema->create('customers', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('migrations', function ($table) {
+            $table->id();
+            $table->string('migration');
+        });
+
+        $response = $this->getJson('/_schema-craft/api/database/tables?db_connection=all');
+
+        $response->assertOk();
+        $tableNames = collect($response->json('tables'))->pluck('name')->all();
+        $this->assertContains('customers', $tableNames);
+        $this->assertNotContains('migrations', $tableNames);
+    }
+
+    public function test_list_tables_all_mode_checks_badges_per_connection(): void
+    {
+        $this->app['config']->set('schema-craft.db_connections', [
+            'default' => [
+                'connection' => 'default',
+                'prefixes' => ['schema' => '', 'model' => '', 'service' => ''],
+                'namespaces' => [
+                    'schema' => 'App\\Schemas',
+                    'model' => 'App\\Models',
+                    'service' => 'App\\Models\\Services',
+                    'factory' => 'Database\\Factories',
+                    'test' => 'Tests\\Unit',
+                ],
+            ],
+            'prefixed' => [
+                'connection' => 'default',
+                'prefixes' => ['schema' => 'Pfx', 'model' => 'Pfx', 'service' => 'Pfx'],
+                'namespaces' => [
+                    'schema' => 'App\\Schemas',
+                    'model' => 'App\\Models',
+                    'service' => 'App\\Models\\Services',
+                    'factory' => 'Database\\Factories',
+                    'test' => 'Tests\\Unit',
+                ],
+            ],
+        ]);
+
+        $this->app['db']->connection()->getSchemaBuilder()->create('invoices', function ($table) {
+            $table->id();
+            $table->decimal('amount');
+        });
+
+        // Only create schema for default connection (InvoiceSchema), not prefixed (PfxInvoiceSchema)
+        $this->files->put($this->tempDir.'/app/Schemas/InvoiceSchema.php', '<?php class InvoiceSchema {}');
+
+        $response = $this->getJson('/_schema-craft/api/database/tables?db_connection=all');
+
+        $tables = collect($response->json('tables'));
+        $defaultInvoice = $tables->first(function ($t) {
+            return $t['name'] === 'invoices' && $t['dbConnection'] === 'default';
+        });
+        $prefixedInvoice = $tables->first(function ($t) {
+            return $t['name'] === 'invoices' && $t['dbConnection'] === 'prefixed';
+        });
+
+        $this->assertTrue($defaultInvoice['hasSchema']);
+        $this->assertFalse($prefixedInvoice['hasSchema']);
+    }
+
+    // ─── Pivot Detection in List Tables ─────────────────────
+
+    public function test_list_tables_detects_pivot_tables(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('dogs', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('owners', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('dog_owner', function ($table) {
+            $table->id();
+            $table->foreignId('dog_id')->constrained('dogs');
+            $table->foreignId('owner_id')->constrained('owners');
+        });
+
+        $response = $this->getJson('/_schema-craft/api/database/tables');
+
+        $response->assertOk();
+        $tables = collect($response->json('tables'));
+
+        $dogs = $tables->firstWhere('name', 'dogs');
+        $this->assertFalse($dogs['isPivot']);
+        $this->assertNull($dogs['pivotTables']);
+
+        $pivot = $tables->firstWhere('name', 'dog_owner');
+        $this->assertTrue($pivot['isPivot']);
+        $pivotRelated = [$pivot['pivotTables']['tableA'], $pivot['pivotTables']['tableB']];
+        sort($pivotRelated);
+        $this->assertEquals(['dogs', 'owners'], $pivotRelated);
+        $this->assertEmpty($pivot['pivotTables']['extraColumns']);
+
+        // All tables (including pivots) should have boolean Factory/Test/Service
+        $this->assertIsBool($pivot['hasFactory']);
+        $this->assertIsBool($pivot['hasModelTest']);
+        $this->assertIsBool($pivot['hasService']);
+        $this->assertIsBool($dogs['hasFactory']);
+        $this->assertIsBool($dogs['hasModelTest']);
+        $this->assertIsBool($dogs['hasService']);
+    }
+
+    public function test_list_tables_pivot_with_extra_columns(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('teams', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('players', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        // Has extra 'position' column — still a pivot, with extra metadata
+        $schema->create('player_team', function ($table) {
+            $table->id();
+            $table->foreignId('team_id')->constrained('teams');
+            $table->foreignId('player_id')->constrained('players');
+            $table->string('position');
+        });
+
+        $response = $this->getJson('/_schema-craft/api/database/tables');
+
+        $tables = collect($response->json('tables'));
+        $playerTeam = $tables->firstWhere('name', 'player_team');
+        $this->assertTrue($playerTeam['isPivot']);
+        $this->assertArrayHasKey('extraColumns', $playerTeam['pivotTables']);
+        $this->assertArrayHasKey('position', $playerTeam['pivotTables']['extraColumns']);
+    }
+
+    public function test_list_tables_all_mode_detects_pivots(): void
+    {
+        $this->app['config']->set('schema-craft.db_connections', [
+            'default' => [
+                'connection' => 'default',
+                'prefixes' => ['schema' => '', 'model' => '', 'service' => ''],
+                'namespaces' => [
+                    'schema' => 'App\\Schemas',
+                    'model' => 'App\\Models',
+                    'service' => 'App\\Models\\Services',
+                    'factory' => 'Database\\Factories',
+                    'test' => 'Tests\\Unit',
+                ],
+            ],
+        ]);
+
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('roles', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('users', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('role_user', function ($table) {
+            $table->id();
+            $table->foreignId('role_id')->constrained('roles');
+            $table->foreignId('user_id')->constrained('users');
+        });
+
+        $response = $this->getJson('/_schema-craft/api/database/tables?db_connection=all');
+
+        $response->assertOk();
+        $tables = collect($response->json('tables'));
+
+        $pivot = $tables->firstWhere('name', 'role_user');
+        $this->assertTrue($pivot['isPivot']);
+        $pivotRelated = [$pivot['pivotTables']['tableA'], $pivot['pivotTables']['tableB']];
+        sort($pivotRelated);
+        $this->assertEquals(['roles', 'users'], $pivotRelated);
+    }
+
+    // ─── Pivot Table Import ────────────────────────────────
+
+    public function test_import_always_generates_pivot_table_files(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('cats', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('toys', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('cat_toy', function ($table) {
+            $table->id();
+            $table->foreignId('cat_id')->constrained('cats');
+            $table->foreignId('toy_id')->constrained('toys');
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['cat_toy'],
+            'createModel' => true,
+        ]);
+
+        $response->assertOk();
+        $summary = $response->json('summary');
+        $this->assertGreaterThanOrEqual(1, $summary['schemas']);
+        $this->assertGreaterThanOrEqual(1, $summary['models']);
+        $this->assertEquals(1, $summary['pivots']);
+
+        // Files written for pivot table
+        $this->assertFileExists($this->tempDir.'/app/Schemas/CatToySchema.php');
+        $this->assertFileExists($this->tempDir.'/app/Models/CatToy.php');
+
+        // Pivot model extends Pivot, not BaseModel
+        $modelContent = $this->files->get($this->tempDir.'/app/Models/CatToy.php');
+        $this->assertStringContainsString('extends Pivot', $modelContent);
+    }
+
+    public function test_import_generates_pivot_model_extending_pivot_class(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('books', function ($table) {
+            $table->id();
+            $table->string('title');
+        });
+        $schema->create('authors', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('author_book', function ($table) {
+            $table->id();
+            $table->foreignId('author_id')->constrained('authors');
+            $table->foreignId('book_id')->constrained('books');
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['author_book'],
+            'createModel' => true,
+        ]);
+
+        $response->assertOk();
+        $summary = $response->json('summary');
+        $this->assertGreaterThanOrEqual(1, $summary['schemas']);
+        $this->assertGreaterThanOrEqual(1, $summary['models']);
+        $this->assertEquals(1, $summary['pivots']);
+
+        // Files SHOULD be written for pivot table
+        $this->assertFileExists($this->tempDir.'/app/Schemas/AuthorBookSchema.php');
+        $this->assertFileExists($this->tempDir.'/app/Models/AuthorBook.php');
+
+        // Pivot model should extend Pivot, not BaseModel
+        $modelContent = $this->files->get($this->tempDir.'/app/Models/AuthorBook.php');
+        $this->assertStringContainsString('extends Pivot', $modelContent);
+        $this->assertStringNotContainsString('extends BaseModel', $modelContent);
+        $this->assertStringNotContainsString('$schema', $modelContent);
+    }
+
+    public function test_import_with_pivots_emits_using_pivot_on_related_tables(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('albums', function ($table) {
+            $table->id();
+            $table->string('title');
+        });
+        $schema->create('genres', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('album_genre', function ($table) {
+            $table->id();
+            $table->foreignId('album_id')->constrained('albums');
+            $table->foreignId('genre_id')->constrained('genres');
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['albums', 'genres', 'album_genre'],
+            'createModel' => true,
+        ]);
+
+        $response->assertOk();
+
+        // Pivot model extends Pivot
+        $pivotModel = $this->files->get($this->tempDir.'/app/Models/AlbumGenre.php');
+        $this->assertStringContainsString('extends Pivot', $pivotModel);
+
+        // Related table schemas should have UsingPivot attribute
+        $albumSchema = $this->files->get($this->tempDir.'/app/Schemas/AlbumSchema.php');
+        $this->assertStringContainsString('#[BelongsToMany(Genre::class)]', $albumSchema);
+        $this->assertStringContainsString('#[UsingPivot(AlbumGenre::class)]', $albumSchema);
+
+        $genreSchema = $this->files->get($this->tempDir.'/app/Schemas/GenreSchema.php');
+        $this->assertStringContainsString('#[BelongsToMany(Album::class)]', $genreSchema);
+        $this->assertStringContainsString('#[UsingPivot(AlbumGenre::class)]', $genreSchema);
+    }
+
+    public function test_import_preview_with_import_pivots_shows_pivot_files(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('songs', function ($table) {
+            $table->id();
+            $table->string('title');
+        });
+        $schema->create('playlists', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('playlist_song', function ($table) {
+            $table->id();
+            $table->foreignId('playlist_id')->constrained('playlists');
+            $table->foreignId('song_id')->constrained('songs');
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import/preview', [
+            'tables' => ['playlist_song'],
+            'createModel' => true,
+        ]);
+
+        $response->assertOk();
+        $files = $response->json('files');
+        $this->assertNotEmpty($files);
+
+        $types = collect($files)->pluck('type')->unique()->sort()->values()->all();
+        $this->assertEquals(['model', 'schema'], $types);
+    }
+
+    // ─── Pivot with Extra Columns ──────────────────────────
+
+    public function test_import_pivot_with_extra_columns_emits_pivot_columns_on_related(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('students', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('courses', function ($table) {
+            $table->id();
+            $table->string('title');
+        });
+        $schema->create('course_student', function ($table) {
+            $table->id();
+            $table->foreignId('course_id')->constrained('courses');
+            $table->foreignId('student_id')->constrained('students');
+            $table->integer('grade');
+            $table->string('semester');
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['students', 'courses', 'course_student'],
+            'createModel' => true,
+        ]);
+
+        $response->assertOk();
+
+        // Pivot model should still extend Pivot
+        $this->assertFileExists($this->tempDir.'/app/Models/CourseStudent.php');
+        $pivotModel = $this->files->get($this->tempDir.'/app/Models/CourseStudent.php');
+        $this->assertStringContainsString('extends Pivot', $pivotModel);
+
+        // Pivot schema should include extra columns
+        $this->assertFileExists($this->tempDir.'/app/Schemas/CourseStudentSchema.php');
+        $pivotSchema = $this->files->get($this->tempDir.'/app/Schemas/CourseStudentSchema.php');
+        $this->assertStringContainsString('$grade', $pivotSchema);
+        $this->assertStringContainsString('$semester', $pivotSchema);
+
+        // Related schemas should have PivotColumns attribute
+        $studentSchema = $this->files->get($this->tempDir.'/app/Schemas/StudentSchema.php');
+        $this->assertStringContainsString('#[BelongsToMany(Course::class)]', $studentSchema);
+        $this->assertStringContainsString('#[UsingPivot(CourseStudent::class)]', $studentSchema);
+        $this->assertStringContainsString('#[PivotColumns(', $studentSchema);
+        $this->assertStringContainsString("'grade' => 'integer'", $studentSchema);
+        $this->assertStringContainsString("'semester' => 'string'", $studentSchema);
+
+        $courseSchema = $this->files->get($this->tempDir.'/app/Schemas/CourseSchema.php');
+        $this->assertStringContainsString('#[BelongsToMany(Student::class)]', $courseSchema);
+        $this->assertStringContainsString('#[PivotColumns(', $courseSchema);
+    }
+
+    public function test_import_pivot_with_extra_columns_generates_pivot_and_related_schemas(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('projects', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('developers', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('developer_project', function ($table) {
+            $table->id();
+            $table->foreignId('developer_id')->constrained('developers');
+            $table->foreignId('project_id')->constrained('projects');
+            $table->string('role');
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['projects', 'developers', 'developer_project'],
+            'createModel' => true,
+        ]);
+
+        $response->assertOk();
+        $summary = $response->json('summary');
+        $this->assertEquals(1, $summary['pivots']);
+
+        // Pivot files created
+        $this->assertFileExists($this->tempDir.'/app/Schemas/DeveloperProjectSchema.php');
+        $this->assertFileExists($this->tempDir.'/app/Models/DeveloperProject.php');
+
+        // Pivot model extends Pivot
+        $pivotModel = $this->files->get($this->tempDir.'/app/Models/DeveloperProject.php');
+        $this->assertStringContainsString('extends Pivot', $pivotModel);
+
+        // Related schemas should have PivotColumns + UsingPivot
+        $projectSchema = $this->files->get($this->tempDir.'/app/Schemas/ProjectSchema.php');
+        $this->assertStringContainsString('#[BelongsToMany(Developer::class)]', $projectSchema);
+        $this->assertStringContainsString('#[UsingPivot(DeveloperProject::class)]', $projectSchema);
+        $this->assertStringContainsString('#[PivotColumns(', $projectSchema);
+        $this->assertStringContainsString("'role' => 'string'", $projectSchema);
+    }
+
+    public function test_list_tables_not_pivot_with_three_foreign_keys(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('departments', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('employees', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('offices', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        // Three FKs — NOT a pivot (pivot requires exactly 2)
+        $schema->create('assignments', function ($table) {
+            $table->id();
+            $table->foreignId('department_id')->constrained('departments');
+            $table->foreignId('employee_id')->constrained('employees');
+            $table->foreignId('office_id')->constrained('offices');
+        });
+
+        $response = $this->getJson('/_schema-craft/api/database/tables');
+
+        $tables = collect($response->json('tables'));
+        $assignments = $tables->firstWhere('name', 'assignments');
+        $this->assertFalse($assignments['isPivot']);
+    }
+
+    // ─── Import Preview with Extras ─────────────────────────
+
+    public function test_import_preview_includes_factory_and_test_files(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('widgets', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->timestamps();
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import/preview', [
+            'tables' => ['widgets'],
+            'createModel' => true,
+            'createFactory' => true,
+            'createModelTest' => true,
+        ]);
+
+        $response->assertOk();
+        $files = $response->json('files');
+        $types = collect($files)->pluck('type')->unique()->sort()->values()->all();
+        $this->assertEquals(['factory', 'model', 'model_test', 'schema'], $types);
+
+        // Nothing on disk (preview only)
+        $this->assertFileDoesNotExist($this->tempDir.'/app/Schemas/WidgetSchema.php');
+        $this->assertFileDoesNotExist($this->tempDir.'/database/factories/WidgetFactory.php');
+        $this->assertFileDoesNotExist($this->tempDir.'/tests/Unit/WidgetModelTest.php');
+
+        // Verify factory content references the model
+        $factoryFile = collect($files)->firstWhere('type', 'factory');
+        $this->assertNotEmpty($factoryFile['content']);
+        $this->assertStringContainsString('WidgetFactory', $factoryFile['content']);
+
+        // Verify model test content references the factory
+        $testFile = collect($files)->firstWhere('type', 'model_test');
+        $this->assertNotEmpty($testFile['content']);
+        $this->assertStringContainsString('WidgetModelTest', $testFile['content']);
+    }
+
+    public function test_import_preview_includes_service_file(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('gadgets', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->timestamps();
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import/preview', [
+            'tables' => ['gadgets'],
+            'createModel' => true,
+            'createService' => true,
+        ]);
+
+        $response->assertOk();
+        $files = $response->json('files');
+        $types = collect($files)->pluck('type')->unique()->sort()->values()->all();
+        $this->assertEquals(['model', 'schema', 'service'], $types);
+
+        // Verify service content
+        $serviceFile = collect($files)->firstWhere('type', 'service');
+        $this->assertNotEmpty($serviceFile['content']);
+        $this->assertStringContainsString('GadgetService', $serviceFile['content']);
+    }
+
+    public function test_import_preview_all_five_files(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('gizmos', function ($table) {
+            $table->id();
+            $table->string('label');
+            $table->timestamps();
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import/preview', [
+            'tables' => ['gizmos'],
+            'createModel' => true,
+            'createFactory' => true,
+            'createModelTest' => true,
+            'createService' => true,
+        ]);
+
+        $response->assertOk();
+        $files = $response->json('files');
+        $types = collect($files)->pluck('type')->unique()->sort()->values()->all();
+        $this->assertEquals(['factory', 'model', 'model_test', 'schema', 'service'], $types);
+
+        // Nothing on disk
+        $this->assertFileDoesNotExist($this->tempDir.'/app/Schemas/GizmoSchema.php');
+        $this->assertFileDoesNotExist($this->tempDir.'/app/Models/Gizmo.php');
+        $this->assertFileDoesNotExist($this->tempDir.'/database/factories/GizmoFactory.php');
+        $this->assertFileDoesNotExist($this->tempDir.'/tests/Unit/GizmoModelTest.php');
+    }
+
+    public function test_import_preview_factory_includes_belongs_to_relationships(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('warehouses', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('items', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->foreignId('warehouse_id')->constrained('warehouses');
+            $table->timestamps();
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import/preview', [
+            'tables' => ['items'],
+            'createModel' => true,
+            'createFactory' => true,
+            'createModelTest' => true,
+        ]);
+
+        $response->assertOk();
+        $files = $response->json('files');
+
+        // Factory should reference the BelongsTo relationship
+        $factoryFile = collect($files)->firstWhere('type', 'factory');
+        $this->assertStringContainsString('warehouse', $factoryFile['content']);
+        $this->assertStringContainsString('WarehouseFactory', $factoryFile['content']);
+
+        // Model test should test the BelongsTo relationship
+        $testFile = collect($files)->firstWhere('type', 'model_test');
+        $this->assertStringContainsString('warehouse', $testFile['content']);
+    }
+
+    // ─── Import (Write) with Extras ─────────────────────────
+
+    public function test_import_writes_all_five_files_to_disk(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('sprockets', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->timestamps();
+        });
+
+        $response = $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['sprockets'],
+            'createModel' => true,
+            'createFactory' => true,
+            'createModelTest' => true,
+            'createService' => true,
+        ]);
+
+        $response->assertOk();
+        $summary = $response->json('summary');
+        $this->assertEquals(1, $summary['schemas']);
+        $this->assertEquals(1, $summary['models']);
+        $this->assertEquals(1, $summary['factories']);
+        $this->assertEquals(1, $summary['tests']);
+        $this->assertEquals(1, $summary['services']);
+
+        $this->assertFileExists($this->tempDir.'/app/Schemas/SprocketSchema.php');
+        $this->assertFileExists($this->tempDir.'/app/Models/Sprocket.php');
+        $this->assertFileExists($this->tempDir.'/database/factories/SprocketFactory.php');
+        $this->assertFileExists($this->tempDir.'/tests/Unit/SprocketModelTest.php');
+        $this->assertFileExists($this->tempDir.'/app/Models/Services/SprocketService.php');
+    }
+
+    public function test_import_extras_skips_existing_without_force(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('bolts', function ($table) {
+            $table->id();
+            $table->string('size');
+            $table->timestamps();
+        });
+
+        // Pre-create factory file
+        $factoryDir = $this->tempDir.'/database/factories';
+        $this->files->makeDirectory($factoryDir, 0755, true);
+        $this->files->put($factoryDir.'/BoltFactory.php', '<?php // existing factory');
+
+        $response = $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['bolts'],
+            'createModel' => true,
+            'createFactory' => true,
+            'force' => false,
+        ]);
+
+        $response->assertOk();
+
+        // Factory should NOT be overwritten
+        $this->assertEquals('<?php // existing factory', $this->files->get($factoryDir.'/BoltFactory.php'));
+        $this->assertGreaterThan(0, $response->json('summary.skipped'));
+    }
+
+    public function test_import_extras_overwrites_with_force(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('screws', function ($table) {
+            $table->id();
+            $table->string('size');
+            $table->timestamps();
+        });
+
+        // Pre-create factory file
+        $factoryDir = $this->tempDir.'/database/factories';
+        $this->files->makeDirectory($factoryDir, 0755, true);
+        $this->files->put($factoryDir.'/ScrewFactory.php', '<?php // existing factory');
+
+        $response = $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['screws'],
+            'createModel' => true,
+            'createFactory' => true,
+            'force' => true,
+        ]);
+
+        $response->assertOk();
+
+        // Factory SHOULD be overwritten
+        $content = $this->files->get($factoryDir.'/ScrewFactory.php');
+        $this->assertStringContainsString('class ScrewFactory', $content);
+    }
+
+    // ─── Generate Extras (standalone endpoint) ─────────────
+
+    public function test_generate_extras_includes_pivot_models(): void
+    {
+        $schema = $this->app['db']->connection()->getSchemaBuilder();
+
+        $schema->create('galaxies', function ($table) {
+            $table->id();
+            $table->string('name');
+        });
+        $schema->create('nebulas', function ($table) {
+            $table->id();
+            $table->string('title');
+        });
+        $schema->create('galaxy_nebula', function ($table) {
+            $table->id();
+            $table->foreignId('galaxy_id')->constrained('galaxies');
+            $table->foreignId('nebula_id')->constrained('nebulas');
+        });
+
+        // First import all three (pivots are always imported)
+        $importResponse = $this->postJson('/_schema-craft/api/schema/import', [
+            'tables' => ['galaxies', 'nebulas', 'galaxy_nebula'],
+            'createModel' => true,
+        ]);
+        $importResponse->assertOk();
+
+        // Verify the pivot model extends Pivot
+        $pivotModel = $this->files->get($this->tempDir.'/app/Models/GalaxyNebula.php');
+        $this->assertStringContainsString('extends Pivot', $pivotModel);
+
+        // Require generated schema files so class_exists works in tests
+        require_once $this->tempDir.'/app/Schemas/GalaxySchema.php';
+        require_once $this->tempDir.'/app/Schemas/NebulaSchema.php';
+        require_once $this->tempDir.'/app/Schemas/GalaxyNebulaSchema.php';
+
+        // Generate extras for all three — pivot models get Factory/Test too
+        $response = $this->postJson('/_schema-craft/api/schema/import/extras', [
+            'tables' => ['galaxies', 'nebulas', 'galaxy_nebula'],
+            'createFactory' => true,
+            'createModelTest' => true,
+        ]);
+
+        $response->assertOk();
+        $summary = $response->json('summary');
+
+        // All 3 tables get factories and tests (including pivot)
+        $this->assertEquals(3, $summary['factories']);
+        $this->assertEquals(3, $summary['tests']);
+
+        // Factory and test exist for regular models
+        $this->assertFileExists($this->tempDir.'/database/factories/GalaxyFactory.php');
+        $this->assertFileExists($this->tempDir.'/database/factories/NebulaFactory.php');
+
+        // Factory and test also exist for pivot model
+        $this->assertFileExists($this->tempDir.'/database/factories/GalaxyNebulaFactory.php');
+        $this->assertFileExists($this->tempDir.'/tests/Unit/GalaxyNebulaModelTest.php');
+    }
 }

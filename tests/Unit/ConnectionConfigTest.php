@@ -18,6 +18,8 @@ class ConnectionConfigTest extends TestCase
         $this->assertSame('App\\Schemas', $config->schemaNamespace);
         $this->assertSame('App\\Models', $config->modelNamespace);
         $this->assertSame('App\\Models\\Services', $config->serviceNamespace);
+        $this->assertSame('Database\\Factories', $config->factoryNamespace);
+        $this->assertSame('Tests\\Unit', $config->testNamespace);
         $this->assertSame('', $config->schemaPrefix);
         $this->assertSame('', $config->modelPrefix);
         $this->assertSame('', $config->servicePrefix);
@@ -162,5 +164,89 @@ class ConnectionConfigTest extends TestCase
         ]);
 
         $this->assertSame('app/Models/Namespaced', $config->modelDirectory());
+    }
+
+    // ─── Factory/Test/Service directory helpers ──────────────────
+
+    public function test_service_directory_default(): void
+    {
+        $config = ConnectionConfig::fromArray('default', []);
+
+        $this->assertSame('app/Models/Services', $config->serviceDirectory());
+    }
+
+    public function test_factory_directory_default(): void
+    {
+        $config = ConnectionConfig::fromArray('default', []);
+
+        $this->assertSame('database/factories', $config->factoryDirectory());
+    }
+
+    public function test_model_test_directory_default(): void
+    {
+        $config = ConnectionConfig::fromArray('default', []);
+
+        $this->assertSame('tests/Unit', $config->modelTestDirectory());
+    }
+
+    public function test_schema_class_default(): void
+    {
+        $config = ConnectionConfig::fromArray('default', []);
+
+        $this->assertSame('App\\Schemas\\PostSchema', $config->schemaClass('Post'));
+    }
+
+    public function test_schema_class_with_prefix(): void
+    {
+        $config = ConnectionConfig::fromArray('prefix', [
+            'prefixes' => ['schema' => 'Crm', 'model' => 'Crm'],
+        ]);
+
+        $this->assertSame('App\\Schemas\\CrmPostSchema', $config->schemaClass('Post'));
+    }
+
+    public function test_schema_class_with_namespace(): void
+    {
+        $config = ConnectionConfig::fromArray('namespaced', [
+            'namespaces' => ['schema' => 'App\\Schemas\\Crm'],
+        ]);
+
+        $this->assertSame('App\\Schemas\\Crm\\PostSchema', $config->schemaClass('Post'));
+    }
+
+    public function test_namespaced_directories(): void
+    {
+        $config = ConnectionConfig::fromArray('namespaced', [
+            'namespaces' => [
+                'service' => 'App\\Models\\Services\\Crm',
+                'factory' => 'Database\\Factories\\Crm',
+                'test' => 'Tests\\Unit\\Crm',
+            ],
+        ]);
+
+        $this->assertSame('app/Models/Services/Crm', $config->serviceDirectory());
+        $this->assertSame('database/factories/Crm', $config->factoryDirectory());
+        $this->assertSame('tests/Unit/Crm', $config->modelTestDirectory());
+    }
+
+    public function test_from_array_with_custom_factory_test_namespaces(): void
+    {
+        $config = ConnectionConfig::fromArray('custom', [
+            'namespaces' => [
+                'factory' => 'Database\\Factories\\Custom',
+                'test' => 'Tests\\Unit\\Custom',
+            ],
+        ]);
+
+        $this->assertSame('Database\\Factories\\Custom', $config->factoryNamespace);
+        $this->assertSame('Tests\\Unit\\Custom', $config->testNamespace);
+    }
+
+    public function test_from_array_defaults_factory_test_namespaces(): void
+    {
+        $config = ConnectionConfig::fromArray('default', []);
+
+        $this->assertSame('Database\\Factories', $config->factoryNamespace);
+        $this->assertSame('Tests\\Unit', $config->testNamespace);
     }
 }

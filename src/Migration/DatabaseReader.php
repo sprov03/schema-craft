@@ -34,13 +34,40 @@ class DatabaseReader
     }
 
     /**
-     * List all table names in the database.
+     * List all table names in the current database.
+     *
+     * MySQL/MariaDB/PostgreSQL users may have access to tables across multiple
+     * databases. This method filters to only the current database's tables
+     * using schema-qualified names.
      *
      * @return string[]
      */
     public function tables(): array
     {
-        return $this->schema()->getTableListing(schemaQualified: false);
+        $schema = $this->schema();
+        $driver = $schema->getConnection()->getDriverName();
+
+        // MySQL/MariaDB/PostgreSQL can see tables across multiple databases.
+        // Filter to only the current database to avoid listing foreign tables.
+        if (in_array($driver, ['mysql', 'mariadb', 'pgsql'], true)) {
+            $currentDb = $schema->getConnection()->getDatabaseName();
+            $prefix = $currentDb.'.';
+            $qualified = $schema->getTableListing(schemaQualified: true);
+
+            $names = [];
+            foreach ($qualified as $qualifiedName) {
+                if (str_starts_with($qualifiedName, $prefix)) {
+                    $names[] = substr($qualifiedName, strlen($prefix));
+                }
+            }
+
+            return array_values(array_unique($names));
+        }
+
+        // For SQLite and other drivers, all tables belong to the current database
+        return array_values(array_unique(
+            $schema->getTableListing(schemaQualified: false)
+        ));
     }
 
     /**
