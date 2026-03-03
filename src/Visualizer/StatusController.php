@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use SchemaCraft\Migration\DatabaseReader;
 use SchemaCraft\Migration\DatabaseTableNormalizer;
+use SchemaCraft\Migration\MigrationDiffSorter;
 use SchemaCraft\Migration\MigrationGenerator;
 use SchemaCraft\Migration\SchemaDiffer;
 use SchemaCraft\Migration\SchemaDiscovery;
@@ -56,7 +57,7 @@ class StatusController
     public function migratePreview(Request $request): JsonResponse
     {
         $filterTables = $request->input('tables');
-        $tableDiffs = $this->collectDiffs($filterTables);
+        $tableDiffs = (new MigrationDiffSorter)->sort($this->collectDiffs($filterTables));
 
         if (empty($tableDiffs)) {
             return new JsonResponse([
@@ -95,7 +96,7 @@ class StatusController
     public function migrate(Request $request): JsonResponse
     {
         $filterTables = $request->input('tables');
-        $tableDiffs = $this->collectDiffs($filterTables);
+        $tableDiffs = (new MigrationDiffSorter)->sort($this->collectDiffs($filterTables));
 
         if (empty($tableDiffs)) {
             return new JsonResponse([
@@ -135,7 +136,7 @@ class StatusController
     public function migrateAndRun(Request $request): JsonResponse
     {
         $filterTables = $request->input('tables');
-        $tableDiffs = $this->collectDiffs($filterTables);
+        $tableDiffs = (new MigrationDiffSorter)->sort($this->collectDiffs($filterTables));
 
         if (empty($tableDiffs)) {
             return new JsonResponse([
