@@ -365,9 +365,9 @@ class SchemaContentRenderer
         // Determine PHP type for the property declaration
         $phpType = $this->resolvePhpTypeName($col);
 
-        // Carbon needs import
-        if ($phpType === 'Carbon') {
-            $imports[] = 'Illuminate\\Support\\Carbon';
+        // CarbonInterface needs import
+        if ($phpType === 'CarbonInterface') {
+            $imports[] = 'Carbon\\CarbonInterface';
         }
 
         return new GeneratedProperty(

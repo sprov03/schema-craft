@@ -2,8 +2,8 @@
 
 namespace SchemaCraft\Tests\Fixtures\Schemas;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Carbon;
 use SchemaCraft\Attributes\AutoIncrement;
 use SchemaCraft\Attributes\ColumnType;
 use SchemaCraft\Attributes\DefaultExpression;
@@ -36,5 +36,5 @@ class NonStandardFkSchema extends Schema
     public Model $taggable;
 
     #[DefaultExpression('CURRENT_TIMESTAMP')]
-    public ?Carbon $verified_at;
+    public ?CarbonInterface $verified_at;
 }

@@ -233,8 +233,8 @@ class SchemaFileGeneratorTest extends TestCase
 
         $result = $this->generator->generate($table);
 
-        $this->assertStringContainsString('public ?Carbon $published_at;', $result->schemaContent);
-        $this->assertStringContainsString('use Illuminate\\Support\\Carbon;', $result->schemaContent);
+        $this->assertStringContainsString('public ?CarbonInterface $published_at;', $result->schemaContent);
+        $this->assertStringContainsString('use Carbon\\CarbonInterface;', $result->schemaContent);
     }
 
     public function test_maps_date_column(): void
@@ -247,7 +247,7 @@ class SchemaFileGeneratorTest extends TestCase
         $result = $this->generator->generate($table);
 
         $this->assertStringContainsString('#[Date]', $result->schemaContent);
-        $this->assertStringContainsString('public Carbon $birthday;', $result->schemaContent);
+        $this->assertStringContainsString('public CarbonInterface $birthday;', $result->schemaContent);
     }
 
     public function test_maps_time_column(): void

@@ -2,8 +2,8 @@
 
 namespace SchemaCraft\Tests\Fixtures\Schemas;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Carbon;
 use SchemaCraft\Attributes\AutoIncrement;
 use SchemaCraft\Attributes\Decimal;
 use SchemaCraft\Attributes\Fillable;
@@ -68,7 +68,7 @@ class PostSchema extends Schema
 
     public bool $is_featured = false;
 
-    public ?Carbon $published_at;
+    public ?CarbonInterface $published_at;
 
     #[Hidden]
     public array $metadata = [];

@@ -2,7 +2,7 @@
 
 namespace SchemaCraft\Tests\Fixtures\Schemas;
 
-use Illuminate\Support\Carbon;
+use Carbon\CarbonInterface;
 use SchemaCraft\Attributes\AutoIncrement;
 use SchemaCraft\Attributes\Length;
 use SchemaCraft\Attributes\Primary;
@@ -37,7 +37,7 @@ class ValidationTestSchema extends Schema
 
     public bool $is_active = false;
 
-    public ?Carbon $published_at;
+    public ?CarbonInterface $published_at;
 
     public int $view_count = 0;
 

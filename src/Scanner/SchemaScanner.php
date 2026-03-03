@@ -3,10 +3,10 @@
 namespace SchemaCraft\Scanner;
 
 use BackedEnum;
+use Carbon\CarbonInterface;
 use DateTimeInterface;
 use Illuminate\Contracts\Database\Eloquent\Castable;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use ReflectionClass;
 use ReflectionEnum;
@@ -332,7 +332,7 @@ class SchemaScanner
             };
         }
 
-        if (is_a($typeName, Carbon::class, true) || is_a($typeName, DateTimeInterface::class, true)) {
+        if (is_a($typeName, CarbonInterface::class, true) || is_a($typeName, DateTimeInterface::class, true)) {
             return ['columnType' => 'timestamp', 'castType' => 'datetime'];
         }
 

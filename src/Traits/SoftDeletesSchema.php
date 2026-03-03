@@ -2,7 +2,7 @@
 
 namespace SchemaCraft\Traits;
 
-use Illuminate\Support\Carbon;
+use Carbon\CarbonInterface;
 
 /**
  * Adds a deleted_at timestamp column to the schema for soft deletes.
@@ -12,5 +12,5 @@ use Illuminate\Support\Carbon;
  */
 trait SoftDeletesSchema
 {
-    public ?Carbon $deleted_at;
+    public ?CarbonInterface $deleted_at;
 }

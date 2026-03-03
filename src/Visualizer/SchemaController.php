@@ -1221,7 +1221,7 @@ class SchemaController
             'boolean' => 'bool',
             'double', 'float', 'decimal' => 'float',
             'json' => 'array',
-            'timestamp', 'date', 'time' => 'Carbon',
+            'timestamp', 'date', 'time' => 'CarbonInterface',
             default => 'string',
         };
     }

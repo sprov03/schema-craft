@@ -176,8 +176,8 @@ class SchemaContentRendererTest extends TestCase
     {
         $payload = $this->makePayload([
             'columns' => [
-                new EditorColumn(name: 'born_on', phpType: 'Carbon', typeOverride: 'Date', nullable: true),
-                new EditorColumn(name: 'alarm', phpType: 'Carbon', typeOverride: 'Time'),
+                new EditorColumn(name: 'born_on', phpType: 'CarbonInterface', typeOverride: 'Date', nullable: true),
+                new EditorColumn(name: 'alarm', phpType: 'CarbonInterface', typeOverride: 'Time'),
                 new EditorColumn(name: 'grad_year', phpType: 'int', typeOverride: 'Year'),
             ],
         ]);
@@ -185,7 +185,7 @@ class SchemaContentRendererTest extends TestCase
         $output = $this->renderer->render($payload);
 
         $this->assertStringContainsString('#[Date]', $output);
-        $this->assertStringContainsString('public ?Carbon $born_on;', $output);
+        $this->assertStringContainsString('public ?CarbonInterface $born_on;', $output);
         $this->assertStringContainsString('#[Time]', $output);
         $this->assertStringContainsString('#[Year]', $output);
     }
@@ -240,7 +240,7 @@ class SchemaContentRendererTest extends TestCase
     public function test_renders_column_with_expression_default(): void
     {
         $output = $this->renderer->render($this->makePayload([
-            'columns' => [new EditorColumn(name: 'created_at', phpType: 'Carbon', nullable: true, expressionDefault: 'CURRENT_TIMESTAMP')],
+            'columns' => [new EditorColumn(name: 'created_at', phpType: 'CarbonInterface', nullable: true, expressionDefault: 'CURRENT_TIMESTAMP')],
         ]));
 
         $this->assertStringContainsString("#[DefaultExpression('CURRENT_TIMESTAMP')]", $output);

@@ -152,9 +152,9 @@ class SchemaFileGenerator
                 }
             }
 
-            // Carbon import
-            if ($prop->phpType === 'Carbon') {
-                $imports[] = 'Illuminate\\Support\\Carbon';
+            // CarbonInterface import
+            if ($prop->phpType === 'CarbonInterface') {
+                $imports[] = 'Carbon\\CarbonInterface';
             }
         }
 
@@ -781,7 +781,7 @@ class SchemaFileGenerator
             'boolean' => 'bool',
             'double', 'float', 'decimal' => 'float',
             'json' => 'array',
-            'timestamp', 'date', 'time' => 'Carbon',
+            'timestamp', 'date', 'time' => 'CarbonInterface',
             'uuid', 'ulid' => 'string',
             default => 'string',
         };

@@ -2,7 +2,7 @@
 
 namespace SchemaCraft\Traits;
 
-use Illuminate\Support\Carbon;
+use Carbon\CarbonInterface;
 
 /**
  * Adds created_at and updated_at timestamp columns to the schema.
@@ -12,7 +12,7 @@ use Illuminate\Support\Carbon;
  */
 trait TimestampsSchema
 {
-    public ?Carbon $created_at;
+    public ?CarbonInterface $created_at;
 
-    public ?Carbon $updated_at;
+    public ?CarbonInterface $updated_at;
 }
