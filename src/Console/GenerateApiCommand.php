@@ -7,6 +7,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
 use SchemaCraft\Config\ApiConfig;
 use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\Generator\ActionCodeGenerator;
 use SchemaCraft\Generator\Api\ApiCodeGenerator;
 use SchemaCraft\Generator\Api\ApiFileWriter;
 use SchemaCraft\Generator\Api\GeneratedFile;
@@ -15,6 +16,7 @@ use SchemaCraft\Generator\ControllerTestGenerator;
 use SchemaCraft\Generator\DependencyResolver;
 use SchemaCraft\Generator\FactoryGenerator;
 use SchemaCraft\Generator\ModelTestGenerator;
+use SchemaCraft\Scanner\ActionScanner;
 use SchemaCraft\Scanner\SchemaScanner;
 use SchemaCraft\Scanner\TableDefinition;
 
@@ -24,6 +26,7 @@ class GenerateApiCommand extends Command
         {schema : The schema class name (e.g., PostSchema or App\\Schemas\\PostSchema)}
         {--action= : Add a new action to an existing API (e.g., --action=cancel)}
         {--method=put : HTTP method for the action route (get, post, put, delete)}
+        {--from-action= : Generate a service method from an existing Action class}
         {--api= : API configuration name from config/schema-craft.php}
         {--no-factory : Skip factory generation}
         {--no-test : Skip test generation}
@@ -43,6 +46,10 @@ class GenerateApiCommand extends Command
         }
 
         $modelName = $this->resolveModelName($schemaClass);
+
+        if ($this->option('from-action')) {
+            return $this->handleFromAction($files, $schemaClass, $modelName, $apiConfig);
+        }
 
         if ($this->option('action')) {
             return $this->handleAction($files, $schemaClass, $modelName, $apiConfig);
@@ -277,6 +284,94 @@ class GenerateApiCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Generate a service method from an existing Action class.
+     *
+     * Scans the Action, uses ActionCodeGenerator to render the method,
+     * and injects it into the existing service file via ApiFileWriter.
+     */
+    private function handleFromAction(Filesystem $files, string $schemaClass, string $modelName, ApiConfig $apiConfig): int
+    {
+        $actionInput = $this->option('from-action');
+        $actionClass = $this->resolveActionClass($actionInput, $schemaClass);
+
+        if (! class_exists($actionClass)) {
+            $this->components->error("Action class [{$actionClass}] not found.");
+
+            return self::FAILURE;
+        }
+
+        $servicePath = $apiConfig->servicePath($modelName);
+
+        if (! $files->exists($servicePath)) {
+            $this->components->error("Service [{$servicePath}] not found. Generate the API first.");
+
+            return self::FAILURE;
+        }
+
+        // Scan the Action class
+        $scanner = new ActionScanner($actionClass);
+        $definition = $scanner->scan();
+
+        // Generate the service method
+        $generator = new ActionCodeGenerator;
+        $renderedMethod = $generator->renderServiceMethod($definition, $modelName);
+        $relatedImports = $generator->buildRelatedModelImports($definition);
+
+        // Inject into the service file
+        $writer = new ApiFileWriter;
+        $serviceContent = $files->get($servicePath);
+        $serviceContent = $writer->addServiceMethod($serviceContent, $renderedMethod);
+
+        // Add FK model imports
+        foreach ($definition->parameters as $param) {
+            if ($param->isModel && $param->modelClass !== null) {
+                $serviceContent = $writer->addImport($serviceContent, $param->modelClass);
+            }
+        }
+
+        $files->put($servicePath, $serviceContent);
+        $this->components->info("Updated [{$servicePath}] with [{$definition->serviceMethod}] method from [{$actionClass}].");
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Resolve an Action class from user input.
+     *
+     * Accepts FQCN or short name. Short names are resolved relative to
+     * the schema's model namespace with an Actions sub-namespace.
+     */
+    private function resolveActionClass(string $input, string $schemaClass): string
+    {
+        if (str_contains($input, '\\')) {
+            return $input;
+        }
+
+        // Add Action suffix if not present
+        if (! str_ends_with($input, 'Action')) {
+            $input .= 'Action';
+        }
+
+        // Try to resolve relative to the schema's namespace
+        $schemaNamespace = Str::beforeLast($schemaClass, '\\');
+        $modelName = $this->resolveModelName($schemaClass);
+
+        // Try App\Models\Actions\{Model}\{Input}
+        $candidates = [
+            "App\\Models\\Actions\\{$modelName}\\{$input}",
+            "{$schemaNamespace}\\Actions\\{$input}",
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (class_exists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return $input;
     }
 
     /**

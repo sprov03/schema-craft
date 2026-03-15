@@ -20,7 +20,7 @@ use SchemaCraft\Generator\Filament\FilamentCodeGenerator;
 use SchemaCraft\Generator\Filament\FilamentPolicyGenerator;
 use SchemaCraft\Generator\ModelTestGenerator;
 use SchemaCraft\Generator\Sdk\ControllerActionScanner;
-use SchemaCraft\Generator\Sdk\RouteDefinitionScanner;
+use SchemaCraft\Generator\Sdk\RuntimeRouteScanner;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
 use SchemaCraft\Generator\Sdk\SdkSchemaContext;
 use SchemaCraft\Migration\SchemaDiscovery;
@@ -35,30 +35,30 @@ class GenerateController
     {
         $apis = ConfigResolver::allApiNames();
         $apiConfig = ConfigResolver::resolve($request->query('api'));
-        $routeScanner = new RouteDefinitionScanner;
 
         $directories = ConfigResolver::schemaDirectories();
         $discovery = new SchemaDiscovery;
         $schemaClasses = $discovery->discover($directories);
 
+        // Count routes per schema using runtime route scanning
+        $routeScanner = new RuntimeRouteScanner;
+        $routeCounts = $routeScanner->countBySchema(
+            controllerNamespace: $apiConfig->controllerNamespace,
+            schemaNamespace: $apiConfig->schemaNamespace,
+        );
+
         $schemas = [];
         foreach ($schemaClasses as $schemaClass) {
             $modelName = $this->resolveModelName($schemaClass);
             $controllerPath = $apiConfig->controllerPath($modelName);
-            $hasController = file_exists($controllerPath);
-
-            $endpointCount = 0;
-            if ($hasController) {
-                $endpointCount = count($routeScanner->scanFile($controllerPath));
-            }
 
             $schemas[] = [
                 'class' => $schemaClass,
                 'modelName' => $modelName,
-                'hasController' => $hasController,
+                'hasController' => file_exists($controllerPath),
                 'hasService' => file_exists($apiConfig->servicePath($modelName)),
                 'hasTest' => file_exists($apiConfig->testPath($modelName)),
-                'endpointCount' => $endpointCount,
+                'endpointCount' => $routeCounts[$schemaClass] ?? 0,
             ];
         }
 
@@ -83,20 +83,16 @@ class GenerateController
         $modelName = $this->resolveModelName($schemaClass);
 
         $controllerPath = $apiConfig->controllerPath($modelName);
-
-        if (! file_exists($controllerPath)) {
-            return new JsonResponse([
-                'success' => false,
-                'message' => "Controller for [{$modelName}] not found.",
-            ], 404);
-        }
-
         $routePrefix = Str::snake(Str::pluralStudly($modelName), '-');
         $routeParam = Str::camel($modelName);
 
-        // Parse actual Route:: definitions from the controller
-        $routeScanner = new RouteDefinitionScanner;
-        $endpoints = $routeScanner->scanFile($controllerPath);
+        // Discover routes for this schema at runtime
+        $routeScanner = new RuntimeRouteScanner;
+        $endpoints = $routeScanner->scanForSchema(
+            schemaClass: $schemaClass,
+            controllerNamespace: $apiConfig->controllerNamespace,
+            schemaNamespace: $apiConfig->schemaNamespace,
+        );
 
         // Scan schema for field metadata
         $fields = [];
@@ -216,7 +212,7 @@ class GenerateController
             'schemaClass' => $schemaClass,
             'routePrefix' => $routePrefix,
             'routeParam' => $routeParam,
-            'hasController' => true,
+            'hasController' => file_exists($controllerPath),
             'hasService' => file_exists($apiConfig->servicePath($modelName)),
             'hasTest' => file_exists($apiConfig->testPath($modelName)),
             'endpoints' => $endpoints,

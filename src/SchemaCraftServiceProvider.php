@@ -10,10 +10,12 @@ use SchemaCraft\Console\GenerateFilamentCommand;
 use SchemaCraft\Console\GenerateSdkCommand;
 use SchemaCraft\Console\InstallCommand;
 use SchemaCraft\Console\MakeSchemaCommand;
+use SchemaCraft\Console\PublishFilamentActionCommand;
 use SchemaCraft\Console\RelationshipCommand;
 use SchemaCraft\Console\SchemaFromDatabaseCommand;
 use SchemaCraft\Console\SchemaMigrateCommand;
 use SchemaCraft\Console\SchemaStatusCommand;
+use SchemaCraft\Visualizer\ActionsController;
 use SchemaCraft\Visualizer\GenerateController;
 use SchemaCraft\Visualizer\SchemaController;
 use SchemaCraft\Visualizer\StatusController;
@@ -42,6 +44,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 GenerateSdkCommand::class,
                 InstallCommand::class,
                 MakeSchemaCommand::class,
+                PublishFilamentActionCommand::class,
                 RelationshipCommand::class,
                 SchemaFromDatabaseCommand::class,
                 SchemaMigrateCommand::class,
@@ -154,6 +157,25 @@ class SchemaCraftServiceProvider extends ServiceProvider
             Route::post('/api/filament/preview', [GenerateController::class, 'filamentPreview'])
                 ->withoutMiddleware($noCsrf);
             Route::post('/api/filament/generate', [GenerateController::class, 'filamentGenerate'])
+                ->withoutMiddleware($noCsrf);
+
+            // Actions API
+            Route::get('/api/actions/config', [ActionsController::class, 'config']);
+            Route::get('/api/actions/detail', [ActionsController::class, 'detail']);
+            Route::get('/api/actions/related-schema', [ActionsController::class, 'relatedSchema']);
+            Route::post('/api/actions/create/preview', [ActionsController::class, 'createPreview'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/actions/create', [ActionsController::class, 'create'])
+                ->withoutMiddleware($noCsrf);
+            Route::get('/api/actions/service-preview', [ActionsController::class, 'servicePreview']);
+            Route::post('/api/actions/generate-service', [ActionsController::class, 'generateService'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/actions/update/preview', [ActionsController::class, 'updatePreview'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/actions/update', [ActionsController::class, 'update'])
+                ->withoutMiddleware($noCsrf);
+            Route::get('/api/actions/filament-action-preview', [ActionsController::class, 'filamentActionPreview']);
+            Route::post('/api/actions/publish-filament-action', [ActionsController::class, 'publishFilamentAction'])
                 ->withoutMiddleware($noCsrf);
 
             Route::post('/api/create-api', [GenerateController::class, 'createApi'])

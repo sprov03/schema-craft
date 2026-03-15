@@ -131,6 +131,13 @@ class {$modelName}Controller
 }
 PHP;
         $this->files->put($path, $content);
+
+        // Register routes with the router so runtime scanning finds them
+        require_once $path;
+        $controllerClass = "App\\Http\\Controllers\\Api\\{$modelName}Controller";
+        \Illuminate\Support\Facades\Route::middleware('api')->group(function () use ($controllerClass) {
+            $controllerClass::apiRoutes();
+        });
     }
 
     private function createFakeService(string $modelName): void
@@ -494,7 +501,7 @@ PHP);
         $this->assertContains('delete', $actions);
     }
 
-    public function test_stack_detail_returns_404_for_missing_controller(): void
+    public function test_stack_detail_returns_empty_endpoints_for_missing_controller(): void
     {
         $this->createSchemaFile('GenGhost', [
             ['name' => 'name', 'phpType' => 'string'],
@@ -502,8 +509,9 @@ PHP);
 
         $response = $this->getJson('/_schema-craft/api/generate/stack-detail?schema=App%5CSchemas%5CGenGhostSchema');
 
-        $response->assertNotFound();
-        $response->assertJson(['success' => false]);
+        $response->assertOk();
+        $this->assertFalse($response->json('hasController'));
+        $this->assertCount(0, $response->json('endpoints'));
     }
 
     public function test_stack_detail_includes_custom_actions(): void
@@ -546,6 +554,12 @@ class GenTaskController
 PHP;
         $this->files->put($path, $content);
         $this->createFakeService('GenTask');
+
+        // Register the routes with the router so runtime scanning finds them
+        require_once $path;
+        \Illuminate\Support\Facades\Route::middleware('api')->group(function () {
+            \App\Http\Controllers\Api\GenTaskController::apiRoutes();
+        });
 
         $response = $this->getJson('/_schema-craft/api/generate/stack-detail?schema=App%5CSchemas%5CGenTaskSchema');
 

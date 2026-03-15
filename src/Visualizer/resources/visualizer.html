@@ -957,8 +957,10 @@
         .fp-file-badge.exists { background: var(--warning-dim); color: var(--warning); }
         .fp-code-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
         .fp-code-header {
-            padding: 10px 16px; border-bottom: 1px solid var(--border);
-            font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 16px; border-bottom: 1px solid var(--border);
+            font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);
+            background: var(--bg-secondary);
         }
         .fp-code-content {
             flex: 1; overflow: auto; padding: 16px;
@@ -1576,6 +1578,183 @@
             padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
         }
         .se-composite-cols { flex: 1; font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); }
+
+        /* ── Actions Tab ─────────────────────────────────── */
+        .act-action-item {
+            display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+            border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px;
+            cursor: pointer; transition: all 0.12s;
+        }
+        .act-action-item:hover { border-color: var(--accent); background: var(--bg-hover); }
+        .act-action-item-name { font-size: 13px; font-weight: 500; color: var(--text-primary); flex: 1; }
+        .act-action-item-params { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+        .act-param-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        .act-param-table th {
+            text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase;
+            color: var(--text-muted); padding: 8px 12px; border-bottom: 2px solid var(--border);
+            letter-spacing: 0.5px;
+        }
+        .act-param-table td {
+            padding: 10px 12px; border-bottom: 1px solid var(--border);
+            font-size: 13px; color: var(--text-primary);
+        }
+        .act-param-table tr:hover td { background: var(--bg-hover); }
+        .act-param-type { font-family: var(--font-mono); font-size: 12px; color: var(--accent); }
+        .act-param-model-badge {
+            font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;
+            background: #ede9fe; color: #6d28d9;
+        }
+        [data-theme="dark"] .act-param-model-badge { background: #4c1d95; color: #c4b5fd; }
+
+        .act-field-picker { margin-top: 12px; }
+        .act-field-picker-header {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+        }
+        .act-field-item {
+            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+            border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px;
+            cursor: pointer; transition: background 0.1s;
+        }
+        .act-field-item:hover { background: var(--bg-hover); }
+        .act-field-item.selected { border-color: var(--accent); background: rgba(59,130,246,0.05); }
+        .act-field-item input[type="checkbox"] { margin: 0; }
+        .act-field-item-name { font-size: 13px; font-weight: 500; color: var(--text-primary); font-family: var(--font-mono); }
+        .act-field-item-type { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+        .act-field-item-badges { margin-left: auto; display: flex; gap: 4px; }
+        .act-field-badge {
+            font-size: 9px; font-weight: 600; padding: 2px 5px; border-radius: 3px;
+            text-transform: uppercase;
+        }
+        .act-field-badge.nullable { background: #fef3c7; color: #92400e; }
+        .act-field-badge.fk { background: #ede9fe; color: #6d28d9; }
+        [data-theme="dark"] .act-field-badge.nullable { background: #78350f; color: #fde68a; }
+        [data-theme="dark"] .act-field-badge.fk { background: #4c1d95; color: #c4b5fd; }
+
+        .act-create-actions { display: flex; gap: 8px; margin-top: 20px; }
+
+        .act-nullable-toggle {
+            font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
+            border: 1px solid var(--border); cursor: pointer; transition: all 0.12s;
+            font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.3px;
+            min-width: 68px; text-align: center;
+        }
+        .act-nullable-toggle.required { background: #dcfce7; color: #166534; border-color: #86efac; }
+        .act-nullable-toggle.optional { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+        .act-nullable-toggle:hover { opacity: 0.8; }
+        [data-theme="dark"] .act-nullable-toggle.required { background: #14532d; color: #86efac; border-color: #166534; }
+        [data-theme="dark"] .act-nullable-toggle.optional { background: #78350f; color: #fde68a; border-color: #92400e; }
+
+        .act-rel-header {
+            display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+            border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px;
+            cursor: pointer; user-select: none; transition: background 0.12s;
+        }
+        .act-rel-header:hover { background: var(--bg-hover); }
+        .act-rel-header.expanded { border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: 0; }
+        .act-rel-arrow { font-size: 10px; color: var(--text-muted); transition: transform 0.15s; }
+        .act-rel-header.expanded .act-rel-arrow { transform: rotate(90deg); }
+        .act-rel-name { font-size: 13px; font-weight: 500; color: var(--text-primary); font-family: var(--font-mono); }
+        .act-rel-type-badge {
+            font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;
+            background: #dbeafe; color: #1e40af; font-family: var(--font-mono);
+        }
+        [data-theme="dark"] .act-rel-type-badge { background: #1e3a5f; color: #93c5fd; }
+        .act-rel-type-badge.collection { background: #fce7f3; color: #9d174d; }
+        [data-theme="dark"] .act-rel-type-badge.collection { background: #4a0e2d; color: #f9a8d4; }
+        .act-rel-model { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-left: auto; }
+        .act-rel-body {
+            border: 1px solid var(--border); border-top: none; border-bottom-left-radius: 6px;
+            border-bottom-right-radius: 6px; padding: 8px 12px 8px 28px; margin-bottom: 4px;
+        }
+        .act-rel-body .act-field-item { margin-left: 0; }
+        .act-rel-loading { font-size: 12px; color: var(--text-muted); padding: 8px 0; }
+
+        .act-service-code {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px 16px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text-primary);
+            overflow-x: auto;
+            white-space: pre;
+            margin: 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .fp-view-btn {
+            padding: 2px 8px !important;
+            font-size: 11px !important;
+        }
+        .fp-view-btn.active {
+            background: var(--accent-blue) !important;
+            color: white !important;
+        }
+
+        .fp-diff-view {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.5;
+            overflow-x: auto;
+            overflow-y: auto;
+            max-height: 60vh;
+        }
+
+        .diff-line {
+            display: flex;
+            white-space: pre;
+            min-width: fit-content;
+        }
+
+        .diff-line.diff-add {
+            background: rgba(46, 160, 67, 0.15);
+        }
+
+        .diff-line.diff-remove {
+            background: rgba(248, 81, 73, 0.15);
+        }
+
+        .diff-line.diff-same {
+            background: transparent;
+        }
+
+        .diff-line-num {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+            padding-right: 8px;
+            color: var(--text-muted);
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        .diff-prefix {
+            display: inline-block;
+            width: 16px;
+            text-align: center;
+            user-select: none;
+            flex-shrink: 0;
+            font-weight: 600;
+        }
+
+        .diff-line.diff-add .diff-prefix { color: #2ea043; }
+        .diff-line.diff-remove .diff-prefix { color: #f85149; }
+
+        .diff-text {
+            flex: 1;
+            padding-right: 16px;
+        }
+        .act-create-form { max-width: 600px; }
+        .act-create-form label {
+            display: block; font-size: 12px; font-weight: 600; color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        .act-create-form .sc-form-group { margin-bottom: 16px; }
+        .act-form-row { display: flex; gap: 12px; margin-bottom: 16px; }
+        .act-form-row > * { flex: 1; }
     </style>
 </head>
 <body>
@@ -1587,7 +1766,8 @@
             <button class="tab-btn" data-tab="query-builder">Query Builder</button>
             <button class="tab-btn" data-tab="schemas">Schemas</button>
             <button class="tab-btn" data-tab="status">Status</button>
-            <button class="tab-btn" data-tab="generate">Generate</button>
+            <button class="tab-btn" data-tab="generate">APIs</button>
+            <button class="tab-btn" data-tab="actions">Actions</button>
         </nav>
         <div class="header-actions">
             <button class="theme-toggle" id="theme-toggle">Light</button>
@@ -1650,6 +1830,7 @@
     <section id="schemas-tab" hidden></section>
     <section id="status-tab" hidden></section>
     <section id="generate-tab" hidden></section>
+    <section id="actions-tab" hidden></section>
 
     <div id="toast-container" class="toast-container"></div>
 
@@ -1796,16 +1977,21 @@
             document.getElementById('schemas-tab').hidden = tab !== 'schemas';
             document.getElementById('status-tab').hidden = tab !== 'status';
             document.getElementById('generate-tab').hidden = tab !== 'generate';
+            document.getElementById('actions-tab').hidden = tab !== 'actions';
 
             updateQueryParams({ tab: tab });
             if (tab !== 'generate') {
                 updateQueryParams({ api: null, stack: null });
+            }
+            if (tab !== 'actions') {
+                updateQueryParams({ actSchema: null, actAction: null });
             }
 
             if (tab === 'query-builder') initQueryBuilder();
             if (tab === 'schemas') initSchemasTab();
             if (tab === 'status') initStatusTab();
             if (tab === 'generate') initGenerateTab();
+            if (tab === 'actions') initActionsTab();
         }
 
         function toggleTheme() {
@@ -4498,6 +4684,83 @@
             }, 4000);
         }
 
+        // ── Diff utilities ──────────────────────────────────────
+        function computeLineDiff(oldText, newText) {
+            var oldLines = oldText.split('\n');
+            var newLines = newText.split('\n');
+            var result = [];
+
+            // Simple LCS-based diff
+            var m = oldLines.length;
+            var n = newLines.length;
+            var dp = [];
+            for (var i = 0; i <= m; i++) {
+                dp[i] = [];
+                for (var j = 0; j <= n; j++) {
+                    if (i === 0 || j === 0) { dp[i][j] = 0; }
+                    else if (oldLines[i-1] === newLines[j-1]) { dp[i][j] = dp[i-1][j-1] + 1; }
+                    else { dp[i][j] = Math.max(dp[i-1][j], dp[i][j-1]); }
+                }
+            }
+
+            // Backtrack
+            var diff = [];
+            var oi = m, ni = n;
+            while (oi > 0 || ni > 0) {
+                if (oi > 0 && ni > 0 && oldLines[oi-1] === newLines[ni-1]) {
+                    diff.unshift({ type: 'same', text: oldLines[oi-1] });
+                    oi--; ni--;
+                } else if (ni > 0 && (oi === 0 || dp[oi][ni-1] >= dp[oi-1][ni])) {
+                    diff.unshift({ type: 'add', text: newLines[ni-1] });
+                    ni--;
+                } else {
+                    diff.unshift({ type: 'remove', text: oldLines[oi-1] });
+                    oi--;
+                }
+            }
+
+            return diff;
+        }
+
+        function renderDiffView(oldText, newText) {
+            var diff = computeLineDiff(oldText, newText);
+            var html = '<div class="fp-diff-view">';
+            var oldLineNum = 0;
+            var newLineNum = 0;
+
+            diff.forEach(function(entry) {
+                var lineClass = '';
+                var prefix = ' ';
+                var lineNumHtml = '';
+
+                if (entry.type === 'remove') {
+                    oldLineNum++;
+                    lineClass = 'diff-remove';
+                    prefix = '-';
+                    lineNumHtml = '<span class="diff-line-num old">' + oldLineNum + '</span><span class="diff-line-num new"></span>';
+                } else if (entry.type === 'add') {
+                    newLineNum++;
+                    lineClass = 'diff-add';
+                    prefix = '+';
+                    lineNumHtml = '<span class="diff-line-num old"></span><span class="diff-line-num new">' + newLineNum + '</span>';
+                } else {
+                    oldLineNum++;
+                    newLineNum++;
+                    lineClass = 'diff-same';
+                    lineNumHtml = '<span class="diff-line-num old">' + oldLineNum + '</span><span class="diff-line-num new">' + newLineNum + '</span>';
+                }
+
+                html += '<div class="diff-line ' + lineClass + '">' +
+                    lineNumHtml +
+                    '<span class="diff-prefix">' + prefix + '</span>' +
+                    '<span class="diff-text">' + escapeHtml(entry.text) + '</span>' +
+                '</div>';
+            });
+
+            html += '</div>';
+            return html;
+        }
+
         // ── Shared: File Preview Modal ──────────────────
         function showFilePreviewModal(files, confirmLabel, onConfirm) {
             confirmLabel = confirmLabel || 'Write Files';
@@ -4524,8 +4787,16 @@
                     '<div class="fp-body">' +
                         '<div class="fp-file-list">' + fileListHtml + '</div>' +
                         '<div class="fp-code-panel">' +
-                            '<div class="fp-code-header" id="fp-code-header">' + escapeHtml(files[0].path) + '</div>' +
-                            '<pre class="fp-code-content" id="fp-code-content">' + escapeHtml(files[0].content || '') + '</pre>' +
+                            '<div class="fp-code-header">' +
+                                '<span id="fp-code-header">' + escapeHtml(files[0].path) + '</span>' +
+                                '<div id="fp-view-toggle" style="display:none;">' +
+                                    '<button class="sc-btn sm fp-view-btn active" data-view="diff">Diff</button>' +
+                                    '<button class="sc-btn sm fp-view-btn" data-view="full">Full</button>' +
+                                '</div>' +
+                            '</div>' +
+                            '<div id="fp-code-content-wrap">' +
+                                '<pre class="fp-code-content" id="fp-code-content">' + escapeHtml(files[0].content || '') + '</pre>' +
+                            '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="fp-footer">' +
@@ -4537,14 +4808,52 @@
 
             document.body.appendChild(overlay);
 
+            var currentView = 'diff';
+
+            function showFile(idx) {
+                var file = files[idx];
+                document.getElementById('fp-code-header').textContent = file.path;
+                var toggle = document.getElementById('fp-view-toggle');
+                var wrap = document.getElementById('fp-code-content-wrap');
+
+                if (file.exists && file.existingContent) {
+                    toggle.style.display = 'flex';
+                    if (currentView === 'diff') {
+                        wrap.innerHTML = renderDiffView(file.existingContent, file.content);
+                    } else {
+                        wrap.innerHTML = '<pre class="fp-code-content">' + escapeHtml(file.content || '') + '</pre>';
+                    }
+                } else {
+                    toggle.style.display = 'none';
+                    wrap.innerHTML = '<pre class="fp-code-content">' + escapeHtml(file.content || '') + '</pre>';
+                }
+            }
+
+            // Show first file (handle diff for existing)
+            if (files[0].exists && files[0].existingContent) {
+                showFile(0);
+            }
+
             // File selection
             overlay.querySelectorAll('.fp-file-item').forEach(function(item) {
                 item.addEventListener('click', function() {
                     overlay.querySelectorAll('.fp-file-item').forEach(function(i) { i.classList.remove('active'); });
                     item.classList.add('active');
                     var idx = parseInt(item.dataset.fpIdx, 10);
-                    document.getElementById('fp-code-header').textContent = files[idx].path;
-                    document.getElementById('fp-code-content').textContent = files[idx].content || '';
+                    showFile(idx);
+                });
+            });
+
+            // View toggle (Diff / Full)
+            overlay.querySelectorAll('.fp-view-btn').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    overlay.querySelectorAll('.fp-view-btn').forEach(function(b) { b.classList.remove('active'); });
+                    btn.classList.add('active');
+                    currentView = btn.dataset.view;
+                    var activeItem = overlay.querySelector('.fp-file-item.active');
+                    if (activeItem) {
+                        showFile(parseInt(activeItem.dataset.fpIdx, 10));
+                    }
                 });
             });
 
@@ -5532,14 +5841,14 @@
             // Build stack list
             var stacks = [];
             if (generateConfig && generateConfig.schemas) {
-                stacks = generateConfig.schemas.filter(function(s) { return s.hasController; });
+                stacks = generateConfig.schemas.filter(function(s) { return s.hasController || s.endpointCount > 0; });
             }
 
             var stackListHtml = '';
             stacks.forEach(function(s) {
                 stackListHtml += '<li class="gen-stack-item" data-schema="' + escapeAttr(s.class) + '">' +
                     '<span class="gen-stack-item-name">' + escapeHtml(s.modelName) + '</span>' +
-                    '<span class="gen-stack-item-badge">' + (s.endpointCount || 5) + '</span>' +
+                    '<span class="gen-stack-item-badge">' + (s.endpointCount != null ? s.endpointCount : 0) + '</span>' +
                 '</li>';
             });
 
@@ -5978,10 +6287,27 @@
             // Request body
             if (ep.action === 'create' || ep.action === 'update') {
                 html += buildRequestBodyHtml(stackData.editableFields);
-            } else if (ep.method === 'PUT' && ep.type === 'custom') {
+            } else if (ep.rules && typeof ep.rules === 'object' && Object.keys(ep.rules).length > 0) {
+                // Build request body from endpoint rules (actions or FormRequest)
+                var rulesFields = [];
+                Object.keys(ep.rules).forEach(function(fieldName) {
+                    var fieldRules = ep.rules[fieldName];
+                    var rulesStr = Array.isArray(fieldRules) ? fieldRules.join('|') : String(fieldRules);
+                    var fieldType = 'string';
+                    if (Array.isArray(fieldRules)) {
+                        if (fieldRules.indexOf('integer') !== -1) fieldType = 'integer';
+                        else if (fieldRules.indexOf('numeric') !== -1) fieldType = 'numeric';
+                        else if (fieldRules.indexOf('boolean') !== -1) fieldType = 'boolean';
+                        else if (fieldRules.indexOf('array') !== -1) fieldType = 'array';
+                        else if (fieldRules.indexOf('date') !== -1) fieldType = 'date';
+                    }
+                    rulesFields.push({ name: fieldName, type: fieldType, rules: rulesStr });
+                });
+                html += buildRequestBodyHtml(rulesFields);
+            } else if (ep.method === 'PUT' || ep.method === 'POST' || ep.method === 'PATCH') {
                 html += '<div class="ep-section">' +
                     '<div class="ep-section-title"><span class="ep-section-badge body">Request Body</span> application/json</div>' +
-                    '<div class="ep-no-body">Custom request class — edit the generated request to add validation rules.</div>' +
+                    '<div class="ep-no-body">No validation rules found — add rules to the action or request class.</div>' +
                 '</div>';
             } else if (ep.action === 'getCollection') {
                 html += '<div class="ep-section">' +
@@ -6157,7 +6483,7 @@
                 var schema = generateConfig.schemas.find(function(s) { return s.class === item.dataset.schema; });
                 if (schema) {
                     var badge = item.querySelector('.gen-stack-item-badge');
-                    if (badge) badge.textContent = schema.endpointCount || 5;
+                    if (badge) badge.textContent = schema.endpointCount != null ? schema.endpointCount : 0;
                 }
             });
         }
@@ -7317,6 +7643,832 @@
                 );
             }
         };
+
+        // ── Actions Tab ────────────────────────────────────
+        var actionsInitialized = false;
+        var actionsConfig = null;
+        var actSelectedSchema = null;
+        var actSelectedView = null;
+
+        function initActionsTab() {
+            if (actionsInitialized) return;
+            actionsInitialized = true;
+            loadActionsConfig(function() {
+                renderActionsMain();
+            });
+        }
+
+        function loadActionsConfig(callback) {
+            fetch('/_schema-craft/api/actions/config')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    actionsConfig = data;
+                    if (callback) callback();
+                })
+                .catch(function(e) { showToast('Failed to load actions config: ' + e.message, 'error'); });
+        }
+
+        function renderActionsMain() {
+            var container = document.getElementById('actions-tab');
+
+            var schemas = [];
+            if (actionsConfig && actionsConfig.schemas) {
+                schemas = actionsConfig.schemas;
+            }
+
+            var schemaListHtml = '';
+            schemas.forEach(function(s) {
+                var count = s.actions ? s.actions.length : 0;
+                schemaListHtml += '<li class="gen-stack-item" data-schema="' + escapeAttr(s.class) + '">' +
+                    '<span class="gen-stack-item-name">' + escapeHtml(s.modelName) + '</span>' +
+                    '<span class="gen-stack-item-badge">' + count + '</span>' +
+                '</li>';
+            });
+
+            if (!schemaListHtml) {
+                schemaListHtml = '<li style="padding:16px;color:var(--text-muted);font-size:12px;text-align:center;">No schemas found</li>';
+            }
+
+            container.innerHTML =
+                '<div class="gen-main">' +
+                    '<div class="gen-sidebar">' +
+                        '<div class="gen-sidebar-header">' +
+                            '<span class="gen-sidebar-api-name">Actions</span>' +
+                        '</div>' +
+                        '<div class="gen-sidebar-section-title">Schemas</div>' +
+                        '<div class="gen-sidebar-search">' +
+                            '<input type="search" id="act-schema-search" placeholder="Search schemas...">' +
+                        '</div>' +
+                        '<ul class="gen-stack-list" id="act-schema-list">' + schemaListHtml + '</ul>' +
+                    '</div>' +
+                    '<div class="gen-content" id="act-content">' +
+                        '<div class="gen-empty-state">Select a schema to view its actions</div>' +
+                    '</div>' +
+                '</div>';
+
+            // Search filter
+            document.getElementById('act-schema-search').addEventListener('input', function(e) {
+                var query = e.target.value.toLowerCase();
+                document.querySelectorAll('#act-schema-list .gen-stack-item[data-schema]').forEach(function(item) {
+                    var name = item.querySelector('.gen-stack-item-name');
+                    if (name) {
+                        var matches = !query || name.textContent.toLowerCase().indexOf(query) !== -1;
+                        item.style.display = matches ? '' : 'none';
+                    }
+                });
+            });
+
+            // Schema item clicks
+            document.querySelectorAll('#act-schema-list .gen-stack-item[data-schema]').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    actSelectSchema(item.dataset.schema);
+                });
+            });
+
+            // Restore from query params
+            var params = new URLSearchParams(window.location.search);
+            if (params.get('actSchema')) {
+                actSelectSchema(params.get('actSchema'));
+            }
+        }
+
+        function actSelectSchema(schemaClass) {
+            actSelectedSchema = schemaClass;
+            actSelectedView = 'detail';
+            updateQueryParams({ actSchema: schemaClass });
+
+            // Highlight in sidebar
+            document.querySelectorAll('#act-schema-list .gen-stack-item').forEach(function(item) {
+                item.classList.toggle('active', item.dataset.schema === schemaClass);
+            });
+
+            var schema = null;
+            if (actionsConfig && actionsConfig.schemas) {
+                schema = actionsConfig.schemas.find(function(s) { return s.class === schemaClass; });
+            }
+            if (!schema) { showToast('Schema not found.', 'error'); return; }
+
+            renderActionsDetail(schema);
+        }
+
+        function renderActionsDetail(schema) {
+            var content = document.getElementById('act-content');
+
+            // Build action list (like endpoint list in Generate tab)
+            var actionsHtml = '';
+            if (schema.actions && schema.actions.length > 0) {
+                schema.actions.forEach(function(action) {
+                    var paramCount = 0;
+                    actionsHtml += '<div class="act-action-item" data-action="' + escapeAttr(action.class) + '">' +
+                        '<span class="gen-endpoint-method ' + action.httpMethod.toLowerCase() + '">' + action.httpMethod.toUpperCase() + '</span>' +
+                        '<span class="act-action-item-name">' + escapeHtml(action.label || action.name) + '</span>' +
+                        '<span class="act-action-item-params">' + escapeHtml(shortName(action.class)) + '</span>' +
+                    '</div>';
+                });
+            }
+
+            var badgesHtml = '';
+            if (schema.hasRegistry) {
+                badgesHtml += '<span class="gen-stack-badge controller">Registry</span>';
+            }
+            badgesHtml += '<span class="gen-stack-badge service">' + (schema.actions ? schema.actions.length : 0) + ' action' + ((schema.actions && schema.actions.length !== 1) ? 's' : '') + '</span>';
+
+            content.innerHTML =
+                '<div class="gen-stack-detail">' +
+                    '<div class="gen-stack-header">' +
+                        '<span class="gen-stack-title">' + escapeHtml(schema.modelName) + '</span>' +
+                        '<span class="gen-stack-route-prefix">' + escapeHtml(shortName(schema.class)) + '</span>' +
+                        '<div class="gen-stack-badges">' + badgesHtml + '</div>' +
+                    '</div>' +
+                    '<div class="gen-endpoint-section-title">Actions (' + (schema.actions ? schema.actions.length : 0) + ')</div>' +
+                    '<div class="gen-endpoint-list">' +
+                        (actionsHtml || '<div style="padding:16px;color:var(--text-muted);font-size:13px;">No actions defined yet. Create one below.</div>') +
+                    '</div>' +
+                    '<div class="gen-add-action-section">' +
+                        '<div class="gen-add-action-title">Create New Action</div>' +
+                        '<div class="gen-add-action-row">' +
+                            '<select class="sc-select" id="act-inline-method">' +
+                                '<option value="get">GET</option>' +
+                                '<option value="post">POST</option>' +
+                                '<option value="put" selected>PUT</option>' +
+                                '<option value="delete">DELETE</option>' +
+                            '</select>' +
+                            '<input type="text" class="sc-input" id="act-inline-name" placeholder="e.g. create, updateAddress, archive">' +
+                            '<button class="sc-btn" id="act-inline-fields-btn">Select Fields</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+            // Action item clicks — open detail modal
+            content.querySelectorAll('.act-action-item[data-action]').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    showActionDetailModal(item.dataset.action);
+                });
+            });
+
+            // "Select Fields" opens the field picker
+            document.getElementById('act-inline-fields-btn').addEventListener('click', function() {
+                var actionName = document.getElementById('act-inline-name').value.trim();
+                if (!actionName) { showToast('Enter an action name first.', 'warning'); return; }
+                var httpMethod = document.getElementById('act-inline-method').value;
+                showFieldPickerModal(schema, actionName, httpMethod);
+            });
+        }
+
+        function showActionDetailModal(actionClass) {
+            fetch('/_schema-craft/api/actions/detail?action=' + encodeURIComponent(actionClass))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Failed to load.', 'error'); return; }
+                    renderActionDetailModal(data);
+                })
+                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        function renderActionDetailModal(action) {
+            var overlay = document.createElement('div');
+            overlay.className = 'fp-overlay';
+
+            // Parameters table
+            var paramsHtml = '';
+            if (action.parameters && action.parameters.length > 0) {
+                paramsHtml = '<table class="act-param-table">' +
+                    '<thead><tr><th>Name</th><th>Type</th><th>Nullable</th><th>Kind</th></tr></thead><tbody>';
+                action.parameters.forEach(function(p) {
+                    var kindBadge = p.isNestedRelationship
+                        ? '<span class="act-rel-type-badge' + (p.nestedRelationship && p.nestedRelationship.isCollection ? ' collection' : '') + '">' + (p.nestedRelationship ? p.nestedRelationship.relationshipType : 'Nested') + '</span>'
+                        : p.isModel
+                        ? '<span class="act-param-model-badge">Model</span>'
+                        : '<span style="font-size:11px;color:var(--text-muted);">Scalar</span>';
+                    paramsHtml += '<tr>' +
+                        '<td><span class="act-param-type">' + escapeHtml(p.name) + '</span></td>' +
+                        '<td><span class="act-param-type">' + escapeHtml(p.type) + '</span></td>' +
+                        '<td><span style="font-size:11px;color:var(--text-muted);">' + (p.nullable ? 'Yes' : 'No') + '</span></td>' +
+                        '<td>' + kindBadge + '</td>' +
+                    '</tr>';
+                });
+                paramsHtml += '</tbody></table>';
+            } else {
+                paramsHtml = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">No parameters</div>';
+            }
+
+            // Service method code block
+            var serviceCodeHtml = '';
+            if (action.serviceMethodCode) {
+                serviceCodeHtml = '<pre class="act-service-code">' + escapeHtml(action.serviceMethodCode) + '</pre>';
+            }
+
+            // Generate / Regenerate button
+            var genBtnLabel = action.serviceMethodExists ? 'Regenerate Service Method' : 'Generate Service Method';
+
+            overlay.innerHTML =
+                '<div class="fp-modal" style="max-width:700px;">' +
+                    '<div class="fp-header">' +
+                        '<span class="fp-header-title">' +
+                            '<span class="gen-endpoint-method ' + action.httpMethod + '" style="margin-right:8px;">' + action.httpMethod.toUpperCase() + '</span>' +
+                            escapeHtml(action.label || action.name) +
+                        '</span>' +
+                        '<div style="display:flex;gap:8px;align-items:center;">' +
+                            '<button class="sc-btn sm" id="act-modal-edit">Edit</button>' +
+                            '<button class="fp-close" id="act-modal-close">&times;</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="padding:20px;max-height:70vh;overflow-y:auto;">' +
+                        '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;font-family:var(--font-mono);">' + escapeHtml(action.actionClass) + '</div>' +
+                        (action.description ? '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;font-style:italic;">' + escapeHtml(action.description) + '</div>' : '') +
+                        '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">Parameters (' + action.parameters.length + ')</div>' +
+                        paramsHtml +
+                        '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-top:20px;margin-bottom:8px;">Service Method</div>' +
+                        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">' +
+                            '<span style="font-family:var(--font-mono);font-size:13px;color:var(--text-primary);">' + escapeHtml(action.serviceMethod) + '()</span>' +
+                            '<button class="sc-btn primary sm" id="act-modal-gen-service">' + escapeHtml(genBtnLabel) + '</button>' +
+                        '</div>' +
+                        serviceCodeHtml +
+                        '<div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-top:20px;margin-bottom:8px;">Filament Action</div>' +
+                        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">' +
+                            '<button class="sc-btn primary sm" id="act-modal-publish-filament">Publish Filament Action</button>' +
+                            '<span style="font-size:11px;color:var(--text-muted);">Generate an explicit filamentAction() override for customization</span>' +
+                        '</div>' +
+                        '<pre class="act-service-code" id="act-filament-preview" style="display:none;"></pre>' +
+                    '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            function close() { overlay.remove(); }
+            overlay.querySelector('#act-modal-close').addEventListener('click', close);
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+
+            // Generate / Regenerate service method
+            overlay.querySelector('#act-modal-gen-service').addEventListener('click', function() {
+                var btn = this;
+
+                if (action.serviceMethodExists) {
+                    // Show diff preview first
+                    btn.disabled = true;
+                    btn.textContent = 'Loading preview...';
+
+                    fetch('/_schema-craft/api/actions/service-preview?action=' + encodeURIComponent(action.actionClass), {
+                        headers: { 'Accept': 'application/json' },
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        btn.disabled = false;
+                        btn.textContent = genBtnLabel;
+                        if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
+
+                        var files = [{
+                            path: data.servicePath,
+                            content: data.newContent,
+                            exists: data.exists,
+                            existingContent: data.existingContent,
+                        }];
+
+                        showFilePreviewModal(files, 'Regenerate Service', function() {
+                            doGenerateService(action.actionClass, btn, genBtnLabel);
+                        });
+                    })
+                    .catch(function(e) {
+                        btn.disabled = false;
+                        btn.textContent = genBtnLabel;
+                        showToast('Error: ' + e.message, 'error');
+                    });
+                } else {
+                    doGenerateService(action.actionClass, btn, genBtnLabel);
+                }
+            });
+
+            function doGenerateService(actionClass, btn, label) {
+                btn.disabled = true;
+                btn.textContent = 'Generating...';
+
+                fetch('/_schema-craft/api/actions/generate-service', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ action: actionClass }),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    btn.disabled = false;
+                    btn.textContent = 'Regenerate Service Method';
+                    if (data.success) {
+                        showToast(data.message, 'success');
+                        action.serviceMethodExists = true;
+                    } else {
+                        showToast(data.message || 'Generation failed.', 'error');
+                    }
+                })
+                .catch(function(e) {
+                    btn.disabled = false;
+                    btn.textContent = label;
+                    showToast('Error: ' + e.message, 'error');
+                });
+            }
+
+            // Publish Filament Action button
+            overlay.querySelector('#act-modal-publish-filament').addEventListener('click', function() {
+                var btn = this;
+                var previewEl = overlay.querySelector('#act-filament-preview');
+
+                // First fetch preview
+                btn.disabled = true;
+                btn.textContent = 'Loading preview...';
+
+                fetch('/_schema-craft/api/actions/filament-action-preview?action=' + encodeURIComponent(action.actionClass), {
+                    headers: { 'Accept': 'application/json' },
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) {
+                        btn.disabled = false;
+                        btn.textContent = 'Publish Filament Action';
+                        showToast(data.message || 'Preview failed.', 'error');
+                        return;
+                    }
+
+                    // Show the preview
+                    previewEl.textContent = data.methodCode;
+                    previewEl.style.display = 'block';
+
+                    // Change button to confirm
+                    btn.textContent = data.hasExistingMethod ? 'Overwrite & Publish' : 'Confirm & Publish';
+                    btn.disabled = false;
+
+                    // Replace click handler for confirmation
+                    btn.onclick = function() {
+                        btn.disabled = true;
+                        btn.textContent = 'Publishing...';
+
+                        fetch('/_schema-craft/api/actions/publish-filament-action', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({
+                                action: action.actionClass,
+                                force: data.hasExistingMethod,
+                            }),
+                        })
+                        .then(function(r) { return r.json(); })
+                        .then(function(result) {
+                            btn.disabled = false;
+                            if (result.success) {
+                                btn.textContent = 'Published!';
+                                btn.style.background = 'var(--success)';
+                                showToast(result.message, 'success');
+                            } else {
+                                btn.textContent = 'Publish Filament Action';
+                                showToast(result.message || 'Publish failed.', 'error');
+                            }
+                        })
+                        .catch(function(e) {
+                            btn.disabled = false;
+                            btn.textContent = 'Publish Filament Action';
+                            showToast('Error: ' + e.message, 'error');
+                        });
+                    };
+                })
+                .catch(function(e) {
+                    btn.disabled = false;
+                    btn.textContent = 'Publish Filament Action';
+                    showToast('Error: ' + e.message, 'error');
+                });
+            });
+
+            // Edit action button
+            overlay.querySelector('#act-modal-edit').addEventListener('click', function() {
+                close();
+                showEditActionModal(action);
+            });
+        }
+
+        function showEditActionModal(action) {
+            // Find the schema for this action
+            var schemaClass = action.schemaClass;
+            var schema = null;
+            if (actionsConfig && actionsConfig.schemas) {
+                schema = actionsConfig.schemas.find(function(s) { return s.class === schemaClass; });
+            }
+            if (!schema) {
+                showToast('Schema not found for this action.', 'error');
+                return;
+            }
+
+            // Derive selected columns from parameters
+            var selectedColumns = [];
+            var nullableOverrides = {};
+            action.parameters.forEach(function(p) {
+                if (p.isNestedRelationship && p.nestedRelationship) {
+                    var nr = p.nestedRelationship;
+                    var prefix = nr.name;
+                    var wildcard = nr.isCollection ? '.*.' : '.';
+                    nr.fields.forEach(function(f) {
+                        selectedColumns.push(prefix + wildcard + f.name);
+                    });
+                } else if (p.isModel && p.foreignKeyColumn) {
+                    selectedColumns.push(p.foreignKeyColumn);
+                } else {
+                    selectedColumns.push(p.columnName || p.name);
+                }
+            });
+
+            // Open field picker with pre-populated selections
+            var actionBaseName = action.name;
+            showFieldPickerModal(schema, actionBaseName, action.httpMethod, {
+                selectedColumns: selectedColumns,
+                nullableOverrides: nullableOverrides,
+                description: action.description || '',
+                isEdit: true,
+            });
+        }
+
+        function showFieldPickerModal(schema, actionName, httpMethod, editOptions) {
+            var overlay = document.createElement('div');
+            overlay.className = 'fp-overlay';
+
+            // Separate flat columns from nested relationships
+            var flatColumns = [];
+            var nestedRelationships = [];
+            if (schema.columns && schema.columns.length > 0) {
+                schema.columns.forEach(function(col) {
+                    if (col.isNestedRelationship) {
+                        nestedRelationships.push(col);
+                    } else {
+                        flatColumns.push(col);
+                    }
+                });
+            }
+
+            // Build flat field items
+            var fieldsHtml = '';
+            flatColumns.forEach(function(col, idx) {
+                var isNullable = col.nullable;
+                var badges = '';
+                if (col.isRelationship) badges += '<span class="act-field-badge fk">FK</span>';
+
+                fieldsHtml += '<div class="act-field-item" data-col="' + escapeAttr(col.name) + '" data-nullable="' + (isNullable ? '1' : '0') + '">' +
+                    '<input type="checkbox" id="act-fp-col-' + idx + '" value="' + escapeAttr(col.name) + '">' +
+                    '<span class="act-field-item-name">' + escapeHtml(col.name) + '</span>' +
+                    '<span class="act-field-item-type">' + escapeHtml(col.type) + '</span>' +
+                    '<span class="act-field-item-badges">' + badges + '</span>' +
+                    '<button class="act-nullable-toggle ' + (isNullable ? 'optional' : 'required') + '" data-col="' + escapeAttr(col.name) + '">' +
+                        (isNullable ? 'Optional' : 'Required') +
+                    '</button>' +
+                '</div>';
+            });
+
+            // Build nested relationship sections
+            var relHtml = '';
+            if (nestedRelationships.length > 0) {
+                relHtml = '<div style="margin-top:16px;">' +
+                    '<span style="font-size:13px;font-weight:600;color:var(--text-primary);display:block;margin-bottom:8px;">Relationships</span>';
+
+                nestedRelationships.forEach(function(rel) {
+                    var isCollection = rel.isCollection;
+                    var typeBadgeClass = isCollection ? 'act-rel-type-badge collection' : 'act-rel-type-badge';
+                    var modelBaseName = rel.relatedModel ? rel.relatedModel.split('\\').pop() : '';
+
+                    relHtml += '<div class="act-rel-group" data-rel="' + escapeAttr(rel.name) + '" data-model="' + escapeAttr(rel.relatedModel || '') + '" data-collection="' + (isCollection ? '1' : '0') + '" data-parentpath="">' +
+                        '<div class="act-rel-header" data-rel="' + escapeAttr(rel.name) + '">' +
+                            '<span class="act-rel-arrow">&#9654;</span>' +
+                            '<span class="act-rel-name">' + escapeHtml(rel.name) + '</span>' +
+                            '<span class="' + typeBadgeClass + '">' + escapeHtml(rel.type) + '</span>' +
+                            '<span class="act-rel-model">' + escapeHtml(modelBaseName) + '</span>' +
+                        '</div>' +
+                        '<div class="act-rel-body" style="display:none;" data-rel-body="' + escapeAttr(rel.name) + '">' +
+                            '<div class="act-rel-loading">Loading fields...</div>' +
+                        '</div>' +
+                    '</div>';
+                });
+
+                relHtml += '</div>';
+            }
+
+            overlay.innerHTML =
+                '<div class="fp-modal">' +
+                    '<div class="fp-header">' +
+                        '<span class="fp-header-title">Select Fields for ' + escapeHtml(actionName) + '</span>' +
+                        '<button class="fp-close" id="act-fp-close">&times;</button>' +
+                    '</div>' +
+                    '<div style="padding:20px;">' +
+                        '<div style="margin-bottom:16px;">' +
+                            '<label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Description (optional)</label>' +
+                            '<input type="text" id="act-fp-description" placeholder="Brief description of what this action does" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg-secondary);color:var(--text-primary);box-sizing:border-box;">' +
+                        '</div>' +
+                        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
+                            '<span style="font-size:13px;font-weight:600;color:var(--text-primary);">Schema Columns</span>' +
+                            '<div style="display:flex;gap:8px;">' +
+                                '<button class="sc-btn sm" id="act-fp-all">Select All</button>' +
+                                '<button class="sc-btn sm" id="act-fp-none">Clear</button>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div id="act-fp-fields" style="max-height:400px;overflow-y:auto;">' + fieldsHtml + relHtml + '</div>' +
+                    '</div>' +
+                    '<div class="fp-footer">' +
+                        '<button class="sc-btn" id="act-fp-cancel">Cancel</button>' +
+                        '<button class="sc-btn" id="act-fp-preview">Preview</button>' +
+                        '<button class="sc-btn primary" id="act-fp-create">' + (editOptions && editOptions.isEdit ? 'Update Action' : 'Create Action') + '</button>' +
+                    '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            // Bind flat field item click/toggle behavior
+            function bindFieldItemEvents(container) {
+                container.querySelectorAll('.act-field-item').forEach(function(item) {
+                    item.addEventListener('click', function(e) {
+                        if (e.target.tagName === 'INPUT' || e.target.classList.contains('act-nullable-toggle')) return;
+                        var cb = item.querySelector('input[type="checkbox"]');
+                        cb.checked = !cb.checked;
+                        item.classList.toggle('selected', cb.checked);
+                    });
+                    var cb = item.querySelector('input[type="checkbox"]');
+                    cb.addEventListener('change', function() {
+                        item.classList.toggle('selected', cb.checked);
+                    });
+                });
+
+                container.querySelectorAll('.act-nullable-toggle').forEach(function(btn) {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        var isOptional = btn.classList.contains('optional');
+                        if (isOptional) {
+                            btn.classList.remove('optional');
+                            btn.classList.add('required');
+                            btn.textContent = 'Required';
+                        } else {
+                            btn.classList.remove('required');
+                            btn.classList.add('optional');
+                            btn.textContent = 'Optional';
+                        }
+                    });
+                });
+            }
+
+            bindFieldItemEvents(overlay);
+
+            // Pre-populate selections when editing
+            if (editOptions) {
+                if (editOptions.description) {
+                    var descInput = overlay.querySelector('#act-fp-description');
+                    if (descInput) descInput.value = editOptions.description;
+                }
+                if (editOptions.selectedColumns) {
+                    editOptions.selectedColumns.forEach(function(col) {
+                        var cb = overlay.querySelector('.act-field-item input[type="checkbox"][value="' + CSS.escape(col) + '"]');
+                        if (cb) {
+                            cb.checked = true;
+                            cb.closest('.act-field-item').classList.add('selected');
+                        }
+                    });
+                }
+            }
+
+            // Expandable relationship headers — bind click handlers on any container
+            var relSchemaCache = {};
+
+            function bindRelHeaderEvents(container) {
+                container.querySelectorAll('.act-rel-header').forEach(function(header) {
+                    if (header.dataset.bound === '1') return;
+                    header.dataset.bound = '1';
+
+                    header.addEventListener('click', function() {
+                        var group = header.closest('.act-rel-group');
+                        var body = group.querySelector('[data-rel-body="' + header.dataset.rel + '"]');
+                        var isExpanded = header.classList.contains('expanded');
+
+                        if (isExpanded) {
+                            header.classList.remove('expanded');
+                            body.style.display = 'none';
+                            return;
+                        }
+
+                        header.classList.add('expanded');
+                        body.style.display = 'block';
+
+                        // If already loaded, just show
+                        if (body.dataset.loaded === '1') return;
+
+                        var modelFqcn = group.dataset.model;
+                        var parentPath = group.dataset.parentpath || '';
+                        var isCollection = group.dataset.collection === '1';
+                        var relName = header.dataset.rel;
+                        var wildcard = isCollection ? '.*.' : '.';
+                        var dotPrefix = parentPath ? (parentPath + relName) : relName;
+
+                        // Check cache
+                        if (relSchemaCache[modelFqcn]) {
+                            renderRelatedFields(body, relSchemaCache[modelFqcn], dotPrefix, wildcard);
+                            return;
+                        }
+
+                        // Fetch related schema columns
+                        fetch('/_schema-craft/api/actions/related-schema?model=' + encodeURIComponent(modelFqcn), {
+                            headers: { 'Accept': 'application/json' },
+                        })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (!data.success) {
+                                body.innerHTML = '<div class="act-rel-loading">No schema found for this model.</div>';
+                                body.dataset.loaded = '1';
+                                return;
+                            }
+                            relSchemaCache[modelFqcn] = data.columns;
+                            renderRelatedFields(body, data.columns, dotPrefix, wildcard);
+                        })
+                        .catch(function() {
+                            body.innerHTML = '<div class="act-rel-loading">Failed to load fields.</div>';
+                            body.dataset.loaded = '1';
+                        });
+                    });
+                });
+            }
+
+            bindRelHeaderEvents(overlay);
+
+            function renderRelatedFields(body, columns, dotPrefix, wildcard) {
+                if (!columns || columns.length === 0) {
+                    body.innerHTML = '<div class="act-rel-loading">No selectable columns found.</div>';
+                    body.dataset.loaded = '1';
+                    return;
+                }
+
+                var html = '';
+                var flatCols = columns.filter(function(c) { return !c.isNestedRelationship; });
+                var nestedCols = columns.filter(function(c) { return c.isNestedRelationship; });
+
+                // Render flat field checkboxes
+                flatCols.forEach(function(col) {
+                    var dotPath = dotPrefix + wildcard + col.name;
+                    var isNullable = col.nullable;
+
+                    html += '<div class="act-field-item act-nested-field" data-col="' + escapeAttr(dotPath) + '" data-nullable="' + (isNullable ? '1' : '0') + '">' +
+                        '<input type="checkbox" value="' + escapeAttr(dotPath) + '">' +
+                        '<span class="act-field-item-name">' + escapeHtml(col.name) + '</span>' +
+                        '<span class="act-field-item-type">' + escapeHtml(col.type) + '</span>' +
+                        '<span class="act-field-item-badges"></span>' +
+                        '<button class="act-nullable-toggle ' + (isNullable ? 'optional' : 'required') + '" data-col="' + escapeAttr(dotPath) + '">' +
+                            (isNullable ? 'Optional' : 'Required') +
+                        '</button>' +
+                    '</div>';
+                });
+
+                // Render nested relationship sub-groups (for deep nesting)
+                nestedCols.forEach(function(rel) {
+                    var isCollection = rel.isCollection;
+                    var typeBadgeClass = isCollection ? 'act-rel-type-badge collection' : 'act-rel-type-badge';
+                    var modelBaseName = rel.relatedModel ? rel.relatedModel.split('\\').pop() : '';
+                    var childWildcard = isCollection ? '.*.' : '.';
+                    // parentpath stores the accumulated dot prefix + wildcard so children can build on it
+                    var childParentPath = dotPrefix + wildcard;
+
+                    html += '<div class="act-rel-group" data-rel="' + escapeAttr(rel.name) + '" data-model="' + escapeAttr(rel.relatedModel || '') + '" data-collection="' + (isCollection ? '1' : '0') + '" data-parentpath="' + escapeAttr(childParentPath) + '">' +
+                        '<div class="act-rel-header" data-rel="' + escapeAttr(rel.name) + '">' +
+                            '<span class="act-rel-arrow">&#9654;</span>' +
+                            '<span class="act-rel-name">' + escapeHtml(rel.name) + '</span>' +
+                            '<span class="' + typeBadgeClass + '">' + escapeHtml(rel.type) + '</span>' +
+                            '<span class="act-rel-model">' + escapeHtml(modelBaseName) + '</span>' +
+                        '</div>' +
+                        '<div class="act-rel-body" style="display:none;" data-rel-body="' + escapeAttr(rel.name) + '">' +
+                            '<div class="act-rel-loading">Loading fields...</div>' +
+                        '</div>' +
+                    '</div>';
+                });
+
+                body.innerHTML = html;
+                body.dataset.loaded = '1';
+                bindFieldItemEvents(body);
+                bindRelHeaderEvents(body);
+            }
+
+            overlay.querySelector('#act-fp-all').addEventListener('click', function() {
+                overlay.querySelectorAll('.act-field-item:not(.act-nested-field) input[type="checkbox"]').forEach(function(cb) {
+                    cb.checked = true;
+                    cb.closest('.act-field-item').classList.add('selected');
+                });
+            });
+            overlay.querySelector('#act-fp-none').addEventListener('click', function() {
+                overlay.querySelectorAll('.act-field-item input[type="checkbox"]').forEach(function(cb) {
+                    cb.checked = false;
+                    cb.closest('.act-field-item').classList.remove('selected');
+                });
+            });
+
+            function close() { overlay.remove(); }
+            overlay.querySelector('#act-fp-close').addEventListener('click', close);
+            overlay.querySelector('#act-fp-cancel').addEventListener('click', close);
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+
+            function getPayload() {
+                var selectedColumns = [];
+                var nullableOverrides = {};
+
+                overlay.querySelectorAll('#act-fp-fields .act-field-item').forEach(function(item) {
+                    var cb = item.querySelector('input[type="checkbox"]');
+                    if (!cb.checked) return;
+
+                    var colName = cb.value;
+                    selectedColumns.push(colName);
+
+                    // Check if the user changed nullable from the schema default
+                    var originalNullable = item.dataset.nullable === '1';
+                    var toggle = item.querySelector('.act-nullable-toggle');
+                    var currentNullable = toggle.classList.contains('optional');
+
+                    if (currentNullable !== originalNullable) {
+                        nullableOverrides[colName] = currentNullable;
+                    }
+                });
+
+                if (selectedColumns.length === 0) { showToast('Select at least one field.', 'warning'); return null; }
+
+                var descInput = overlay.querySelector('#act-fp-description');
+                var description = descInput ? descInput.value.trim() : '';
+
+                var payload = {
+                    schema: schema.class,
+                    actionName: actionName,
+                    selectedColumns: selectedColumns,
+                    httpMethod: httpMethod,
+                };
+
+                if (description) {
+                    payload.description = description;
+                }
+
+                if (Object.keys(nullableOverrides).length > 0) {
+                    payload.nullableOverrides = nullableOverrides;
+                }
+
+                return payload;
+            }
+
+            var isEdit = editOptions && editOptions.isEdit;
+
+            overlay.querySelector('#act-fp-preview').addEventListener('click', function() {
+                var payload = getPayload();
+                if (!payload) return;
+                var url = isEdit ? '/_schema-craft/api/actions/update/preview' : '/_schema-craft/api/actions/create/preview';
+
+                fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
+                    close();
+                    showFilePreviewModal(data.files, isEdit ? 'Update Action' : 'Create Action', function() {
+                        actDoWriteAction(payload, schema, isEdit);
+                    });
+                })
+                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            });
+
+            overlay.querySelector('#act-fp-create').addEventListener('click', function() {
+                var payload = getPayload();
+                if (!payload) return;
+                close();
+                actDoWriteAction(payload, schema, isEdit);
+            });
+        }
+
+        function actDoWriteAction(payload, schema, isEdit) {
+            var url = isEdit ? '/_schema-craft/api/actions/update' : '/_schema-craft/api/actions/create';
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    // Refresh and re-render
+                    actionsInitialized = false;
+                    loadActionsConfig(function() {
+                        renderActionsMain();
+                        actSelectSchema(schema.class);
+                    });
+                    // Also clear the inline form
+                    var nameInput = document.getElementById('act-inline-name');
+                    if (nameInput) nameInput.value = '';
+                } else {
+                    showToast(data.message || 'Action creation failed.', 'error');
+                }
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        function actRefreshSidebarBadges() {
+            if (!actionsConfig || !actionsConfig.schemas) return;
+            document.querySelectorAll('#act-schema-list .gen-stack-item[data-schema]').forEach(function(item) {
+                var schema = actionsConfig.schemas.find(function(s) { return s.class === item.dataset.schema; });
+                if (schema) {
+                    var badge = item.querySelector('.gen-stack-item-badge');
+                    if (badge) badge.textContent = schema.actions ? schema.actions.length : 0;
+                }
+            });
+        }
 
         // ── Helpers ────────────────────────────────────────
         function shortName(fqcn) { return fqcn.split('\\').pop(); }

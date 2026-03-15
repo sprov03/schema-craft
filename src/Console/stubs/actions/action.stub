@@ -1,0 +1,30 @@
+<?php
+
+/**
+ * Template variables:
+ *   {{ actionNamespace }}  - Action class namespace
+ *   {{ imports }}          - Use-import statements (Schema, BelongsTo, related models)
+ *   {{ httpMethod }}       - HTTP method (get, post, put, delete)
+ *   {{ label }}            - Human-readable label
+ *   {{ actionClass }}      - Action class name (e.g., "UpdateHomeAddressAction")
+ *   {{ schemaClass }}      - Schema class name (e.g., "RecordSchema")
+ *   {{ properties }}       - Typed property declarations with attributes
+ *   {{ description }}      - Optional description suffix (e.g., ", description: 'Update the post'")
+ *   {{ run }}              - The run() method implementation
+ */
+
+namespace {{ actionNamespace }};
+
+use SchemaCraft\Action;
+use SchemaCraft\Attributes\Actions\ActionMeta;
+{{ imports }}
+
+#[ActionMeta(method: '{{ httpMethod }}', label: '{{ label }}'{{ description }})]
+class {{ actionClass }} extends Action
+{
+    protected static string $schema = {{ schemaClass }}::class;
+
+{{ properties }}
+
+{{ run }}
+}

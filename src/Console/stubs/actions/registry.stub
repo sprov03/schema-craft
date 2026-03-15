@@ -1,0 +1,22 @@
+<?php
+
+/**
+ * Template variables:
+ *   {{ registryNamespace }}  - Registry class namespace
+ *   {{ imports }}            - Use-import statements (ActionRegistry, Schema, Action classes)
+ *   {{ registryClass }}      - Registry class name (e.g., "RecordActions")
+ *   {{ schemaClass }}        - Schema class name (e.g., "RecordSchema")
+ *   {{ properties }}         - Typed Action property declarations
+ */
+
+namespace {{ registryNamespace }};
+
+use SchemaCraft\ActionRegistry;
+{{ imports }}
+
+class {{ registryClass }} extends ActionRegistry
+{
+    protected static string $schema = {{ schemaClass }}::class;
+
+{{ properties }}
+}
