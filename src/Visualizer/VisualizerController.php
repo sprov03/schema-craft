@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use ReflectionClass;
+use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Migration\SchemaDiscovery;
 use SchemaCraft\QueryBuilder\IndexAnalyzer;
 use SchemaCraft\QueryBuilder\QueryCodeGenerator;
@@ -29,7 +30,7 @@ class VisualizerController
     public function api(): JsonResponse
     {
         $discovery = new SchemaDiscovery;
-        $schemaClasses = $discovery->discover([app_path('Schemas')]);
+        $schemaClasses = $discovery->discover(ConfigResolver::schemaDirectories());
 
         $analyzer = new SchemaAnalyzer($schemaClasses);
         $result = $analyzer->analyze();

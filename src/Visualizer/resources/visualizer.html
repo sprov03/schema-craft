@@ -1866,6 +1866,148 @@
         let explorerState = { loaded: new Map(), selected: null };
         let dragState = null;
 
+        // ── Shared Filter State (persisted in localStorage) ──────
+        var sharedFilterState = {
+            dbConnection: null,
+            activeFilter: 'all',
+            connections: [],      // populated from API
+            tables: null,         // populated from API (same data as schemasState.tables)
+        };
+
+        function loadSharedFilterState() {
+            try {
+                var saved = localStorage.getItem('sc-shared-filters');
+                if (saved) {
+                    var parsed = JSON.parse(saved);
+                    if (parsed.dbConnection) sharedFilterState.dbConnection = parsed.dbConnection;
+                    if (parsed.activeFilter) sharedFilterState.activeFilter = parsed.activeFilter;
+                }
+            } catch (e) {}
+        }
+
+        function saveSharedFilterState() {
+            try {
+                localStorage.setItem('sc-shared-filters', JSON.stringify({
+                    dbConnection: sharedFilterState.dbConnection,
+                    activeFilter: sharedFilterState.activeFilter,
+                }));
+            } catch (e) {}
+        }
+
+        function loadSharedConnections(callback) {
+            if (sharedFilterState.connections.length > 0) {
+                if (callback) callback();
+                return;
+            }
+            fetch('/_schema-craft/api/connections')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    sharedFilterState.connections = data.connections;
+                    if (!sharedFilterState.dbConnection) {
+                        sharedFilterState.dbConnection = data.default;
+                        saveSharedFilterState();
+                    }
+                    if (callback) callback();
+                })
+                .catch(function() { if (callback) callback(); });
+        }
+
+        function loadSharedTables(callback) {
+            var url = '/_schema-craft/api/database/tables';
+            if (sharedFilterState.dbConnection) url += '?db_connection=' + encodeURIComponent(sharedFilterState.dbConnection);
+            fetch(url)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    sharedFilterState.tables = data.tables.map(function(t) {
+                        // Preserve selection state if schemasState has it
+                        var existing = schemasState.tables ? schemasState.tables.find(function(st) {
+                            return st.name === t.name && st.dbConnection === t.dbConnection;
+                        }) : null;
+                        t.selected = existing ? existing.selected : false;
+                        return t;
+                    });
+                    // Sync to schemasState
+                    schemasState.tables = sharedFilterState.tables;
+                    if (callback) callback();
+                })
+                .catch(function() { if (callback) callback(); });
+        }
+
+        function renderSharedConnectionDropdown(selectId) {
+            var select = document.getElementById(selectId);
+            if (!select) return;
+            select.innerHTML = '';
+            var allOpt = document.createElement('option');
+            allOpt.value = 'all';
+            allOpt.textContent = 'All Connections';
+            select.appendChild(allOpt);
+            sharedFilterState.connections.forEach(function(conn) {
+                var opt = document.createElement('option');
+                opt.value = conn.name;
+                var label = conn.name;
+                if (conn.schemaPrefix) label += ' (prefix: ' + conn.schemaPrefix + ')';
+                if (conn.schemaNamespace !== 'App\\Schemas') label += ' [' + conn.schemaNamespace + ']';
+                opt.textContent = label;
+                select.appendChild(opt);
+            });
+            select.value = sharedFilterState.dbConnection || 'all';
+        }
+
+        function renderSharedFilterTabs(containerId) {
+            var container = document.getElementById(containerId);
+            if (!container) return;
+            container.querySelectorAll('.sc-filter-tab').forEach(function(btn) {
+                btn.classList.toggle('active', btn.dataset.filter === sharedFilterState.activeFilter);
+            });
+            updateSharedFilterCounts(containerId);
+        }
+
+        function updateSharedFilterCounts(containerId) {
+            if (!sharedFilterState.tables) return;
+            var filters = ['all', 'not-imported', 'needs-factory-test', 'needs-service', 'complete'];
+            filters.forEach(function(f) {
+                var count = f === 'all' ? sharedFilterState.tables.length : sharedFilterState.tables.filter(function(t) { return matchesImportFilter(t, f); }).length;
+                var btn = document.querySelector('#' + containerId + ' .sc-filter-tab[data-filter="' + f + '"]');
+                if (btn) {
+                    var label = btn.textContent.replace(/\s*\(\d+\)$/, '');
+                    btn.textContent = label + ' (' + count + ')';
+                }
+            });
+        }
+
+        /** Sync all connection dropdowns and filter tabs across tabs */
+        function syncSharedFiltersToUI() {
+            // Sync connection dropdowns
+            ['sc-db-connection', 'health-db-connection'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.value = sharedFilterState.dbConnection || 'all';
+            });
+            // Sync filter tabs
+            ['sc-import-filters', 'health-import-filters'].forEach(function(id) {
+                renderSharedFilterTabs(id);
+            });
+        }
+
+        function onSharedConnectionChange(value) {
+            sharedFilterState.dbConnection = value;
+            schemasDbConnection = value;
+            saveSharedFilterState();
+            loadSharedTables(function() {
+                syncSharedFiltersToUI();
+                if (document.getElementById('sc-table-list')) renderTableList();
+                renderHealthContent();
+            });
+        }
+
+        function onSharedFilterChange(filter) {
+            sharedFilterState.activeFilter = filter;
+            schemasState.activeFilter = filter;
+            saveSharedFilterState();
+            syncSharedFiltersToUI();
+            if (document.getElementById('sc-table-list')) renderTableList();
+            renderHealthContent();
+        }
+
         // ── Query Builder State ───────────────────────────
         let queryBuilderState = {
             savedQueries: [],
@@ -1896,6 +2038,7 @@
 
         async function init() {
             try {
+                loadSharedFilterState();
                 const resp = await fetch('/_schema-craft/api/schema');
                 schemaData = await resp.json();
                 document.getElementById('loading').hidden = true;
@@ -2001,7 +2144,21 @@
             }
 
             if (tab === 'query-builder') initQueryBuilder();
-            if (tab === 'schemas') initSchemasTab();
+            if (tab === 'schemas') {
+                initSchemasTab();
+                // Re-sync shared filters in case they changed on another tab
+                if (schemasInitialized) {
+                    syncSharedFiltersToUI();
+                    if (sharedFilterState.tables) {
+                        schemasState.tables = sharedFilterState.tables;
+                        renderTableList();
+                    }
+                }
+            }
+            if (tab === 'health' && healthInitialized) {
+                syncSharedFiltersToUI();
+                renderHealthContent();
+            }
             if (tab === 'status') initStatusTab();
             if (tab === 'generate') initGenerateTab();
             if (tab === 'actions') initActionsTab();
@@ -2015,21 +2172,110 @@
         }
 
         // ── Health Tab ─────────────────────────────────────
+        var healthInitialized = false;
+
         function renderHealthTab() {
             var container = document.getElementById('health-tab');
-            var s = schemaData.summary;
 
-            var issues = deduplicateIssues(schemaData.issues);
+            // Build the filter bar + content area (rendered once)
+            var html = '<div class="sc-panel" style="margin-bottom: 16px;">' +
+                '<div class="sc-panel-body" style="padding: 12px 16px;">' +
+                    '<div class="sc-form-group" style="margin-bottom: 8px;">' +
+                        '<label class="sc-form-label">Database Connection</label>' +
+                        '<select class="sc-input" id="health-db-connection" style="width: 100%;"><option>Loading...</option></select>' +
+                    '</div>' +
+                    '<div class="sc-import-filters" id="health-import-filters">' +
+                        '<button class="sc-filter-tab active" data-filter="all">All</button>' +
+                        '<button class="sc-filter-tab" data-filter="not-imported">Not Imported</button>' +
+                        '<button class="sc-filter-tab" data-filter="needs-factory-test">Needs Factory+Test</button>' +
+                        '<button class="sc-filter-tab" data-filter="needs-service">Needs Service</button>' +
+                        '<button class="sc-filter-tab" data-filter="complete">Complete</button>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div id="health-content"></div>';
+
+            container.innerHTML = html;
+
+            // Bind filter events
+            document.getElementById('health-db-connection').addEventListener('change', function() {
+                onSharedConnectionChange(this.value);
+            });
+            document.getElementById('health-import-filters').addEventListener('click', function(e) {
+                var btn = e.target.closest('.sc-filter-tab');
+                if (!btn) return;
+                onSharedFilterChange(btn.dataset.filter);
+            });
+
+            // Load connections then tables, then render content
+            loadSharedConnections(function() {
+                renderSharedConnectionDropdown('health-db-connection');
+                loadSharedTables(function() {
+                    syncSharedFiltersToUI();
+                    renderHealthContent();
+                    healthInitialized = true;
+                });
+            });
+        }
+
+        function getHealthFilteredSchemas() {
+            if (!sharedFilterState.tables || !schemaData) return null;
+
+            var tables = sharedFilterState.tables;
+            var filter = sharedFilterState.activeFilter;
+            var connFilter = sharedFilterState.dbConnection;
+
+            // Get schemas that match the current import filter
+            var matchingSchemaClasses = new Set();
+            tables.forEach(function(t) {
+                if (!matchesImportFilter(t, filter)) return;
+                if (t.schemaClass) matchingSchemaClasses.add(t.schemaClass);
+            });
+
+            return matchingSchemaClasses;
+        }
+
+        function renderHealthContent() {
+            var contentEl = document.getElementById('health-content');
+            if (!contentEl || !schemaData) return;
+
+            var filteredSchemas = getHealthFilteredSchemas();
+
+            // Filter issues to only show those affecting schemas in the current filter
+            var allIssues = deduplicateIssues(schemaData.issues);
+            var issues;
+            if (filteredSchemas !== null) {
+                issues = allIssues.filter(function(i) {
+                    return i.affectedSchemas.some(function(s) { return filteredSchemas.has(s); });
+                });
+            } else {
+                issues = allIssues;
+            }
+
             var groups = { error: [], warning: [], info: [] };
             issues.forEach(function(i) { if (groups[i.severity]) groups[i.severity].push(i); });
 
+            // Filter healthy schemas too
             var allIssueSchemas = new Set();
             issues.forEach(function(i) { i.affectedSchemas.forEach(function(s) { allIssueSchemas.add(s); }); });
-            var healthySchemas = Object.keys(schemaData.schemas).filter(function(s) { return !allIssueSchemas.has(s); });
+
+            var visibleSchemas = filteredSchemas !== null
+                ? Object.keys(schemaData.schemas).filter(function(s) { return filteredSchemas.has(s); })
+                : Object.keys(schemaData.schemas);
+
+            var healthySchemas = visibleSchemas.filter(function(s) { return !allIssueSchemas.has(s); });
+
+            // Summary counts scoped to filter
+            var modelCount = visibleSchemas.length;
+            var relationshipCount = 0;
+            visibleSchemas.forEach(function(key) {
+                var info = schemaData.schemas[key];
+                if (info) relationshipCount += info.relationships.length;
+            });
 
             var html = '<div class="summary-bar">' +
-                '<div class="stat-card"><div class="stat-value">' + s.modelCount + '</div><div class="stat-label">Models</div></div>' +
-                '<div class="stat-card"><div class="stat-value">' + s.relationshipCount + '</div><div class="stat-label">Relationships</div></div>' +
+                '<div class="stat-card"><div class="stat-value">' + modelCount + '</div><div class="stat-label">Models</div></div>' +
+                '<div class="stat-card"><div class="stat-value">' + relationshipCount + '</div><div class="stat-label">Relationships</div></div>' +
                 '<div class="stat-card issues ' + (issues.length === 0 ? 'zero' : '') + '"><div class="stat-value">' + issues.length + '</div><div class="stat-label">Issues</div></div>' +
                 '</div>';
 
@@ -2045,7 +2291,7 @@
                     '<div class="healthy-list">' + healthySchemas.map(function(s) { return '<span class="healthy-chip">' + shortName(s) + '</span>'; }).join('') + '</div></details>';
             }
 
-            container.innerHTML = html;
+            contentEl.innerHTML = html;
             bindHealthEvents();
         }
 
@@ -4957,6 +5203,9 @@
         function initSchemasTab() {
             if (schemasInitialized) return;
             schemasInitialized = true;
+            // Sync from shared state
+            schemasDbConnection = sharedFilterState.dbConnection;
+            schemasState.activeFilter = sharedFilterState.activeFilter;
             renderSchemasTab();
             checkInstallStatus();
             loadConnections();
@@ -5054,14 +5303,10 @@
             document.getElementById('sc-import-filters').addEventListener('click', function(e) {
                 var btn = e.target.closest('.sc-filter-tab');
                 if (!btn) return;
-                schemasState.activeFilter = btn.dataset.filter;
-                document.querySelectorAll('#sc-import-filters .sc-filter-tab').forEach(function(b) { b.classList.remove('active'); });
-                btn.classList.add('active');
-                renderTableList();
+                onSharedFilterChange(btn.dataset.filter);
             });
             document.getElementById('sc-db-connection').addEventListener('change', function() {
-                schemasDbConnection = this.value;
-                loadDatabaseTables();
+                onSharedConnectionChange(this.value);
             });
         }
 
@@ -5141,52 +5386,25 @@
 
         // ── DB Connections ────────────────────────────────
         function loadConnections() {
-            fetch('/_schema-craft/api/connections')
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    var select = document.getElementById('sc-db-connection');
-                    if (!select) return;
-                    select.innerHTML = '';
-                    var allOpt = document.createElement('option');
-                    allOpt.value = 'all';
-                    allOpt.textContent = 'All Connections';
-                    select.appendChild(allOpt);
-                    data.connections.forEach(function(conn) {
-                        var opt = document.createElement('option');
-                        opt.value = conn.name;
-                        var label = conn.name;
-                        if (conn.schemaPrefix) label += ' (prefix: ' + conn.schemaPrefix + ')';
-                        if (conn.schemaNamespace !== 'App\\Schemas') label += ' [' + conn.schemaNamespace + ']';
-                        opt.textContent = label;
-                        select.appendChild(opt);
-                    });
-                    schemasDbConnection = data.default;
-                    select.value = data.default;
+            loadSharedConnections(function() {
+                schemasDbConnection = sharedFilterState.dbConnection;
+                renderSharedConnectionDropdown('sc-db-connection');
+                // If tables already loaded by health tab, just render
+                if (sharedFilterState.tables) {
+                    schemasState.tables = sharedFilterState.tables;
+                    renderTableList();
+                } else {
                     loadDatabaseTables();
-                })
-                .catch(function(e) {
-                    schemasDbConnection = null;
-                    loadDatabaseTables();
-                });
+                }
+            });
         }
 
         // ── Import from Database ────────────────────────
         function loadDatabaseTables() {
-            var url = '/_schema-craft/api/database/tables';
-            if (schemasDbConnection) url += '?db_connection=' + encodeURIComponent(schemasDbConnection);
-            fetch(url)
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    schemasState.tables = data.tables.map(function(t) {
-                        t.selected = false;
-                        return t;
-                    });
-                    renderTableList();
-                })
-                .catch(function(e) {
-                    var list = document.getElementById('sc-table-list');
-                    if (list) list.innerHTML = '<div style="color: var(--error); font-size: 13px; padding: 20px 0; text-align: center;">Failed to load tables: ' + escapeHtml(e.message) + '</div>';
-                });
+            loadSharedTables(function() {
+                renderTableList();
+                syncSharedFiltersToUI();
+            });
         }
 
         function matchesImportFilter(t, filter) {
@@ -5200,27 +5418,23 @@
         }
 
         function updateFilterCounts() {
-            if (!schemasState.tables) return;
-            var filters = ['all', 'not-imported', 'needs-factory-test', 'needs-service', 'complete'];
-            filters.forEach(function(f) {
-                var count = f === 'all' ? schemasState.tables.length : schemasState.tables.filter(function(t) { return matchesImportFilter(t, f); }).length;
-                var btn = document.querySelector('#sc-import-filters .sc-filter-tab[data-filter="' + f + '"]');
-                if (btn) {
-                    var label = btn.textContent.replace(/\s*\(\d+\)$/, '');
-                    btn.textContent = label + ' (' + count + ')';
-                }
-            });
+            updateSharedFilterCounts('sc-import-filters');
+            updateSharedFilterCounts('health-import-filters');
         }
 
         function renderTableList() {
             var list = document.getElementById('sc-table-list');
-            if (!list || !schemasState.tables) return;
+            if (!list || !sharedFilterState.tables) return;
+
+            // Keep schemasState in sync
+            schemasState.tables = sharedFilterState.tables;
+            schemasState.activeFilter = sharedFilterState.activeFilter;
 
             updateFilterCounts();
-            var isAllMode = schemasDbConnection === 'all';
+            var isAllMode = sharedFilterState.dbConnection === 'all';
 
-            var filtered = schemasState.tables.filter(function(t) {
-                if (!matchesImportFilter(t, schemasState.activeFilter)) return false;
+            var filtered = sharedFilterState.tables.filter(function(t) {
+                if (!matchesImportFilter(t, sharedFilterState.activeFilter)) return false;
                 if (!schemasState.tableSearchQuery) return true;
                 var q = schemasState.tableSearchQuery;
                 return t.name.toLowerCase().indexOf(q) !== -1 ||
@@ -5280,10 +5494,10 @@
         }
 
         function toggleAllTables(select) {
-            if (!schemasState.tables) return;
+            if (!sharedFilterState.tables) return;
             var query = schemasState.tableSearchQuery;
-            schemasState.tables.forEach(function(t) {
-                if (!matchesImportFilter(t, schemasState.activeFilter)) return;
+            sharedFilterState.tables.forEach(function(t) {
+                if (!matchesImportFilter(t, sharedFilterState.activeFilter)) return;
                 var matches = !query ||
                     t.name.toLowerCase().indexOf(query) !== -1 ||
                     t.modelName.toLowerCase().indexOf(query) !== -1 ||
@@ -5439,7 +5653,11 @@
         function refreshSchemaData() {
             fetch('/_schema-craft/api/schema')
                 .then(function(r) { return r.json(); })
-                .then(function(data) { schemaData = data; })
+                .then(function(data) {
+                    schemaData = data;
+                    renderHealthContent();
+                    renderModelList();
+                })
                 .catch(function() {});
         }
 

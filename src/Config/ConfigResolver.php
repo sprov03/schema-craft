@@ -155,16 +155,43 @@ class ConfigResolver
     /**
      * Get the configured schema directories.
      *
+     * Includes explicit schema_paths from config, plus schema directories
+     * derived from each db_connections entry's schema namespace.
+     *
      * @return string[]
      */
     public static function schemaDirectories(): array
     {
-        $paths = config('schema-craft.schema_paths');
+        $paths = config('schema-craft.schema_paths') ?? [app_path('Schemas')];
 
-        if ($paths === null) {
-            return [app_path('Schemas')];
+        // Also include schema directories from db_connections
+        $connections = config('schema-craft.db_connections');
+
+        if ($connections !== null) {
+            foreach ($connections as $name => $config) {
+                $connConfig = ConnectionConfig::fromArray($name, $config);
+                $dir = self::namespaceToPath($connConfig->schemaNamespace);
+
+                if (! in_array($dir, $paths, true)) {
+                    $paths[] = $dir;
+                }
+            }
         }
 
         return $paths;
+    }
+
+    /**
+     * Convert a namespace to an absolute filesystem path.
+     */
+    private static function namespaceToPath(string $namespace): string
+    {
+        $path = str_replace('\\', '/', $namespace);
+
+        if (str_starts_with($path, 'App/')) {
+            return app_path(substr($path, 4));
+        }
+
+        return base_path($path);
     }
 }
