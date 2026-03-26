@@ -3,6 +3,7 @@
 namespace SchemaCraft\Tests\Fixtures\Schemas;
 
 use SchemaCraft\Attributes\AutoIncrement;
+use SchemaCraft\Attributes\DefaultValue;
 use SchemaCraft\Attributes\Primary;
 use SchemaCraft\Schema;
 use SchemaCraft\Tests\Fixtures\Types\TestAddressDto;
@@ -18,6 +19,9 @@ class CustomTypeSchema extends Schema
     public string $name;
 
     public TestBitmask $permissions;
+
+    #[DefaultValue(0)]
+    public TestBitmask $features;
 
     public ?TestBitmask $flags;
 

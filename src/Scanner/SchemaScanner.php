@@ -20,6 +20,7 @@ use SchemaCraft\Attributes\ColumnType;
 use SchemaCraft\Attributes\Date;
 use SchemaCraft\Attributes\Decimal;
 use SchemaCraft\Attributes\DefaultExpression;
+use SchemaCraft\Attributes\DefaultValue;
 use SchemaCraft\Attributes\Fillable;
 use SchemaCraft\Attributes\FloatColumn;
 use SchemaCraft\Attributes\ForeignColumn;
@@ -321,6 +322,10 @@ class SchemaScanner
                 $attrInstance instanceof Index => $index = true,
                 $attrInstance instanceof Cast => $castType = $attrInstance->castClass,
                 $attrInstance instanceof DefaultExpression => $expressionDefault = $attrInstance->expression,
+                $attrInstance instanceof DefaultValue => (function () use ($attrInstance, &$hasDefault, &$default) {
+                    $hasDefault = true;
+                    $default = $attrInstance->value;
+                })(),
                 $attrInstance instanceof Primary => $primary = true,
                 $attrInstance instanceof AutoIncrement => $autoIncrement = true,
                 $attrInstance instanceof ColumnType => $columnType = $attrInstance->type,

@@ -490,6 +490,31 @@ class SchemaScannerTest extends TestCase
         $this->assertFalse($col->unsigned);
     }
 
+    public function test_default_value_attribute_sets_default_on_class_typed_property(): void
+    {
+        $scanner = new SchemaScanner(CustomTypeSchema::class);
+        $table = $scanner->scan();
+
+        $col = $this->findColumn($table, 'features');
+
+        $this->assertNotNull($col);
+        $this->assertTrue($col->hasDefault);
+        $this->assertSame(0, $col->default);
+        $this->assertSame('mediumInteger', $col->columnType);
+        $this->assertTrue($col->unsigned);
+    }
+
+    public function test_default_value_attribute_not_present_has_no_default(): void
+    {
+        $scanner = new SchemaScanner(CustomTypeSchema::class);
+        $table = $scanner->scan();
+
+        $col = $this->findColumn($table, 'permissions');
+
+        $this->assertFalse($col->hasDefault);
+        $this->assertNull($col->default);
+    }
+
     public function test_schema_craft_type_takes_priority_over_casts_attributes(): void
     {
         // TestBitmask implements both CastsAttributes AND SchemaCraftType.
