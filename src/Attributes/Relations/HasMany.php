@@ -10,12 +10,9 @@ use Attribute;
 #[Attribute(Attribute::TARGET_PROPERTY)]
 class HasMany
 {
-    /**
-     * @param  string[]  $fields  Fields to include from the related model (for nested Action data).
-     */
     public function __construct(
         public string $model,
-        public array $fields = [],
-        public bool $sync = false,
+        public ?string $foreignKey = null,
+        public ?string $localKey = null,
     ) {}
 }

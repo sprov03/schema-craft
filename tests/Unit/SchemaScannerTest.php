@@ -7,11 +7,14 @@ use SchemaCraft\Scanner\SchemaScanner;
 use SchemaCraft\Tests\Fixtures\Casts\AddressData;
 use SchemaCraft\Tests\Fixtures\Enums\PostStatus;
 use SchemaCraft\Tests\Fixtures\Schemas\CommentSchema;
+use SchemaCraft\Tests\Fixtures\Schemas\CustomTypeSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\IndexedCommentSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\NonStandardFkSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\RenamedColumnSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\UserSchema;
+use SchemaCraft\Tests\Fixtures\Types\TestBitmask;
+use SchemaCraft\Tests\Fixtures\Types\TestJsonDto;
 
 class SchemaScannerTest extends TestCase
 {
@@ -437,6 +440,67 @@ class SchemaScannerTest extends TestCase
         }
 
         return null;
+    }
+
+    // --- SchemaCraftType Interface Tests ---
+
+    public function test_schema_craft_type_resolves_column_type(): void
+    {
+        $scanner = new SchemaScanner(CustomTypeSchema::class);
+        $table = $scanner->scan();
+
+        $col = $this->findColumn($table, 'permissions');
+
+        $this->assertNotNull($col);
+        $this->assertSame('mediumInteger', $col->columnType);
+        $this->assertSame(TestBitmask::class, $col->castType);
+    }
+
+    public function test_schema_craft_type_applies_unsigned_modifier(): void
+    {
+        $scanner = new SchemaScanner(CustomTypeSchema::class);
+        $table = $scanner->scan();
+
+        $col = $this->findColumn($table, 'permissions');
+
+        $this->assertTrue($col->unsigned);
+    }
+
+    public function test_schema_craft_type_nullable_property(): void
+    {
+        $scanner = new SchemaScanner(CustomTypeSchema::class);
+        $table = $scanner->scan();
+
+        $permCol = $this->findColumn($table, 'permissions');
+        $flagsCol = $this->findColumn($table, 'flags');
+
+        $this->assertFalse($permCol->nullable);
+        $this->assertTrue($flagsCol->nullable);
+    }
+
+    public function test_schema_craft_type_json_dto(): void
+    {
+        $scanner = new SchemaScanner(CustomTypeSchema::class);
+        $table = $scanner->scan();
+
+        $col = $this->findColumn($table, 'metadata');
+
+        $this->assertSame('json', $col->columnType);
+        $this->assertSame(TestJsonDto::class, $col->castType);
+        $this->assertFalse($col->unsigned);
+    }
+
+    public function test_schema_craft_type_takes_priority_over_casts_attributes(): void
+    {
+        // TestBitmask implements both CastsAttributes AND SchemaCraftType.
+        // SchemaCraftType should win — column should be mediumInteger, NOT json.
+        $scanner = new SchemaScanner(CustomTypeSchema::class);
+        $table = $scanner->scan();
+
+        $col = $this->findColumn($table, 'permissions');
+
+        $this->assertSame('mediumInteger', $col->columnType);
+        $this->assertNotSame('json', $col->columnType);
     }
 
     private function findRelationship($table, string $name)

@@ -46,8 +46,8 @@ class ActionFileGenerator
         $modelName = $this->resolveModelName($schemaClass);
         $actionClassName = ucfirst($actionName).$modelName.'Action';
         $schemaClassName = class_basename($schemaClass);
-        $label = Str::headline($actionName).' '.$modelName;
-        $serviceMethod = lcfirst(ucfirst($actionName).$modelName);
+        $label = Str::headline($actionName);
+        $serviceMethod = $actionName;
 
         // Format description for ActionMeta attribute
         $descriptionSuffix = '';
@@ -64,7 +64,14 @@ class ActionFileGenerator
         $modelFqcn = $modelNamespace.'\\'.$modelName;
         $runMethod = $this->buildRunMethod($httpMethod, $serviceMethod, $serviceClassName, $modelName);
 
-        $imports = $this->buildActionImports($table, $flatColumns, $nestedGroups, $schemaNamespace, $schemaClassName);
+        // Build DataSchema classes for nested relationships
+        $actionSchemaClasses = $this->buildDataSchemaClasses(
+            $table, $nestedGroups, $actionClassName, $schemaNamespace, $nullableOverrides,
+        );
+
+        $imports = $this->buildActionImports(
+            $table, $flatColumns, $nestedGroups, $schemaNamespace, $schemaClassName, ! empty($actionSchemaClasses),
+        );
 
         // Add model import for run() return type and PHPDoc
         $imports .= "\nuse {$modelFqcn};";
@@ -74,10 +81,16 @@ class ActionFileGenerator
             $imports .= "\nuse {$serviceFqcn};";
         }
 
-        $properties = $this->buildActionProperties($table, $flatColumns, $nestedGroups, $nullableOverrides);
+        $properties = $this->buildActionProperties($table, $flatColumns, $nestedGroups, $nullableOverrides, $actionClassName);
 
         $stub = file_get_contents($this->stubsPath.'/actions/action.stub');
         $content = $this->stripTemplateDocBlock($stub);
+
+        // Build the DataSchema class code to append after the Action class
+        $actionSchemasCode = '';
+        if (! empty($actionSchemaClasses)) {
+            $actionSchemasCode = "\n".implode("\n\n", $actionSchemaClasses);
+        }
 
         $content = str_replace(
             [
@@ -90,6 +103,7 @@ class ActionFileGenerator
                 '{{ schemaClass }}',
                 '{{ properties }}',
                 '{{ run }}',
+                '{{ dataSchemas }}',
             ],
             [
                 $actionNamespace,
@@ -101,6 +115,7 @@ class ActionFileGenerator
                 $schemaClassName,
                 $properties,
                 $runMethod,
+                $actionSchemasCode,
             ],
             $content,
         );
@@ -167,6 +182,7 @@ class ActionFileGenerator
         array $nestedGroups,
         string $schemaNamespace,
         string $schemaClassName,
+        bool $hasDataSchemas = false,
     ): string {
         $imports = [];
         $imports[] = "use {$schemaNamespace}\\{$schemaClassName};";
@@ -194,16 +210,28 @@ class ActionFileGenerator
                 continue;
             }
 
-            $imports[] = "use {$rel->relatedModel};";
-
             $attrClass = $this->relationTypeToAttributeClass($rel->type);
             if ($attrClass !== null) {
                 $relationAttrImports[$attrClass] = true;
+            }
+
+            // Add related schema import for DataSchema classes
+            $relatedModelBaseName = class_basename($rel->relatedModel);
+            $relatedSchemaClassName = $relatedModelBaseName.'Schema';
+            $relatedSchemaFqcn = $schemaNamespace.'\\'.$relatedSchemaClassName;
+            if ($relatedSchemaFqcn !== $schemaNamespace.'\\'.$schemaClassName) {
+                $imports[] = "use {$relatedSchemaFqcn};";
             }
         }
 
         foreach (array_keys($relationAttrImports) as $attrClass) {
             $imports[] = "use {$attrClass};";
+        }
+
+        // Add DataSchema-specific imports
+        if ($hasDataSchemas) {
+            $imports[] = 'use Illuminate\\Support\\Collection;';
+            $imports[] = 'use SchemaCraft\\DataSchema;';
         }
 
         $imports = array_unique($imports);
@@ -224,6 +252,7 @@ class ActionFileGenerator
         array $flatColumns,
         array $nestedGroups,
         array $nullableOverrides = [],
+        string $actionClassName = '',
     ): string {
         $lines = [];
 
@@ -266,9 +295,9 @@ class ActionFileGenerator
             }
         }
 
-        // Build nested relationship properties
+        // Build nested relationship properties (DataSchema-based)
         foreach ($nestedGroups as $relName => $fields) {
-            $nestedLines = $this->buildNestedProperty($table, $relName, $fields, $nullableOverrides);
+            $nestedLines = $this->buildNestedProperty($table, $relName, $fields, $nullableOverrides, $actionClassName);
             if ($nestedLines !== null) {
                 $lines = array_merge($lines, $nestedLines);
                 $lines[] = '';
@@ -371,47 +400,143 @@ class ActionFileGenerator
         string $relName,
         array $fields,
         array $nullableOverrides,
+        string $actionClassName = '',
     ): ?array {
         $rel = $this->findRelationshipByName($table, $relName);
         if ($rel === null) {
             return null;
         }
 
-        $modelBaseName = class_basename($rel->relatedModel);
         $attrName = class_basename($this->relationTypeToAttributeClass($rel->type) ?? 'HasOne');
         $isCollection = in_array($rel->type, ['hasMany', 'belongsToMany', 'morphMany', 'morphToMany']);
 
-        // Determine nullable from override or relationship definition
-        $isNullable = array_key_exists($relName, $nullableOverrides)
-            ? $nullableOverrides[$relName]
-            : $rel->nullable;
-        $nullable = (! $isCollection && $isNullable) ? '?' : '';
+        // Build DataSchema class name
+        $actionSchemaClassName = $this->buildDataSchemaClassName($actionClassName, $relName);
 
-        // Build the fields array for the attribute
-        $fieldsStr = $this->formatFieldsArray($fields);
-
-        // Build extra attribute params
+        // Build extra attribute params for morph relationships
         $extraParams = '';
         if ($rel->type === 'morphOne' || $rel->type === 'morphMany' || $rel->type === 'morphToMany') {
             $morphName = $rel->morphName ?? $relName;
             $extraParams = ", '{$morphName}'";
         }
 
-        // Build the sync param for collection types
-        $syncParam = '';
-        if (in_array($rel->type, ['hasMany', 'morphMany'])) {
-            // Default sync=false, only add if sync is true
-        } elseif (in_array($rel->type, ['belongsToMany', 'morphToMany'])) {
-            // Default sync=true, already the attribute default
+        $lines = [];
+
+        if ($isCollection) {
+            $lines[] = "    #[{$attrName}({$actionSchemaClassName}::class{$extraParams})]";
+            $lines[] = "    /** @var Collection<int, {$actionSchemaClassName}> */";
+            $lines[] = "    public Collection \${$relName};";
+        } else {
+            $isNullable = array_key_exists($relName, $nullableOverrides)
+                ? $nullableOverrides[$relName]
+                : $rel->nullable;
+            $nullable = $isNullable ? '?' : '';
+
+            $lines[] = "    #[{$attrName}({$actionSchemaClassName}::class{$extraParams})]";
+            $lines[] = "    public {$nullable}{$actionSchemaClassName} \${$relName};";
         }
 
-        $lines = [];
-        $lines[] = "    #[{$attrName}({$modelBaseName}::class{$extraParams}, fields: {$fieldsStr})]";
-
-        $default = $isCollection ? ' = []' : '';
-        $lines[] = "    public {$nullable}array \${$relName}{$default};";
-
         return $lines;
+    }
+
+    /**
+     * Build the DataSchema class name from the action class name and relationship name.
+     *
+     * E.g., "CreateRecordRecordAction" + "properties" → "CreateRecordPropertiesDataSchema"
+     */
+    private function buildDataSchemaClassName(string $actionClassName, string $relName): string
+    {
+        // Strip "Action" suffix, append capitalized relation name + "DataSchema"
+        $base = preg_replace('/Action$/', '', $actionClassName);
+
+        return $base.ucfirst(Str::camel($relName)).'DataSchema';
+    }
+
+    /**
+     * Build DataSchema class code strings for all nested relationships.
+     *
+     * @param  array<string, string[]>  $nestedGroups
+     * @param  array<string, bool>  $nullableOverrides
+     * @return string[] Array of PHP class code strings
+     */
+    private function buildDataSchemaClasses(
+        TableDefinition $table,
+        array $nestedGroups,
+        string $actionClassName,
+        string $schemaNamespace,
+        array $nullableOverrides,
+    ): array {
+        $classes = [];
+
+        foreach ($nestedGroups as $relName => $fields) {
+            $rel = $this->findRelationshipByName($table, $relName);
+            if ($rel === null) {
+                continue;
+            }
+
+            $actionSchemaClassName = $this->buildDataSchemaClassName($actionClassName, $relName);
+            $relatedModelBaseName = class_basename($rel->relatedModel);
+            $relatedSchemaClassName = $relatedModelBaseName.'Schema';
+
+            // Resolve columns from the related schema for type info
+            $relatedSchemaClass = $schemaNamespace.'\\'.$relatedSchemaClassName;
+            $relatedTable = null;
+            if (class_exists($relatedSchemaClass)) {
+                try {
+                    $scanner = new SchemaScanner($relatedSchemaClass);
+                    $relatedTable = $scanner->scan();
+                } catch (\Throwable) {
+                    // Schema can't be scanned
+                }
+            }
+
+            $hasPivot = false;
+            $propertyLines = [];
+
+            foreach ($fields as $field) {
+                if (str_contains($field, '.')) {
+                    continue; // Deep nesting handled recursively in the future
+                }
+
+                $phpType = 'string'; // Default
+                $isNullable = false;
+
+                if ($relatedTable !== null) {
+                    $column = $this->findColumn($relatedTable, $field);
+                    if ($column !== null) {
+                        $phpType = $this->phpType($column);
+                        $isNullable = $column->nullable;
+                    }
+                }
+
+                // Check nullable override
+                $overrideKey = "{$relName}.*.{$field}";
+                if (array_key_exists($overrideKey, $nullableOverrides)) {
+                    $isNullable = $nullableOverrides[$overrideKey];
+                }
+
+                $nullable = $isNullable ? '?' : '';
+                $propName = Str::camel($field);
+                $propertyLines[] = "    public {$nullable}{$phpType} \${$propName};";
+            }
+
+            // Build the DataSchema class
+            $classLines = [];
+            $classLines[] = "class {$actionSchemaClassName} extends DataSchema";
+            $classLines[] = '{';
+            $classLines[] = "    protected static string \$schema = {$relatedSchemaClassName}::class;";
+
+            if (! empty($propertyLines)) {
+                $classLines[] = '';
+                $classLines[] = implode("\n\n", $propertyLines);
+            }
+
+            $classLines[] = '}';
+
+            $classes[] = implode("\n", $classLines);
+        }
+
+        return $classes;
     }
 
     /**
@@ -443,18 +568,6 @@ class ActionFileGenerator
             'morphToMany' => 'SchemaCraft\\Attributes\\Relations\\MorphToMany',
             default => null,
         };
-    }
-
-    /**
-     * Format a fields array as a PHP array literal string.
-     *
-     * @param  string[]  $fields
-     */
-    private function formatFieldsArray(array $fields): string
-    {
-        $items = array_map(fn (string $f) => "'{$f}'", $fields);
-
-        return '['.implode(', ', $items).']';
     }
 
     /**

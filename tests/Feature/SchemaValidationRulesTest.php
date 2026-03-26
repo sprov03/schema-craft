@@ -4,6 +4,7 @@ namespace SchemaCraft\Tests\Feature;
 
 use PHPUnit\Framework\TestCase;
 use SchemaCraft\Schema;
+use SchemaCraft\Tests\Fixtures\Schemas\CustomTypeSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\ValidationTestSchema;
 
@@ -314,5 +315,94 @@ class SchemaValidationRulesTest extends TestCase
         // Should work fine after clearing cache
         $rules = ValidationTestSchema::createRules(['title'])->toArray();
         $this->assertArrayHasKey('title', $rules);
+    }
+
+    // ─── SchemaCraftType validation rules ──────────────────────────
+
+    public function test_bitmask_uses_schema_craft_type_validation_rules(): void
+    {
+        $rules = CustomTypeSchema::createRules(['permissions'])->toArray();
+
+        $this->assertContains('required', $rules['permissions']);
+        $this->assertContains('integer', $rules['permissions']);
+        $this->assertContains('min:0', $rules['permissions']);
+        // Should NOT contain generic type-inferred rules
+        $this->assertNotContains('array', $rules['permissions']);
+    }
+
+    public function test_nullable_bitmask_uses_schema_craft_type_validation_rules(): void
+    {
+        $rules = CustomTypeSchema::createRules(['flags'])->toArray();
+
+        $this->assertContains('nullable', $rules['flags']);
+        $this->assertContains('integer', $rules['flags']);
+        $this->assertContains('min:0', $rules['flags']);
+    }
+
+    // ─── DataSchema / DTO nested validation rules ──────────────────
+
+    public function test_dto_column_has_array_rule(): void
+    {
+        $rules = CustomTypeSchema::createRules(['address'])->toArray();
+
+        $this->assertContains('required', $rules['address']);
+        $this->assertContains('array', $rules['address']);
+    }
+
+    public function test_dto_generates_nested_property_rules(): void
+    {
+        $rules = CustomTypeSchema::createRules(['address'])->toArray();
+
+        $this->assertArrayHasKey('address.street', $rules);
+        $this->assertContains('required', $rules['address.street']);
+        $this->assertContains('string', $rules['address.street']);
+
+        $this->assertArrayHasKey('address.city', $rules);
+        $this->assertContains('required', $rules['address.city']);
+        $this->assertContains('string', $rules['address.city']);
+
+        $this->assertArrayHasKey('address.zip', $rules);
+        $this->assertContains('required', $rules['address.zip']);
+        $this->assertContains('integer', $rules['address.zip']);
+    }
+
+    public function test_dto_nullable_nested_property(): void
+    {
+        $rules = CustomTypeSchema::createRules(['address'])->toArray();
+
+        $this->assertArrayHasKey('address.line2', $rules);
+        $this->assertContains('nullable', $rules['address.line2']);
+        $this->assertContains('string', $rules['address.line2']);
+        $this->assertNotContains('required', $rules['address.line2']);
+    }
+
+    public function test_nullable_dto_column_has_nullable_rule(): void
+    {
+        $rules = CustomTypeSchema::createRules(['shippingAddress'])->toArray();
+
+        $this->assertContains('nullable', $rules['shippingAddress']);
+        $this->assertContains('array', $rules['shippingAddress']);
+    }
+
+    public function test_nullable_dto_still_generates_nested_rules(): void
+    {
+        $rules = CustomTypeSchema::createRules(['shippingAddress'])->toArray();
+
+        $this->assertArrayHasKey('shippingAddress.street', $rules);
+        $this->assertArrayHasKey('shippingAddress.city', $rules);
+        $this->assertArrayHasKey('shippingAddress.zip', $rules);
+    }
+
+    public function test_non_data_schema_craft_type_has_no_nested_rules(): void
+    {
+        // TestJsonDto implements SchemaCraftType but doesn't extend DataSchema
+        // so it should NOT generate nested rules
+        $rules = CustomTypeSchema::createRules(['metadata'])->toArray();
+
+        $this->assertContains('array', $rules['metadata']);
+        // No nested keys
+        $keys = array_keys($rules);
+        $nestedKeys = array_filter($keys, fn ($k) => str_starts_with($k, 'metadata.'));
+        $this->assertEmpty($nestedKeys);
     }
 }

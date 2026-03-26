@@ -8,14 +8,20 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use SchemaCraft\Action;
 use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\Config\ConnectionConfig;
 use SchemaCraft\Generator\ActionCodeGenerator;
 use SchemaCraft\Generator\ActionFileGenerator;
 use SchemaCraft\Generator\Api\ApiCodeGenerator;
 use SchemaCraft\Generator\Api\ApiFileWriter;
 use SchemaCraft\Generator\Filament\FilamentActionCodeGenerator;
 use SchemaCraft\Migration\SchemaDiscovery;
+use SchemaCraft\Scanner\ActionDefinition;
+use SchemaCraft\Scanner\ActionParameter;
 use SchemaCraft\Scanner\ActionScanner;
+use SchemaCraft\Scanner\NestedFieldDefinition;
+use SchemaCraft\Scanner\NestedRelationshipParameter;
 use SchemaCraft\Scanner\SchemaScanner;
+use SchemaCraft\Scanner\TableDefinition;
 
 class ActionsController
 {
@@ -131,7 +137,6 @@ class ActionsController
                         'nullable' => $f->nullable,
                     ], $p->nestedRelationship->fields),
                     'pivotFields' => $p->nestedRelationship->pivotFields,
-                    'sync' => $p->nestedRelationship->sync,
                 ] : null,
             ], fn ($v) => $v !== null), $definition->parameters),
         ]);
@@ -170,6 +175,8 @@ class ActionsController
             'nullableOverrides' => ['sometimes', 'array'],
             'nullableOverrides.*' => ['boolean'],
             'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'skipFiles' => ['sometimes', 'array'],
+            'skipFiles.*' => ['string'],
         ]);
 
         return $this->handleCreate($request, true, $fs);
@@ -269,6 +276,8 @@ class ActionsController
             'nullableOverrides' => ['sometimes', 'array'],
             'nullableOverrides.*' => ['boolean'],
             'description' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'skipFiles' => ['sometimes', 'array'],
+            'skipFiles.*' => ['string'],
         ]);
 
         return $this->handleCreate($request, true, $fs);
@@ -496,7 +505,7 @@ class ActionsController
     private function handleCreate(Request $request, bool $write, ?Filesystem $fs = null): JsonResponse
     {
         $schemaClass = $this->resolveSchemaClass($request->input('schema'));
-        $actionName = $request->input('actionName');
+        $actionName = Str::camel($request->input('actionName'));
         $selectedColumns = $request->input('selectedColumns');
         $httpMethod = strtolower($request->input('httpMethod', 'put'));
         $nullableOverrides = $request->input('nullableOverrides', []);
@@ -580,10 +589,38 @@ class ActionsController
             ];
         }
 
+        // Generate the service method file
+        $serviceResult = $this->buildServiceFromGeneratorInputs(
+            schemaClass: $schemaClass,
+            actionName: $actionName,
+            actionClassName: $actionClassName,
+            actionNamespace: $actionNamespace,
+            httpMethod: $httpMethod,
+            selectedColumns: $selectedColumns,
+            table: $table,
+            connectionConfig: $connectionConfig,
+            nullableOverrides: $nullableOverrides,
+        );
+
+        if ($serviceResult !== null) {
+            $serviceAbsPath = base_path($serviceResult['relPath']);
+            $serviceExists = file_exists($serviceAbsPath);
+            $files[] = [
+                'path' => $serviceResult['relPath'],
+                'content' => $serviceResult['newContent'],
+                'exists' => $serviceExists,
+                'existingContent' => $serviceExists ? file_get_contents($serviceAbsPath) : null,
+            ];
+        }
+
         if ($write) {
             $fs = $fs ?? new Filesystem;
+            $skipFiles = $request->input('skipFiles', []);
 
             foreach ($files as $file) {
+                if (in_array($file['path'], $skipFiles, true)) {
+                    continue;
+                }
                 $absPath = base_path($file['path']);
                 $fs->ensureDirectoryExists(dirname($absPath));
                 $fs->put($absPath, $file['content']);
@@ -770,6 +807,226 @@ class ActionsController
      *
      * @return array{absPath: string, relPath: string, existingContent: ?string, newContent: string, exists: bool, methodExists: bool, serviceMethod: string}
      */
+    /**
+     * Build the service method file content from generator inputs (before the action class exists).
+     *
+     * @param  string[]  $selectedColumns
+     * @param  array<string, bool>  $nullableOverrides
+     * @return array{relPath: string, newContent: string}|null
+     */
+    private function buildServiceFromGeneratorInputs(
+        string $schemaClass,
+        string $actionName,
+        string $actionClassName,
+        string $actionNamespace,
+        string $httpMethod,
+        array $selectedColumns,
+        TableDefinition $table,
+        ConnectionConfig $connectionConfig,
+        array $nullableOverrides = [],
+    ): ?array {
+        $modelName = $this->resolveModelName($schemaClass);
+
+        // Build an ActionDefinition from the raw inputs (no class file needed)
+        $definition = $this->buildActionDefinitionFromInputs(
+            actionClassName: $actionClassName,
+            actionNamespace: $actionNamespace,
+            actionName: $actionName,
+            httpMethod: $httpMethod,
+            schemaClass: $schemaClass,
+            selectedColumns: $selectedColumns,
+            table: $table,
+            nullableOverrides: $nullableOverrides,
+        );
+
+        $servicePath = $connectionConfig->servicePath($modelName);
+        $absPath = base_path($servicePath);
+        $exists = file_exists($absPath);
+        $existingContent = $exists ? file_get_contents($absPath) : null;
+
+        // If service file doesn't exist, create it
+        if (! $exists) {
+            $apiGenerator = new ApiCodeGenerator($this->resolveStubsPath());
+            $serviceFile = $apiGenerator->generateService(
+                $table,
+                $modelName,
+                serviceNamespace: $connectionConfig->serviceNamespace,
+            );
+            $existingContent = $serviceFile->content;
+        }
+
+        $codeGenerator = new ActionCodeGenerator;
+        $renderedMethod = $codeGenerator->renderServiceMethod($definition, $modelName);
+
+        $writer = new ApiFileWriter;
+        $methodExists = str_contains($existingContent, "function {$definition->serviceMethod}(");
+
+        if ($methodExists) {
+            $newContent = $this->replaceMethod($existingContent, $definition->serviceMethod, $renderedMethod);
+        } else {
+            $newContent = $writer->addServiceMethod($existingContent, $renderedMethod);
+        }
+
+        // Add FK model imports
+        foreach ($definition->parameters as $param) {
+            if ($param->isModel && $param->modelClass !== null) {
+                $newContent = $writer->addImport($newContent, $param->modelClass);
+            }
+        }
+
+        return [
+            'relPath' => $servicePath,
+            'newContent' => $newContent,
+        ];
+    }
+
+    /**
+     * Build an ActionDefinition from raw inputs (for service method generation before class exists).
+     *
+     * @param  string[]  $selectedColumns
+     * @param  array<string, bool>  $nullableOverrides
+     */
+    private function buildActionDefinitionFromInputs(
+        string $actionClassName,
+        string $actionNamespace,
+        string $actionName,
+        string $httpMethod,
+        string $schemaClass,
+        array $selectedColumns,
+        TableDefinition $table,
+        array $nullableOverrides = [],
+    ): ActionDefinition {
+        $parameters = [];
+
+        // Partition columns
+        $flat = [];
+        $nested = [];
+        foreach ($selectedColumns as $column) {
+            if (str_contains($column, '.')) {
+                $normalized = str_replace('.*.', '.', $column);
+                $segments = explode('.', $normalized, 2);
+                $nested[$segments[0]][] = $segments[1];
+            } else {
+                $flat[] = $column;
+            }
+        }
+
+        // Build flat parameters
+        foreach ($flat as $columnName) {
+            $relationship = null;
+            foreach ($table->relationships as $rel) {
+                if ($rel->type !== 'belongsTo') {
+                    continue;
+                }
+                $fkColumn = $rel->foreignColumn ?? Str::snake($rel->name).'_id';
+                if ($fkColumn === $columnName) {
+                    $relationship = $rel;
+
+                    break;
+                }
+            }
+
+            if ($relationship !== null) {
+                $isNullable = array_key_exists($columnName, $nullableOverrides)
+                    ? $nullableOverrides[$columnName]
+                    : $relationship->nullable;
+
+                $parameters[] = new ActionParameter(
+                    name: Str::camel($relationship->name),
+                    type: class_basename($relationship->relatedModel),
+                    nullable: $isNullable,
+                    isModel: true,
+                    modelClass: $relationship->relatedModel,
+                    foreignKeyColumn: $columnName,
+                    relationship: $relationship->name,
+                );
+            } else {
+                $column = null;
+                foreach ($table->columns as $col) {
+                    if ($col->name === $columnName) {
+                        $column = $col;
+
+                        break;
+                    }
+                }
+
+                if ($column !== null) {
+                    $phpType = match ($column->columnType) {
+                        'integer', 'bigInteger', 'smallInteger', 'tinyInteger',
+                        'unsignedBigInteger', 'unsignedInteger', 'unsignedSmallInteger', 'unsignedTinyInteger' => 'int',
+                        'boolean' => 'bool',
+                        'decimal', 'float', 'double' => 'float',
+                        'json' => 'array',
+                        default => 'string',
+                    };
+                    $isNullable = array_key_exists($columnName, $nullableOverrides)
+                        ? $nullableOverrides[$columnName]
+                        : $column->nullable;
+
+                    $parameters[] = new ActionParameter(
+                        name: Str::camel($column->name),
+                        type: $phpType,
+                        nullable: $isNullable,
+                        columnName: $column->name,
+                    );
+                }
+            }
+        }
+
+        // Build nested parameters
+        foreach ($nested as $relName => $fields) {
+            $rel = null;
+            foreach ($table->relationships as $r) {
+                if ($r->name === $relName) {
+                    $rel = $r;
+
+                    break;
+                }
+            }
+            if ($rel === null) {
+                continue;
+            }
+
+            $isCollection = in_array($rel->type, ['hasMany', 'belongsToMany', 'morphMany', 'morphToMany']);
+            $nestedFields = [];
+            foreach ($fields as $field) {
+                $nestedFields[] = new NestedFieldDefinition(
+                    name: $field,
+                    dotPath: $relName.'.'.$field,
+                    type: 'string',
+                );
+            }
+
+            $nestedParam = new NestedRelationshipParameter(
+                name: $relName,
+                relationshipType: $rel->type,
+                relatedModel: $rel->relatedModel,
+                nullable: $rel->nullable,
+                isCollection: $isCollection,
+                fields: $nestedFields,
+                pivotFields: [],
+            );
+
+            $parameters[] = new ActionParameter(
+                name: $relName,
+                type: 'array',
+                nullable: $rel->nullable,
+                isNestedRelationship: true,
+                nestedRelationship: $nestedParam,
+            );
+        }
+
+        return new ActionDefinition(
+            actionClass: $actionNamespace.'\\'.$actionClassName,
+            name: $actionName,
+            httpMethod: $httpMethod,
+            serviceMethod: $actionName,
+            schemaClass: $schemaClass,
+            parameters: $parameters,
+            isStatic: strtolower($httpMethod) === 'post',
+        );
+    }
+
     private function buildServicePreview(string $actionClass): array
     {
         $scanner = new ActionScanner($actionClass);

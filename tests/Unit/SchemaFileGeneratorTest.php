@@ -660,9 +660,8 @@ class SchemaFileGeneratorTest extends TestCase
 
         $result = $this->generator->generate($usersTable, $allTables);
 
-        $this->assertStringContainsString("#[ForeignColumn('creator_user_id')]", $result->schemaContent);
-        $this->assertStringContainsString("#[ForeignColumn('assigned_to_user_id')]", $result->schemaContent);
-        $this->assertStringContainsString('use SchemaCraft\\Attributes\\ForeignColumn;', $result->schemaContent);
+        $this->assertStringContainsString("#[HasMany(Task::class, foreignKey: 'creator_user_id')]", $result->schemaContent);
+        $this->assertStringContainsString("#[HasMany(Task::class, foreignKey: 'assigned_to_user_id')]", $result->schemaContent);
     }
 
     public function test_has_many_collision_method_docblock_uses_unique_names(): void
@@ -748,8 +747,8 @@ class SchemaFileGeneratorTest extends TestCase
         // HasMany side — self-referencing with collision should have unique names
         $this->assertStringContainsString('public Collection $predecessorTaskTasks;', $result->schemaContent);
         $this->assertStringContainsString('public Collection $successorTaskTasks;', $result->schemaContent);
-        $this->assertStringContainsString("#[ForeignColumn('predecessor_task_id')]", $result->schemaContent);
-        $this->assertStringContainsString("#[ForeignColumn('successor_task_id')]", $result->schemaContent);
+        $this->assertStringContainsString("#[HasMany(Task::class, foreignKey: 'predecessor_task_id')]", $result->schemaContent);
+        $this->assertStringContainsString("#[HasMany(Task::class, foreignKey: 'successor_task_id')]", $result->schemaContent);
     }
 
     public function test_has_many_three_fks_to_same_table(): void

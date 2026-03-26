@@ -11,7 +11,6 @@ use SchemaCraft\Scanner\NestedRelationshipParameter;
 use SchemaCraft\Tests\Fixtures\Actions\Post\CreatePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\DeletePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostAction;
-use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostWithRelationsAction;
 
 class ActionCodeGeneratorTest extends TestCase
 {
@@ -24,7 +23,6 @@ class ActionCodeGeneratorTest extends TestCase
         CreatePostAction::clearScanCache();
         UpdatePostAction::clearScanCache();
         DeletePostAction::clearScanCache();
-        UpdatePostWithRelationsAction::clearScanCache();
     }
 
     // ─── renderServiceMethod() for POST (create) ─────────────────
@@ -319,23 +317,6 @@ class ActionCodeGeneratorTest extends TestCase
         $this->assertStringContainsString('$post->comments()->createMany(', $result);
     }
 
-    public function test_nested_has_many_sync_deletes_before_create(): void
-    {
-        $definition = $this->buildDefinitionWithNestedHasMany(sync: true);
-        $result = $this->generator->buildNestedRelationshipAssignments($definition, 'post', 'update');
-
-        $this->assertStringContainsString('$this->post->comments()->delete();', $result);
-        $this->assertStringContainsString('$this->post->comments()->createMany(', $result);
-    }
-
-    public function test_nested_has_many_sync_not_on_create(): void
-    {
-        $definition = $this->buildDefinitionWithNestedHasMany(sync: true, httpMethod: 'post', serviceMethod: 'createPost');
-        $result = $this->generator->buildNestedRelationshipAssignments($definition, 'post', 'create');
-
-        $this->assertStringNotContainsString('->delete()', $result);
-    }
-
     public function test_nested_has_one_update_generates_update_or_create(): void
     {
         $definition = $this->buildDefinitionWithNestedHasOne(nullable: true);
@@ -412,24 +393,9 @@ class ActionCodeGeneratorTest extends TestCase
         $this->assertGreaterThan($savePos, $nestedPos);
     }
 
-    public function test_scanned_nested_action_renders_service_method(): void
-    {
-        $definition = UpdatePostWithRelationsAction::definition();
-        $result = $this->generator->renderServiceMethod($definition, 'Post');
-
-        // Has flat assignments
-        $this->assertStringContainsString('$this->post->title = $title;', $result);
-        $this->assertStringContainsString('$this->post->author()->associate($author);', $result);
-
-        // Has nested after save
-        $this->assertStringContainsString('$this->post->comments()->createMany(', $result);
-        $this->assertStringContainsString('$this->post->tags()->sync(', $result);
-    }
-
     // ─── Helpers ──────────────────────────────────────────────────
 
     private function buildDefinitionWithNestedHasMany(
-        bool $sync = false,
         string $httpMethod = 'put',
         string $serviceMethod = 'updatePost',
     ): ActionDefinition {
@@ -453,7 +419,6 @@ class ActionCodeGeneratorTest extends TestCase
                         fields: [
                             new NestedFieldDefinition(name: 'body', dotPath: 'comments.body', type: 'string'),
                         ],
-                        sync: $sync,
                     ),
                 ),
             ],

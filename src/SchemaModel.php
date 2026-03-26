@@ -152,14 +152,17 @@ abstract class SchemaModel extends Model
             'belongsTo' => $model->belongsTo(
                 $rel->relatedModel,
                 $rel->foreignColumn ?? Str::snake($rel->name).'_id',
+                $rel->ownerKey,
             ),
             'hasOne' => $model->hasOne(
                 $rel->relatedModel,
                 $rel->foreignColumn,
+                $rel->localKey,
             ),
             'hasMany' => $model->hasMany(
                 $rel->relatedModel,
                 $rel->foreignColumn,
+                $rel->localKey,
             ),
             'belongsToMany' => static::buildBelongsToMany($model, $rel),
             'morphTo' => $model->morphTo(
@@ -168,14 +171,33 @@ abstract class SchemaModel extends Model
             'morphOne' => $model->morphOne(
                 $rel->relatedModel,
                 $rel->morphName ?? $rel->name,
+                null,
+                null,
+                $rel->localKey,
             ),
             'morphMany' => $model->morphMany(
                 $rel->relatedModel,
                 $rel->morphName ?? $rel->name,
+                null,
+                null,
+                $rel->localKey,
             ),
-            'morphToMany' => $model->morphToMany(
+            'morphToMany' => static::buildMorphToMany($model, $rel),
+            'hasOneThrough' => $model->hasOneThrough(
                 $rel->relatedModel,
-                $rel->morphName ?? $rel->name,
+                $rel->through,
+                $rel->firstKey,
+                $rel->secondKey,
+                $rel->localKey,
+                $rel->secondLocalKey,
+            ),
+            'hasManyThrough' => $model->hasManyThrough(
+                $rel->relatedModel,
+                $rel->through,
+                $rel->firstKey,
+                $rel->secondKey,
+                $rel->localKey,
+                $rel->secondLocalKey,
             ),
         };
     }
@@ -188,6 +210,34 @@ abstract class SchemaModel extends Model
         $relation = $model->belongsToMany(
             $rel->relatedModel,
             $rel->pivotTable,
+            $rel->foreignPivotKey,
+            $rel->relatedPivotKey,
+            $rel->parentKey,
+            $rel->relatedKey,
+        );
+
+        if ($rel->pivotModel !== null) {
+            $relation->using($rel->pivotModel);
+        }
+
+        if ($rel->pivotColumns !== null) {
+            $relation->withPivot(array_keys($rel->pivotColumns));
+        }
+
+        return $relation;
+    }
+
+    private static function buildMorphToMany(Model $model, RelationshipDefinition $rel): \Illuminate\Database\Eloquent\Relations\MorphToMany
+    {
+        $relation = $model->morphToMany(
+            $rel->relatedModel,
+            $rel->morphName ?? $rel->name,
+            $rel->pivotTable,
+            $rel->foreignPivotKey,
+            $rel->relatedPivotKey,
+            $rel->parentKey,
+            $rel->relatedKey,
+            $rel->inverse,
         );
 
         if ($rel->pivotModel !== null) {

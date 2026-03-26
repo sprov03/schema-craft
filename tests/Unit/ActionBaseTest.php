@@ -6,7 +6,7 @@ use PHPUnit\Framework\TestCase;
 use SchemaCraft\Tests\Fixtures\Actions\Post\CreatePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\DeletePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostAction;
-use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostWithRelationsAction;
+use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostWithDataSchemaAction;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 
 class ActionBaseTest extends TestCase
@@ -17,7 +17,7 @@ class ActionBaseTest extends TestCase
         CreatePostAction::clearScanCache();
         UpdatePostAction::clearScanCache();
         DeletePostAction::clearScanCache();
-        UpdatePostWithRelationsAction::clearScanCache();
+        UpdatePostWithDataSchemaAction::clearScanCache();
     }
 
     public function test_schema_returns_configured_schema_class(): void
@@ -97,7 +97,7 @@ class ActionBaseTest extends TestCase
 
     public function test_nested_action_definition_has_nested_params(): void
     {
-        $definition = UpdatePostWithRelationsAction::definition();
+        $definition = UpdatePostWithDataSchemaAction::definition();
 
         $nested = $definition->nestedParameters();
         $this->assertCount(2, $nested);
@@ -109,7 +109,7 @@ class ActionBaseTest extends TestCase
 
     public function test_nested_action_definition_has_flat_params(): void
     {
-        $definition = UpdatePostWithRelationsAction::definition();
+        $definition = UpdatePostWithDataSchemaAction::definition();
 
         $flat = $definition->flatParameters();
         $this->assertCount(2, $flat);
@@ -123,7 +123,7 @@ class ActionBaseTest extends TestCase
 
     public function test_map_data_passes_nested_collection_through(): void
     {
-        $action = new UpdatePostWithRelationsAction;
+        $action = new UpdatePostWithDataSchemaAction;
         $data = [
             'title' => 'Test Title',
             'author_id' => null,
@@ -139,7 +139,7 @@ class ActionBaseTest extends TestCase
 
     public function test_map_data_defaults_collection_to_empty_array(): void
     {
-        $action = new UpdatePostWithRelationsAction;
+        $action = new UpdatePostWithDataSchemaAction;
         $data = [
             'title' => 'Test',
             'author_id' => null,

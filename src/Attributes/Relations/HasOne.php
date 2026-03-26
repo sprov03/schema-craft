@@ -10,11 +10,9 @@ use Attribute;
 #[Attribute(Attribute::TARGET_PROPERTY)]
 class HasOne
 {
-    /**
-     * @param  string[]  $fields  Fields to include from the related model (for nested Action data).
-     */
     public function __construct(
         public string $model,
-        public array $fields = [],
+        public ?string $foreignKey = null,
+        public ?string $localKey = null,
     ) {}
 }

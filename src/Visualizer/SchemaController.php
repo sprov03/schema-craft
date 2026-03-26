@@ -498,6 +498,7 @@ class SchemaController
                 pivotModelNames: $pivotModelNames,
                 isPivotModel: $isThisAPivot,
                 pivotExtraColumns: $pivotExtraColumns,
+                explicitForeignKeys: config('schema-craft.explicit_foreign_keys', false),
             );
 
             // Schema file — always generated

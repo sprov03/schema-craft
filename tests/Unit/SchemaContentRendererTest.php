@@ -374,9 +374,8 @@ class SchemaContentRendererTest extends TestCase
             ],
         ]));
 
-        $this->assertStringContainsString('#[BelongsTo(User::class)]', $output);
+        $this->assertStringContainsString("#[BelongsTo(User::class, foreignKey: 'owner_id')]", $output);
         $this->assertStringContainsString("#[OnDelete('cascade')]", $output);
-        $this->assertStringContainsString("#[ForeignColumn('owner_id')]", $output);
         $this->assertStringContainsString('#[Index]', $output);
         $this->assertStringContainsString('public ?User $owner;', $output);
     }
@@ -423,11 +422,9 @@ class SchemaContentRendererTest extends TestCase
             ],
         ]));
 
-        $this->assertStringContainsString('#[BelongsToMany(Tag::class)]', $output);
-        $this->assertStringContainsString("#[PivotTable('post_tag')]", $output);
+        $this->assertStringContainsString("#[BelongsToMany(Tag::class, table: 'post_tag')]", $output);
         $this->assertStringContainsString("#[PivotColumns(['order' => 'integer', 'notes' => 'text'])]", $output);
         $this->assertStringContainsString('public Collection $tags;', $output);
-        $this->assertStringContainsString('use SchemaCraft\\Attributes\\PivotTable;', $output);
         $this->assertStringContainsString('use SchemaCraft\\Attributes\\PivotColumns;', $output);
     }
 

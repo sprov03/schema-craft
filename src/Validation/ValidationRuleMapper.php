@@ -5,6 +5,7 @@ namespace SchemaCraft\Validation;
 use BackedEnum;
 use Illuminate\Support\Str;
 use SchemaCraft\Attributes\Rules;
+use SchemaCraft\Contracts\SchemaCraftType;
 use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Scanner\RelationshipDefinition;
 
@@ -13,6 +14,9 @@ use SchemaCraft\Scanner\RelationshipDefinition;
  */
 class ValidationRuleMapper
 {
+    /** @var array<string, array<int, mixed>> */
+    private array $pendingNestedRules = [];
+
     /**
      * @param  RelationshipDefinition[]  $relationships
      */
@@ -42,6 +46,30 @@ class ValidationRuleMapper
     }
 
     /**
+     * Get nested validation rules from the last column processed.
+     *
+     * Returns prefixed dot-notation rules for nested types (DTOs).
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    public function nestedRules(string $fieldName): array
+    {
+        $nested = $this->pendingNestedRules;
+        $this->pendingNestedRules = [];
+
+        if ($nested === []) {
+            return [];
+        }
+
+        $prefixed = [];
+        foreach ($nested as $key => $keyRules) {
+            $prefixed["{$fieldName}.{$key}"] = $keyRules;
+        }
+
+        return $prefixed;
+    }
+
+    /**
      * @return array<int, mixed>
      */
     private function buildRules(ColumnDefinition $column, string $context, ?string $modelVariable = null): array
@@ -53,6 +81,28 @@ class ValidationRuleMapper
             $rules[] = 'nullable';
         } else {
             $rules[] = 'required';
+        }
+
+        // SchemaCraftType provides its own validation rules
+        if ($column->castType !== null && is_a($column->castType, SchemaCraftType::class, true)) {
+            $typeRules = $column->castType::schemaValidationRules();
+
+            if (array_is_list($typeRules)) {
+                // Flat rules (bitmask, etc.) — merge into column rules
+                $rules = array_merge($rules, $typeRules);
+            } else {
+                // Nested rules (DTO, etc.) — column is 'array', nested stored separately
+                $rules[] = 'array';
+                $this->pendingNestedRules = $typeRules;
+            }
+
+            // Schema-level #[Rules(...)] additions
+            $rulesAttr = $this->getRulesAttribute($column);
+            if ($rulesAttr !== null) {
+                $rules = array_merge($rules, $rulesAttr->rules);
+            }
+
+            return $rules;
         }
 
         // Type-specific rules

@@ -955,6 +955,16 @@
         }
         .fp-file-badge.new { background: var(--success-dim); color: var(--success); }
         .fp-file-badge.exists { background: var(--warning-dim); color: var(--warning); }
+        .fp-skip-btn {
+            padding: 2px 8px; border-radius: 10px; font-size: 10px;
+            font-weight: 600; text-transform: uppercase; flex-shrink: 0;
+            background: var(--bg-tertiary); color: var(--text-muted); border: none;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .fp-skip-btn:hover { background: var(--error-dim); color: var(--error); }
+        .fp-skip-btn.skipped { background: var(--error-dim); color: var(--error); }
+        .fp-file-item.fp-skipped { opacity: 0.4; }
+        .fp-file-item.fp-skipped .fp-file-path { text-decoration: line-through; }
         .fp-code-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
         .fp-code-header {
             display: flex; align-items: center; justify-content: space-between;
@@ -962,8 +972,11 @@
             font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);
             background: var(--bg-secondary);
         }
+        #fp-code-content-wrap {
+            flex: 1; min-height: 0; overflow: auto;
+        }
         .fp-code-content {
-            flex: 1; overflow: auto; padding: 16px;
+            padding: 16px; margin: 0;
             font-family: var(--font-mono); font-size: 12px;
             line-height: 1.6; white-space: pre-wrap; color: var(--text-primary);
             background: var(--bg-secondary);
@@ -4771,11 +4784,15 @@
             var existsCount = files.filter(function(f) { return f.exists; }).length;
             var summaryText = files.length + ' file(s): ' + newCount + ' new' + (existsCount ? ', ' + existsCount + ' existing' : '');
 
+            // Track which files are skipped
+            var skippedFiles = {};
+
             var fileListHtml = files.map(function(f, idx) {
                 var badge = f.exists ? '<span class="fp-file-badge exists">Exists</span>'
                     : '<span class="fp-file-badge new">New</span>';
+                var skipBtn = '<button class="fp-skip-btn" data-fp-skip-idx="' + idx + '" title="Skip this file">Skip</button>';
                 return '<div class="fp-file-item' + (idx === 0 ? ' active' : '') + '" data-fp-idx="' + idx + '">' +
-                    '<span class="fp-file-path">' + escapeHtml(f.path) + '</span>' + badge + '</div>';
+                    '<span class="fp-file-path">' + escapeHtml(f.path) + '</span>' + badge + skipBtn + '</div>';
             }).join('');
 
             overlay.innerHTML =
@@ -4844,6 +4861,37 @@
                 });
             });
 
+            // Skip button handling
+            overlay.querySelectorAll('.fp-skip-btn').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var idx = parseInt(btn.dataset.fpSkipIdx, 10);
+                    var fileItem = overlay.querySelector('.fp-file-item[data-fp-idx="' + idx + '"]');
+
+                    if (skippedFiles[idx]) {
+                        delete skippedFiles[idx];
+                        btn.textContent = 'Skip';
+                        btn.classList.remove('skipped');
+                        fileItem.classList.remove('fp-skipped');
+                    } else {
+                        skippedFiles[idx] = true;
+                        btn.textContent = 'Skipped';
+                        btn.classList.add('skipped');
+                        fileItem.classList.add('fp-skipped');
+                    }
+
+                    // Update summary
+                    var skipCount = Object.keys(skippedFiles).length;
+                    var writeCount = files.length - skipCount;
+                    var summaryEl = overlay.querySelector('.fp-summary');
+                    if (skipCount > 0) {
+                        summaryEl.textContent = files.length + ' file(s): ' + writeCount + ' to write, ' + skipCount + ' skipped';
+                    } else {
+                        summaryEl.textContent = summaryText;
+                    }
+                });
+            });
+
             // View toggle (Diff / Full)
             overlay.querySelectorAll('.fp-view-btn').forEach(function(btn) {
                 btn.addEventListener('click', function() {
@@ -4863,6 +4911,10 @@
             overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
 
             overlay.querySelector('#fp-confirm').addEventListener('click', function() {
+                // Mark skipped files before confirming
+                files.forEach(function(f, idx) {
+                    f.skip = !!skippedFiles[idx];
+                });
                 close();
                 if (onConfirm) onConfirm();
             });
@@ -5302,7 +5354,7 @@
                                     var pivotNote = result.pivots && result.pivots.length > 0
                                         ? result.pivots.length + ' pivot table(s) detected and handled as relationships'
                                         : '';
-                                    showFilePreviewModal(result.files, function() { doImportSchema(false); }, 'Write Files');
+                                    showFilePreviewModal(result.files, 'Write Files', function() { doImportSchema(false); });
                                     if (pivotNote) showToast(pivotNote, 'info');
                                     return 'previewed';
                                 }
@@ -5341,7 +5393,7 @@
                             .then(function(result) {
                                 if (!result.success) throw new Error(result.message || 'Preview failed');
                                 var extrasOnly = result.files.filter(function(f) { return f.type !== 'schema'; });
-                                showFilePreviewModal(extrasOnly, function() { doImportSchema(false); }, 'Write Files');
+                                showFilePreviewModal(extrasOnly, 'Write Files', function() { doImportSchema(false); });
                                 return 'previewed';
                             });
                         }
@@ -7782,20 +7834,10 @@
                     '</div>' +
                     '<div class="gen-endpoint-section-title">Actions (' + (schema.actions ? schema.actions.length : 0) + ')</div>' +
                     '<div class="gen-endpoint-list">' +
-                        (actionsHtml || '<div style="padding:16px;color:var(--text-muted);font-size:13px;">No actions defined yet. Create one below.</div>') +
+                        (actionsHtml || '<div style="padding:16px;color:var(--text-muted);font-size:13px;">No actions defined yet.</div>') +
                     '</div>' +
-                    '<div class="gen-add-action-section">' +
-                        '<div class="gen-add-action-title">Create New Action</div>' +
-                        '<div class="gen-add-action-row">' +
-                            '<select class="sc-select" id="act-inline-method">' +
-                                '<option value="get">GET</option>' +
-                                '<option value="post">POST</option>' +
-                                '<option value="put" selected>PUT</option>' +
-                                '<option value="delete">DELETE</option>' +
-                            '</select>' +
-                            '<input type="text" class="sc-input" id="act-inline-name" placeholder="e.g. create, updateAddress, archive">' +
-                            '<button class="sc-btn" id="act-inline-fields-btn">Select Fields</button>' +
-                        '</div>' +
+                    '<div style="padding:16px 20px;border-top:1px solid var(--border);">' +
+                        '<button class="sc-btn primary" id="act-new-action-btn" style="width:100%;">New Action</button>' +
                     '</div>' +
                 '</div>';
 
@@ -7806,12 +7848,9 @@
                 });
             });
 
-            // "Select Fields" opens the field picker
-            document.getElementById('act-inline-fields-btn').addEventListener('click', function() {
-                var actionName = document.getElementById('act-inline-name').value.trim();
-                if (!actionName) { showToast('Enter an action name first.', 'warning'); return; }
-                var httpMethod = document.getElementById('act-inline-method').value;
-                showFieldPickerModal(schema, actionName, httpMethod);
+            // "New Action" opens the field picker with method + name built in
+            document.getElementById('act-new-action-btn').addEventListener('click', function() {
+                showFieldPickerModal(schema, '', 'put');
             });
         }
 
@@ -8142,13 +8181,33 @@
                 relHtml += '</div>';
             }
 
+            var isNewAction = !editOptions || !editOptions.isEdit;
+            var headerTitle = isNewAction ? 'New Action' : 'Edit Action: ' + escapeHtml(actionName);
+
             overlay.innerHTML =
                 '<div class="fp-modal">' +
                     '<div class="fp-header">' +
-                        '<span class="fp-header-title">Select Fields for ' + escapeHtml(actionName) + '</span>' +
+                        '<span class="fp-header-title">' + headerTitle + '</span>' +
                         '<button class="fp-close" id="act-fp-close">&times;</button>' +
                     '</div>' +
-                    '<div style="padding:20px;">' +
+                    '<div style="padding:20px;max-height:calc(80vh - 120px);overflow-y:auto;">' +
+                        (isNewAction ? (
+                        '<div style="display:flex;gap:10px;margin-bottom:16px;">' +
+                            '<div style="flex:0 0 auto;">' +
+                                '<label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">HTTP Method</label>' +
+                                '<select class="sc-select" id="act-fp-method">' +
+                                    '<option value="get"' + (httpMethod === 'get' ? ' selected' : '') + '>GET</option>' +
+                                    '<option value="post"' + (httpMethod === 'post' ? ' selected' : '') + '>POST</option>' +
+                                    '<option value="put"' + (httpMethod === 'put' ? ' selected' : '') + '>PUT</option>' +
+                                    '<option value="delete"' + (httpMethod === 'delete' ? ' selected' : '') + '>DELETE</option>' +
+                                '</select>' +
+                            '</div>' +
+                            '<div style="flex:1;">' +
+                                '<label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Action Name</label>' +
+                                '<input type="text" class="sc-input" id="act-fp-name" placeholder="e.g. create, updateAddress, archive" value="' + escapeAttr(actionName) + '">' +
+                            '</div>' +
+                        '</div>'
+                        ) : '') +
                         '<div style="margin-bottom:16px;">' +
                             '<label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px;">Description (optional)</label>' +
                             '<input type="text" id="act-fp-description" placeholder="Brief description of what this action does" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg-secondary);color:var(--text-primary);box-sizing:border-box;">' +
@@ -8358,6 +8417,17 @@
             overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
 
             function getPayload() {
+                // Read action name and method from modal inputs for new actions
+                var currentActionName = actionName;
+                var currentHttpMethod = httpMethod;
+                if (isNewAction) {
+                    var nameInput = overlay.querySelector('#act-fp-name');
+                    currentActionName = nameInput ? nameInput.value.trim() : '';
+                    if (!currentActionName) { showToast('Enter an action name.', 'warning'); nameInput && nameInput.focus(); return null; }
+                    var methodSelect = overlay.querySelector('#act-fp-method');
+                    currentHttpMethod = methodSelect ? methodSelect.value : 'put';
+                }
+
                 var selectedColumns = [];
                 var nullableOverrides = {};
 
@@ -8378,16 +8448,16 @@
                     }
                 });
 
-                if (selectedColumns.length === 0) { showToast('Select at least one field.', 'warning'); return null; }
+                if (selectedColumns.length === 0 && currentHttpMethod !== 'delete') { showToast('Select at least one field.', 'warning'); return null; }
 
                 var descInput = overlay.querySelector('#act-fp-description');
                 var description = descInput ? descInput.value.trim() : '';
 
                 var payload = {
                     schema: schema.class,
-                    actionName: actionName,
+                    actionName: currentActionName,
                     selectedColumns: selectedColumns,
-                    httpMethod: httpMethod,
+                    httpMethod: currentHttpMethod,
                 };
 
                 if (description) {
@@ -8416,8 +8486,15 @@
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
-                    close();
+                    // Don't close the field picker — keep it behind the preview modal
                     showFilePreviewModal(data.files, isEdit ? 'Update Action' : 'Create Action', function() {
+                        // Collect skipped file paths from preview
+                        var skipFiles = data.files.filter(function(f) { return f.skip; }).map(function(f) { return f.path; });
+                        if (skipFiles.length > 0) {
+                            payload.skipFiles = skipFiles;
+                        }
+                        // Close the field picker via event
+                        close();
                         actDoWriteAction(payload, schema, isEdit);
                     });
                 })
@@ -8449,9 +8526,6 @@
                         renderActionsMain();
                         actSelectSchema(schema.class);
                     });
-                    // Also clear the inline form
-                    var nameInput = document.getElementById('act-inline-name');
-                    if (nameInput) nameInput.value = '';
                 } else {
                     showToast(data.message || 'Action creation failed.', 'error');
                 }

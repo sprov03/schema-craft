@@ -319,10 +319,6 @@ class ActionCodeGenerator
 
         $lines[] = "        if (! empty(\${$nested->name})) {";
 
-        if ($nested->sync && $context !== 'create') {
-            $lines[] = "            {$parentVar}->{$nested->name}()->delete();";
-        }
-
         $lines[] = "            {$parentVar}->{$nested->name}()->createMany(";
         $lines[] = "                collect(\${$nested->name})->map(fn (\$item) => {$mapArray})->all()";
         $lines[] = '            );';

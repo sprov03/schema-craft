@@ -5,10 +5,10 @@ namespace SchemaCraft\Attributes\Relations;
 use Attribute;
 
 /**
- * Declares a polymorphic many-to-many relationship. Creates a polymorphic pivot table.
+ * Declares an inverse polymorphic many-to-many relationship. No column created on this table.
  */
 #[Attribute(Attribute::TARGET_PROPERTY)]
-class MorphToMany
+class MorphedByMany
 {
     public function __construct(
         public string $model,
@@ -18,6 +18,5 @@ class MorphToMany
         public ?string $relatedPivotKey = null,
         public ?string $parentKey = null,
         public ?string $relatedKey = null,
-        public bool $inverse = false,
     ) {}
 }

@@ -90,6 +90,12 @@ abstract class Schema
             } else {
                 $rules[$field] = $mapper->createRules($column);
             }
+
+            // Nested rules from SchemaCraftType types (DTOs, etc.)
+            $nested = $mapper->nestedRules($field);
+            if ($nested !== []) {
+                $rules = array_merge($rules, $nested);
+            }
         }
 
         return new RuleSet($rules);

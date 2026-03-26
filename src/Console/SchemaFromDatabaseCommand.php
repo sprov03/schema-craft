@@ -168,6 +168,7 @@ class SchemaFromDatabaseCommand extends Command
                 modelPrefix: $modelPrefix,
                 connection: $emitConnection,
                 pivotExtraColumns: $pivotExtraColumns,
+                explicitForeignKeys: config('schema-craft.explicit_foreign_keys', false),
             );
 
             // Write schema file

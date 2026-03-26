@@ -75,7 +75,7 @@ class ActionFileGeneratorTest extends TestCase
         );
 
         $this->assertStringContainsString('use SchemaCraft\\Attributes\\Actions\\ActionMeta;', $file->content);
-        $this->assertStringContainsString("#[ActionMeta(method: 'put', label: 'Update Post')]", $file->content);
+        $this->assertStringContainsString("#[ActionMeta(method: 'put', label: 'Update')]", $file->content);
     }
 
     public function test_action_has_schema_property(): void
@@ -154,7 +154,7 @@ class ActionFileGeneratorTest extends TestCase
         $this->assertStringContainsString('public User $author;', $file->content);
         $this->assertStringContainsString('#[BelongsTo(Category::class)]', $file->content);
         $this->assertStringContainsString('public ?Category $category;', $file->content);
-        $this->assertStringContainsString("#[ActionMeta(method: 'post', label: 'Create Post')]", $file->content);
+        $this->assertStringContainsString("#[ActionMeta(method: 'post', label: 'Create')]", $file->content);
     }
 
     public function test_action_boolean_field_has_default(): void
@@ -183,7 +183,7 @@ class ActionFileGeneratorTest extends TestCase
 
         $this->assertStringContainsString('/** @param Post $post */', $file->content);
         $this->assertStringContainsString('public function run(mixed $post, array $mapped): Post', $file->content);
-        $this->assertStringContainsString('return $post->Service()->updatePost(...$mapped);', $file->content);
+        $this->assertStringContainsString('return $post->Service()->update(...$mapped);', $file->content);
     }
 
     public function test_action_has_run_method_for_post(): void
@@ -200,7 +200,7 @@ class ActionFileGeneratorTest extends TestCase
 
         $this->assertStringContainsString('/** @param Post $post */', $file->content);
         $this->assertStringContainsString('public function run(mixed $post, array $mapped): Post', $file->content);
-        $this->assertStringContainsString('return PostService::createPost(...$mapped);', $file->content);
+        $this->assertStringContainsString('return PostService::create(...$mapped);', $file->content);
         $this->assertStringContainsString('use App\\Models\\Services\\PostService;', $file->content);
     }
 
@@ -217,7 +217,7 @@ class ActionFileGeneratorTest extends TestCase
 
         $this->assertStringContainsString('/** @param Post $post */', $file->content);
         $this->assertStringContainsString('public function run(mixed $post, array $mapped): Post', $file->content);
-        $this->assertStringContainsString('$post->Service()->deletePost();', $file->content);
+        $this->assertStringContainsString('$post->Service()->delete();', $file->content);
         $this->assertStringContainsString('return null;', $file->content);
     }
 
@@ -234,7 +234,7 @@ class ActionFileGeneratorTest extends TestCase
 
         $this->assertStringContainsString('/** @param Post $post */', $file->content);
         $this->assertStringContainsString('public function run(mixed $post, array $mapped): Post', $file->content);
-        $this->assertStringContainsString('return $post->Service()->showPost();', $file->content);
+        $this->assertStringContainsString('return $post->Service()->show();', $file->content);
     }
 
     public function test_action_imports_model_class(): void
@@ -351,7 +351,7 @@ class ActionFileGeneratorTest extends TestCase
 
     // ─── Nested Relationship Properties ─────────────────────────
 
-    public function test_action_with_has_many_nested_fields(): void
+    public function test_action_with_has_many_generates_action_schema(): void
     {
         $file = $this->generator->generateAction(
             actionName: 'update',
@@ -362,12 +362,29 @@ class ActionFileGeneratorTest extends TestCase
         );
 
         $this->assertStringContainsString('use SchemaCraft\\Attributes\\Relations\\HasMany;', $file->content);
-        $this->assertStringContainsString('use SchemaCraft\\Tests\\Fixtures\\Models\\Comment;', $file->content);
-        $this->assertStringContainsString("#[HasMany(Comment::class, fields: ['body'])]", $file->content);
-        $this->assertStringContainsString('public array $comments = [];', $file->content);
+        $this->assertStringContainsString('use Illuminate\\Support\\Collection;', $file->content);
+        $this->assertStringContainsString('use SchemaCraft\\DataSchema;', $file->content);
+        $this->assertStringContainsString('#[HasMany(UpdatePostCommentsDataSchema::class)]', $file->content);
+        $this->assertStringContainsString('/** @var Collection<int, UpdatePostCommentsDataSchema> */', $file->content);
+        $this->assertStringContainsString('public Collection $comments;', $file->content);
     }
 
-    public function test_action_with_belongs_to_many_nested_fields(): void
+    public function test_action_schema_class_generated_with_properties(): void
+    {
+        $file = $this->generator->generateAction(
+            actionName: 'update',
+            schemaClass: PostSchema::class,
+            selectedColumns: ['title', 'comments.*.body'],
+            actionNamespace: 'App\\Models\\Actions\\Post',
+            schemaNamespace: 'SchemaCraft\\Tests\\Fixtures\\Schemas',
+        );
+
+        $this->assertStringContainsString('class UpdatePostCommentsDataSchema extends DataSchema', $file->content);
+        $this->assertStringContainsString('protected static string $schema = CommentSchema::class;', $file->content);
+        $this->assertStringContainsString('public string $body;', $file->content);
+    }
+
+    public function test_action_with_belongs_to_many_generates_action_schema(): void
     {
         $file = $this->generator->generateAction(
             actionName: 'update',
@@ -378,9 +395,15 @@ class ActionFileGeneratorTest extends TestCase
         );
 
         $this->assertStringContainsString('use SchemaCraft\\Attributes\\Relations\\BelongsToMany;', $file->content);
-        $this->assertStringContainsString('use SchemaCraft\\Tests\\Fixtures\\Models\\Tag;', $file->content);
-        $this->assertStringContainsString("#[BelongsToMany(Tag::class, fields: ['name', 'slug'])]", $file->content);
-        $this->assertStringContainsString('public array $tags = [];', $file->content);
+        $this->assertStringContainsString('#[BelongsToMany(UpdatePostTagsDataSchema::class)]', $file->content);
+        $this->assertStringContainsString('/** @var Collection<int, UpdatePostTagsDataSchema> */', $file->content);
+        $this->assertStringContainsString('public Collection $tags;', $file->content);
+
+        // DataSchema class
+        $this->assertStringContainsString('class UpdatePostTagsDataSchema extends DataSchema', $file->content);
+        $this->assertStringContainsString('protected static string $schema = TagSchema::class;', $file->content);
+        $this->assertStringContainsString('public string $name;', $file->content);
+        $this->assertStringContainsString('public string $slug;', $file->content);
     }
 
     public function test_action_with_mixed_flat_and_nested(): void
@@ -398,12 +421,26 @@ class ActionFileGeneratorTest extends TestCase
         $this->assertStringContainsString('#[BelongsTo(User::class)]', $file->content);
         $this->assertStringContainsString('public User $author;', $file->content);
 
-        // Nested property
-        $this->assertStringContainsString("#[HasMany(Comment::class, fields: ['body'])]", $file->content);
-        $this->assertStringContainsString('public array $comments = [];', $file->content);
+        // Nested property using DataSchema
+        $this->assertStringContainsString('#[HasMany(UpdatePostCommentsDataSchema::class)]', $file->content);
+        $this->assertStringContainsString('public Collection $comments;', $file->content);
     }
 
-    public function test_action_with_morph_many_nested_fields(): void
+    public function test_action_schema_imports_related_schema(): void
+    {
+        $file = $this->generator->generateAction(
+            actionName: 'update',
+            schemaClass: PostSchema::class,
+            selectedColumns: ['title', 'comments.*.body'],
+            actionNamespace: 'App\\Models\\Actions\\Post',
+            schemaNamespace: 'SchemaCraft\\Tests\\Fixtures\\Schemas',
+        );
+
+        // The DataSchema references CommentSchema, so it must be imported
+        $this->assertStringContainsString('use SchemaCraft\\Tests\\Fixtures\\Schemas\\CommentSchema;', $file->content);
+    }
+
+    public function test_action_with_morph_many_generates_action_schema(): void
     {
         $file = $this->generator->generateAction(
             actionName: 'update',
@@ -414,8 +451,11 @@ class ActionFileGeneratorTest extends TestCase
         );
 
         $this->assertStringContainsString('use SchemaCraft\\Attributes\\Relations\\MorphMany;', $file->content);
-        $this->assertStringContainsString("#[MorphMany(Comment::class, 'commentable', fields: ['body'])]", $file->content);
-        $this->assertStringContainsString('public array $morphComments = [];', $file->content);
+        $this->assertStringContainsString("#[MorphMany(UpdatePostMorphCommentsDataSchema::class, 'commentable')]", $file->content);
+        $this->assertStringContainsString('public Collection $morphComments;', $file->content);
+
+        // DataSchema class
+        $this->assertStringContainsString('class UpdatePostMorphCommentsDataSchema extends DataSchema', $file->content);
     }
 
     public function test_registry_no_excessive_blank_lines(): void

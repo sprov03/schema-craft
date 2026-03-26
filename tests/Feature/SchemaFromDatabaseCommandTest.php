@@ -241,8 +241,8 @@ class SchemaFromDatabaseCommandTest extends TestCase
         // Both FKs point to owners, so HasMany should have unique names
         $this->assertStringContainsString('$ownerAnimals', $ownerSchema);
         $this->assertStringContainsString('$adoptedByAnimals', $ownerSchema);
-        $this->assertStringContainsString("#[ForeignColumn('owner_id')]", $ownerSchema);
-        $this->assertStringContainsString("#[ForeignColumn('adopted_by_id')]", $ownerSchema);
+        $this->assertStringContainsString("#[HasMany(Animal::class, foreignKey: 'owner_id')]", $ownerSchema);
+        $this->assertStringContainsString("#[HasMany(Animal::class, foreignKey: 'adopted_by_id')]", $ownerSchema);
     }
 
     public function test_self_referencing_has_many_in_full_flow(): void

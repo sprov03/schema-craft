@@ -13,5 +13,8 @@ class MorphTo
 {
     public function __construct(
         public string $morphName,
+        public ?string $type = null,
+        public ?string $id = null,
+        public ?string $ownerKey = null,
     ) {}
 }

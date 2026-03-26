@@ -3,12 +3,14 @@
 namespace SchemaCraft\Scanner;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionProperty;
 use SchemaCraft\Action;
 use SchemaCraft\Attributes\Actions\ActionMeta;
+use SchemaCraft\Attributes\Pivot;
 use SchemaCraft\Attributes\Relations\BelongsTo;
 use SchemaCraft\Attributes\Relations\BelongsToMany;
 use SchemaCraft\Attributes\Relations\HasMany;
@@ -18,6 +20,7 @@ use SchemaCraft\Attributes\Relations\MorphOne;
 use SchemaCraft\Attributes\Relations\MorphTo;
 use SchemaCraft\Attributes\Relations\MorphToMany;
 use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\DataSchema;
 use SchemaCraft\Schema;
 
 /**
@@ -130,7 +133,8 @@ class ActionScanner
                 continue;
             }
 
-            if ($prop->getDeclaringClass()->getName() === Action::class) {
+            $declaringClass = $prop->getDeclaringClass()->getName();
+            if ($declaringClass === Action::class || $declaringClass === DataSchema::class) {
                 continue;
             }
 
@@ -191,16 +195,17 @@ class ActionScanner
         // Check singular relationship types
         foreach (self::SINGULAR_TYPES as $relType => $attrClass) {
             $attr = $this->getAttribute($prop, $attrClass);
-            if ($attr !== null && ! empty($attr->fields)) {
-                return $this->buildNestedRelationshipParameter(
+            if ($attr === null) {
+                continue;
+            }
+
+            if ($this->isDataSchemaClass($attr->model)) {
+                return $this->buildDataSchemaParameter(
                     propName: $propName,
                     relationshipType: $relType,
-                    relatedModel: $attr->model,
+                    dataSchemaClass: $attr->model,
                     nullable: $nullable,
                     isCollection: false,
-                    fields: $attr->fields,
-                    pivotFields: [],
-                    sync: false,
                     morphName: property_exists($attr, 'morphName') ? $attr->morphName : null,
                     hasDefault: $hasDefault,
                     default: $default,
@@ -211,16 +216,17 @@ class ActionScanner
         // Check collection relationship types
         foreach (self::COLLECTION_TYPES as $relType => $attrClass) {
             $attr = $this->getAttribute($prop, $attrClass);
-            if ($attr !== null && ! empty($attr->fields)) {
-                return $this->buildNestedRelationshipParameter(
+            if ($attr === null) {
+                continue;
+            }
+
+            if ($this->isDataSchemaClass($attr->model)) {
+                return $this->buildDataSchemaParameter(
                     propName: $propName,
                     relationshipType: $relType,
-                    relatedModel: $attr->model,
+                    dataSchemaClass: $attr->model,
                     nullable: $nullable,
                     isCollection: true,
-                    fields: $attr->fields,
-                    pivotFields: property_exists($attr, 'pivotFields') ? $attr->pivotFields : [],
-                    sync: property_exists($attr, 'sync') ? $attr->sync : false,
                     morphName: property_exists($attr, 'morphName') ? $attr->morphName : null,
                     hasDefault: $hasDefault,
                     default: $default,
@@ -228,18 +234,15 @@ class ActionScanner
             }
         }
 
-        // Check BelongsTo with fields (create-related pattern)
+        // Check BelongsTo with DataSchema
         $belongsTo = $this->getAttribute($prop, BelongsTo::class);
-        if ($belongsTo !== null && ! empty($belongsTo->fields)) {
-            return $this->buildNestedRelationshipParameter(
+        if ($belongsTo !== null && $this->isDataSchemaClass($belongsTo->model)) {
+            return $this->buildDataSchemaParameter(
                 propName: $propName,
                 relationshipType: 'belongsTo',
-                relatedModel: $belongsTo->model,
+                dataSchemaClass: $belongsTo->model,
                 nullable: $nullable,
                 isCollection: false,
-                fields: $belongsTo->fields,
-                pivotFields: [],
-                sync: false,
                 morphName: null,
                 hasDefault: $hasDefault,
                 default: $default,
@@ -247,6 +250,263 @@ class ActionScanner
         }
 
         return null;
+    }
+
+    /**
+     * Check if a class is an DataSchema subclass.
+     */
+    private function isDataSchemaClass(string $class): bool
+    {
+        return class_exists($class) && is_subclass_of($class, DataSchema::class, true);
+    }
+
+    /**
+     * Build a nested relationship parameter from an DataSchema class.
+     *
+     * Scans the DataSchema's typed properties to build field definitions,
+     * detects #[Pivot] attributes, and recurses for deep nesting.
+     */
+    private function buildDataSchemaParameter(
+        string $propName,
+        string $relationshipType,
+        string $dataSchemaClass,
+        bool $nullable,
+        bool $isCollection,
+        ?string $morphName,
+        bool $hasDefault,
+        mixed $default,
+    ): ActionParameter {
+        // Resolve the related model from the DataSchema's $schema property
+        $schemaClass = $dataSchemaClass::schema();
+        $relatedModel = '';
+        $relatedSchemaClass = $schemaClass;
+
+        if ($schemaClass !== null) {
+            // Resolve model class from schema class name (ContactSchema → Contact)
+            $modelBaseName = Str::beforeLast(class_basename($schemaClass), 'Schema');
+            $schemaNamespace = (new ReflectionClass($schemaClass))->getNamespaceName();
+            $modelNamespace = preg_replace('/\\\\Schemas(\\\\|$)/', '\\Models$1', $schemaNamespace, 1);
+            $relatedModel = $modelNamespace.'\\'.$modelBaseName;
+        }
+
+        // Scan the DataSchema's properties
+        [$fields, $pivotFields, $nestedRelationships] = $this->scanDataSchemaProperties(
+            $dataSchemaClass,
+            $propName,
+            $relatedSchemaClass,
+        );
+
+        $nested = new NestedRelationshipParameter(
+            name: $propName,
+            relationshipType: $relationshipType,
+            relatedModel: $relatedModel,
+            nullable: $nullable,
+            isCollection: $isCollection,
+            fields: $fields,
+            pivotFields: $pivotFields,
+            morphName: $morphName,
+            relatedSchemaClass: $relatedSchemaClass,
+            nestedRelationships: $nestedRelationships,
+            dataSchemaClass: $dataSchemaClass,
+        );
+
+        return new ActionParameter(
+            name: $propName,
+            type: 'array',
+            nullable: $nullable,
+            hasDefault: $hasDefault,
+            default: $default,
+            isModel: false,
+            isNestedRelationship: true,
+            nestedRelationship: $nested,
+        );
+    }
+
+    /**
+     * Scan an DataSchema class's typed properties to extract field definitions,
+     * pivot fields, and nested sub-relationships.
+     *
+     * @return array{0: NestedFieldDefinition[], 1: string[], 2: NestedRelationshipParameter[]}
+     */
+    private function scanDataSchemaProperties(
+        string $dataSchemaClass,
+        string $pathPrefix,
+        ?string $relatedSchemaClass,
+    ): array {
+        $fields = [];
+        $pivotFields = [];
+        $nestedRelationships = [];
+
+        // Try to scan the related schema for column type info
+        $table = null;
+        if ($relatedSchemaClass !== null) {
+            try {
+                $scanner = new SchemaScanner($relatedSchemaClass);
+                $table = $scanner->scan();
+            } catch (\Throwable) {
+                // Schema can't be scanned — will fall back to PHP types
+            }
+        }
+
+        $ref = new ReflectionClass($dataSchemaClass);
+
+        foreach ($ref->getProperties(ReflectionProperty::IS_PUBLIC) as $prop) {
+            if ($prop->isStatic()) {
+                continue;
+            }
+
+            $declaringClass = $prop->getDeclaringClass()->getName();
+            if ($declaringClass === DataSchema::class) {
+                continue;
+            }
+
+            $type = $prop->getType();
+            if (! $type instanceof ReflectionNamedType) {
+                continue;
+            }
+
+            $propTypeName = $type->getName();
+            $propNullable = $type->allowsNull();
+            $propName = $prop->getName();
+            $columnName = Str::snake($propName);
+
+            // Check if this is a pivot field
+            $isPivot = ! empty($prop->getAttributes(Pivot::class));
+            if ($isPivot) {
+                $pivotFields[] = $columnName;
+
+                continue;
+            }
+
+            // Check for nested sub-relationships (DataSchema within DataSchema)
+            $subNestedParam = $this->tryBuildSubNestedFromDataSchema($prop, $propNullable, $pathPrefix);
+            if ($subNestedParam !== null) {
+                $nestedRelationships[] = $subNestedParam;
+
+                continue;
+            }
+
+            // Regular field — resolve type from schema column if available
+            $phpType = $this->phpTypeFromReflection($propTypeName);
+            $columnType = null;
+
+            if ($table !== null) {
+                $column = $this->findColumn($table, $columnName);
+                if ($column !== null) {
+                    $phpType = $this->columnTypeToPhpType($column->columnType);
+                    $columnType = $column->columnType;
+                    $propNullable = $column->nullable;
+                }
+            }
+
+            $fields[] = new NestedFieldDefinition(
+                name: $columnName,
+                dotPath: $pathPrefix.'.'.$columnName,
+                type: $phpType,
+                nullable: $propNullable,
+                columnType: $columnType,
+            );
+        }
+
+        return [$fields, $pivotFields, $nestedRelationships];
+    }
+
+    /**
+     * Try to build a sub-nested relationship parameter from an DataSchema property.
+     */
+    private function tryBuildSubNestedFromDataSchema(
+        ReflectionProperty $prop,
+        bool $nullable,
+        string $parentPrefix,
+    ): ?NestedRelationshipParameter {
+        $propName = $prop->getName();
+        $subPath = $parentPrefix.'.'.$propName;
+
+        // Check all relationship types for DataSchema targets
+        foreach (self::SINGULAR_TYPES as $relType => $attrClass) {
+            $attr = $this->getAttribute($prop, $attrClass);
+            if ($attr !== null && $this->isDataSchemaClass($attr->model)) {
+                $subSchemaClass = $attr->model::schema();
+                [$subFields, $subPivotFields, $subNested] = $this->scanDataSchemaProperties(
+                    $attr->model, $subPath, $subSchemaClass,
+                );
+
+                $subRelatedModel = $this->resolveModelFromSchemaClass($subSchemaClass);
+
+                return new NestedRelationshipParameter(
+                    name: $propName,
+                    relationshipType: $relType,
+                    relatedModel: $subRelatedModel,
+                    nullable: $nullable,
+                    isCollection: false,
+                    fields: $subFields,
+                    pivotFields: $subPivotFields,
+                    morphName: property_exists($attr, 'morphName') ? $attr->morphName : null,
+                    relatedSchemaClass: $subSchemaClass,
+                    nestedRelationships: $subNested,
+                    dataSchemaClass: $attr->model,
+                );
+            }
+        }
+
+        foreach (self::COLLECTION_TYPES as $relType => $attrClass) {
+            $attr = $this->getAttribute($prop, $attrClass);
+            if ($attr !== null && $this->isDataSchemaClass($attr->model)) {
+                $subSchemaClass = $attr->model::schema();
+                [$subFields, $subPivotFields, $subNested] = $this->scanDataSchemaProperties(
+                    $attr->model, $subPath, $subSchemaClass,
+                );
+
+                $subRelatedModel = $this->resolveModelFromSchemaClass($subSchemaClass);
+
+                return new NestedRelationshipParameter(
+                    name: $propName,
+                    relationshipType: $relType,
+                    relatedModel: $subRelatedModel,
+                    nullable: $nullable,
+                    isCollection: true,
+                    fields: $subFields,
+                    pivotFields: $subPivotFields,
+                    morphName: property_exists($attr, 'morphName') ? $attr->morphName : null,
+                    relatedSchemaClass: $subSchemaClass,
+                    nestedRelationships: $subNested,
+                    dataSchemaClass: $attr->model,
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve a model FQCN from a Schema class.
+     */
+    private function resolveModelFromSchemaClass(?string $schemaClass): string
+    {
+        if ($schemaClass === null) {
+            return '';
+        }
+
+        $modelBaseName = Str::beforeLast(class_basename($schemaClass), 'Schema');
+        $schemaNamespace = (new ReflectionClass($schemaClass))->getNamespaceName();
+        $modelNamespace = preg_replace('/\\\\Schemas(\\\\|$)/', '\\Models$1', $schemaNamespace, 1);
+
+        return $modelNamespace.'\\'.$modelBaseName;
+    }
+
+    /**
+     * Convert a PHP reflection type name to a simple PHP type.
+     */
+    private function phpTypeFromReflection(string $typeName): string
+    {
+        return match ($typeName) {
+            'int' => 'int',
+            'float' => 'float',
+            'bool' => 'bool',
+            'array' => 'array',
+            'string' => 'string',
+            default => 'mixed',
+        };
     }
 
     private function buildNestedRelationshipParameter(
@@ -257,7 +517,6 @@ class ActionScanner
         bool $isCollection,
         array $fields,
         array $pivotFields,
-        bool $sync,
         ?string $morphName,
         bool $hasDefault,
         mixed $default,
@@ -300,7 +559,6 @@ class ActionScanner
             isCollection: $isCollection,
             fields: $resolvedFields,
             pivotFields: $pivotFields,
-            sync: $sync,
             morphName: $morphName,
             relatedSchemaClass: $relatedSchemaClass,
             nestedRelationships: $nestedRelationships,
@@ -427,7 +685,6 @@ class ActionScanner
                 isCollection: $isCollection,
                 fields: $subResolvedFields,
                 pivotFields: [],
-                sync: false,
                 morphName: $rel->morphName ?? null,
                 relatedSchemaClass: $subSchemaClass,
                 nestedRelationships: $subNested,

@@ -388,7 +388,11 @@ class SchemaContentRenderer
     private function buildBelongsToProperty(EditorRelationship $rel, string $modelNamespace, array &$imports): GeneratedProperty
     {
         $relatedBaseName = class_basename($rel->relatedModel);
-        $attributes = ["#[BelongsTo({$relatedBaseName}::class)]"];
+        if ($rel->foreignColumn !== null) {
+            $attributes = ["#[BelongsTo({$relatedBaseName}::class, foreignKey: '{$rel->foreignColumn}')]"];
+        } else {
+            $attributes = ["#[BelongsTo({$relatedBaseName}::class)]"];
+        }
         $imports[] = 'SchemaCraft\\Attributes\\Relations\\BelongsTo';
         $imports[] = $rel->relatedModel;
 
@@ -400,11 +404,6 @@ class SchemaContentRenderer
         if ($rel->onUpdate !== null) {
             $attributes[] = "#[OnUpdate('{$rel->onUpdate}')]";
             $imports[] = 'SchemaCraft\\Attributes\\OnUpdate';
-        }
-
-        if ($rel->foreignColumn !== null) {
-            $attributes[] = "#[ForeignColumn('{$rel->foreignColumn}')]";
-            $imports[] = 'SchemaCraft\\Attributes\\ForeignColumn';
         }
 
         if ($rel->noConstraint) {
@@ -444,14 +443,13 @@ class SchemaContentRenderer
     private function buildHasOneProperty(EditorRelationship $rel, string $modelNamespace, array &$imports): GeneratedProperty
     {
         $relatedBaseName = class_basename($rel->relatedModel);
-        $attributes = ["#[HasOne({$relatedBaseName}::class)]"];
+        if ($rel->foreignColumn !== null) {
+            $attributes = ["#[HasOne({$relatedBaseName}::class, foreignKey: '{$rel->foreignColumn}')]"];
+        } else {
+            $attributes = ["#[HasOne({$relatedBaseName}::class)]"];
+        }
         $imports[] = 'SchemaCraft\\Attributes\\Relations\\HasOne';
         $imports[] = $rel->relatedModel;
-
-        if ($rel->foreignColumn !== null) {
-            $attributes[] = "#[ForeignColumn('{$rel->foreignColumn}')]";
-            $imports[] = 'SchemaCraft\\Attributes\\ForeignColumn';
-        }
 
         if ($rel->with) {
             $attributes[] = '#[With]';
@@ -475,15 +473,14 @@ class SchemaContentRenderer
     private function buildHasManyProperty(EditorRelationship $rel, string $modelNamespace, array &$imports): GeneratedProperty
     {
         $relatedBaseName = class_basename($rel->relatedModel);
-        $attributes = ["#[HasMany({$relatedBaseName}::class)]"];
+        if ($rel->foreignColumn !== null) {
+            $attributes = ["#[HasMany({$relatedBaseName}::class, foreignKey: '{$rel->foreignColumn}')]"];
+        } else {
+            $attributes = ["#[HasMany({$relatedBaseName}::class)]"];
+        }
         $imports[] = 'SchemaCraft\\Attributes\\Relations\\HasMany';
         $imports[] = $rel->relatedModel;
         $imports[] = 'Illuminate\\Database\\Eloquent\\Collection';
-
-        if ($rel->foreignColumn !== null) {
-            $attributes[] = "#[ForeignColumn('{$rel->foreignColumn}')]";
-            $imports[] = 'SchemaCraft\\Attributes\\ForeignColumn';
-        }
 
         if ($rel->with) {
             $attributes[] = '#[With]';
@@ -507,15 +504,14 @@ class SchemaContentRenderer
     private function buildBelongsToManyProperty(EditorRelationship $rel, string $modelNamespace, array &$imports): GeneratedProperty
     {
         $relatedBaseName = class_basename($rel->relatedModel);
-        $attributes = ["#[BelongsToMany({$relatedBaseName}::class)]"];
+        if ($rel->pivotTable !== null) {
+            $attributes = ["#[BelongsToMany({$relatedBaseName}::class, table: '{$rel->pivotTable}')]"];
+        } else {
+            $attributes = ["#[BelongsToMany({$relatedBaseName}::class)]"];
+        }
         $imports[] = 'SchemaCraft\\Attributes\\Relations\\BelongsToMany';
         $imports[] = $rel->relatedModel;
         $imports[] = 'Illuminate\\Database\\Eloquent\\Collection';
-
-        if ($rel->pivotTable !== null) {
-            $attributes[] = "#[PivotTable('{$rel->pivotTable}')]";
-            $imports[] = 'SchemaCraft\\Attributes\\PivotTable';
-        }
 
         if ($rel->pivotColumns !== null && count($rel->pivotColumns) > 0) {
             $colPairs = [];

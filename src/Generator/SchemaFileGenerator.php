@@ -48,6 +48,7 @@ class SchemaFileGenerator
         array $pivotModelNames = [],
         bool $isPivotModel = false,
         array $pivotExtraColumns = [],
+        bool $explicitForeignKeys = false,
     ): GeneratedSchemaResult {
         $baseModelName = $this->resolveModelName($table->tableName);
         $modelName = $modelPrefix.$baseModelName;
@@ -69,11 +70,13 @@ class SchemaFileGenerator
             $skipColumns = array_merge($skipColumns, self::SOFT_DELETE_COLUMNS);
         }
 
-        // Collect FK column names so they are skipped from regular column generation.
-        // All FK columns are now handled via BelongsTo (with #[ColumnType] for non-standard types).
+        // Collect FK column names so they are skipped from regular column generation
+        // (unless explicit_foreign_keys mode is enabled).
         $fkColumnNames = [];
-        foreach ($table->foreignKeys as $fk) {
-            $fkColumnNames[] = $fk->column;
+        if (! $explicitForeignKeys) {
+            foreach ($table->foreignKeys as $fk) {
+                $fkColumnNames[] = $fk->column;
+            }
         }
 
         // Also detect MorphTo column pairs and skip both columns
@@ -209,9 +212,16 @@ class SchemaFileGenerator
             // Solution: rename relationship `$status` → `$statusRelation` with #[ForeignColumn('status_id')]
             if (isset($columnPropertyNames[$prop->name])) {
                 $newName = $prop->name.'Relation';
-                $attrs = $prop->attributes;
-                $attrs[] = "#[ForeignColumn('{$fk->column}')]";
-                $imports[] = 'SchemaCraft\\Attributes\\ForeignColumn';
+                // Replace the BelongsTo attribute with one that includes foreignKey:
+                $attrs = [];
+                foreach ($prop->attributes as $attr) {
+                    if (str_starts_with($attr, '#[BelongsTo(')) {
+                        $relModel = $modelPrefix.$this->resolveModelName($fk->foreignTable);
+                        $attrs[] = "#[BelongsTo({$relModel}::class, foreignKey: '{$fk->column}')]";
+                    } else {
+                        $attrs[] = $attr;
+                    }
+                }
 
                 $prop = new GeneratedProperty(
                     name: $newName,
@@ -296,10 +306,8 @@ class SchemaFileGenerator
                 if ($hasCollision) {
                     $propertyName = $this->fkColumnToHasManyName($entry['fkColumn'], $entry['relatedModel']);
                     $attrs = [
-                        "#[HasMany({$entry['relatedModel']}::class)]",
-                        "#[ForeignColumn('{$entry['fkColumn']}')]",
+                        "#[HasMany({$entry['relatedModel']}::class, foreignKey: '{$entry['fkColumn']}')]",
                     ];
-                    $imports[] = 'SchemaCraft\\Attributes\\ForeignColumn';
                 } else {
                     $propertyName = Str::camel(Str::plural($entry['relatedModel']));
                     $attrs = ["#[HasMany({$entry['relatedModel']}::class)]"];
@@ -335,13 +343,12 @@ class SchemaFileGenerator
                 $propertyName = $propertyName.'Pivot';
             }
 
-            $attrs = ["#[BelongsToMany({$relatedModel}::class)]"];
-
-            // Add PivotTable attribute if the name doesn't follow convention
+            // Build BelongsToMany attribute with optional table param
             $expectedPivot = $this->expectedPivotTableName($table->tableName, $relatedTable);
             if ($pivotTableName !== $expectedPivot) {
-                $attrs[] = "#[PivotTable('{$pivotTableName}')]";
-                $imports[] = 'SchemaCraft\\Attributes\\PivotTable';
+                $attrs = ["#[BelongsToMany({$relatedModel}::class, table: '{$pivotTableName}')]"];
+            } else {
+                $attrs = ["#[BelongsToMany({$relatedModel}::class)]"];
             }
 
             // Add UsingPivot attribute if a pivot model exists for this pivot table
@@ -631,7 +638,13 @@ class SchemaFileGenerator
         $fkColumn = $table->getColumn($fk->column);
         $nullable = $fkColumn !== null && $fkColumn->nullable;
 
-        $attributes = ["#[BelongsTo({$relatedModel}::class)]"];
+        // Build BelongsTo attribute with optional foreignKey param
+        $conventionFkColumn = Str::snake($propertyName).'_id';
+        if ($conventionFkColumn !== $fk->column) {
+            $attributes = ["#[BelongsTo({$relatedModel}::class, foreignKey: '{$fk->column}')]"];
+        } else {
+            $attributes = ["#[BelongsTo({$relatedModel}::class)]"];
+        }
 
         // OnDelete
         if ($fk->onDelete !== 'no action' && $fk->onDelete !== 'restrict') {
@@ -641,12 +654,6 @@ class SchemaFileGenerator
         // OnUpdate
         if ($fk->onUpdate !== 'no action' && $fk->onUpdate !== 'restrict') {
             $attributes[] = "#[OnUpdate('{$fk->onUpdate}')]";
-        }
-
-        // If the FK column name doesn't match convention, add explicit ForeignColumn
-        $conventionFkColumn = Str::snake($propertyName).'_id';
-        if ($conventionFkColumn !== $fk->column) {
-            $attributes[] = "#[ForeignColumn('{$fk->column}')]";
         }
 
         // Add #[Index] only if the FK column has a standalone single-column index in the DB.
@@ -1271,7 +1278,7 @@ class SchemaFileGenerator
         if ($prop->phpType === 'Collection') {
             // Extract model name from the HasMany/BelongsToMany attribute
             foreach ($prop->attributes as $attr) {
-                if (preg_match('/\[(?:HasMany|BelongsToMany|MorphMany|MorphToMany)\((\w+)::class\)/', $attr, $matches)) {
+                if (preg_match('/\[(?:HasMany|BelongsToMany|MorphMany|MorphToMany)\((\w+)::class/', $attr, $matches)) {
                     return $matches[1];
                 }
             }

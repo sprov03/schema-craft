@@ -10,12 +10,11 @@ use Attribute;
 #[Attribute(Attribute::TARGET_PROPERTY)]
 class MorphOne
 {
-    /**
-     * @param  string[]  $fields  Fields to include from the related model (for nested Action data).
-     */
     public function __construct(
         public string $model,
         public string $morphName,
-        public array $fields = [],
+        public ?string $type = null,
+        public ?string $id = null,
+        public ?string $localKey = null,
     ) {}
 }

@@ -7,10 +7,9 @@ use SchemaCraft\Scanner\ActionScanner;
 use SchemaCraft\Tests\Fixtures\Actions\Post\CreatePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\DeletePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostAction;
-use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostWithRelationsAction;
+use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostWithDataSchemaAction;
 use SchemaCraft\Tests\Fixtures\Models\Category;
 use SchemaCraft\Tests\Fixtures\Models\Comment;
-use SchemaCraft\Tests\Fixtures\Models\Tag;
 use SchemaCraft\Tests\Fixtures\Models\User;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 
@@ -172,101 +171,6 @@ class ActionScannerTest extends TestCase
 
     // --- Nested Relationship Scanning Tests ---
 
-    public function test_scan_discovers_has_many_with_fields_as_nested(): void
-    {
-        $scanner = new ActionScanner(UpdatePostWithRelationsAction::class);
-        $definition = $scanner->scan();
-
-        $commentsParam = $this->findParam($definition->parameters, 'comments');
-
-        $this->assertNotNull($commentsParam);
-        $this->assertTrue($commentsParam->isNestedRelationship);
-        $this->assertFalse($commentsParam->isModel);
-        $this->assertSame('array', $commentsParam->type);
-        $this->assertNotNull($commentsParam->nestedRelationship);
-        $this->assertSame('hasMany', $commentsParam->nestedRelationship->relationshipType);
-        $this->assertSame(Comment::class, $commentsParam->nestedRelationship->relatedModel);
-        $this->assertTrue($commentsParam->nestedRelationship->isCollection);
-    }
-
-    public function test_scan_discovers_belongs_to_many_with_fields_as_nested(): void
-    {
-        $scanner = new ActionScanner(UpdatePostWithRelationsAction::class);
-        $definition = $scanner->scan();
-
-        $tagsParam = $this->findParam($definition->parameters, 'tags');
-
-        $this->assertNotNull($tagsParam);
-        $this->assertTrue($tagsParam->isNestedRelationship);
-        $this->assertNotNull($tagsParam->nestedRelationship);
-        $this->assertSame('belongsToMany', $tagsParam->nestedRelationship->relationshipType);
-        $this->assertSame(Tag::class, $tagsParam->nestedRelationship->relatedModel);
-        $this->assertTrue($tagsParam->nestedRelationship->isCollection);
-        $this->assertTrue($tagsParam->nestedRelationship->sync);
-    }
-
-    public function test_nested_has_many_resolves_field_definitions(): void
-    {
-        $scanner = new ActionScanner(UpdatePostWithRelationsAction::class);
-        $definition = $scanner->scan();
-
-        $commentsParam = $this->findParam($definition->parameters, 'comments');
-        $nested = $commentsParam->nestedRelationship;
-
-        $this->assertCount(1, $nested->fields);
-        $this->assertSame('body', $nested->fields[0]->name);
-        $this->assertSame('comments.body', $nested->fields[0]->dotPath);
-        $this->assertSame('string', $nested->fields[0]->type);
-    }
-
-    public function test_nested_belongs_to_many_resolves_field_definitions(): void
-    {
-        $scanner = new ActionScanner(UpdatePostWithRelationsAction::class);
-        $definition = $scanner->scan();
-
-        $tagsParam = $this->findParam($definition->parameters, 'tags');
-        $nested = $tagsParam->nestedRelationship;
-
-        $this->assertCount(1, $nested->fields);
-        $this->assertSame('name', $nested->fields[0]->name);
-        $this->assertSame('tags.name', $nested->fields[0]->dotPath);
-        $this->assertSame('string', $nested->fields[0]->type);
-    }
-
-    public function test_nested_parameters_helper_filters_correctly(): void
-    {
-        $scanner = new ActionScanner(UpdatePostWithRelationsAction::class);
-        $definition = $scanner->scan();
-
-        $nestedParams = $definition->nestedParameters();
-        $flatParams = $definition->flatParameters();
-
-        $this->assertCount(2, $nestedParams); // comments, tags
-        $this->assertCount(2, $flatParams); // title, author
-    }
-
-    public function test_belongs_to_without_fields_stays_as_model_param(): void
-    {
-        $scanner = new ActionScanner(UpdatePostWithRelationsAction::class);
-        $definition = $scanner->scan();
-
-        $authorParam = $this->findParam($definition->parameters, 'author');
-
-        $this->assertNotNull($authorParam);
-        $this->assertTrue($authorParam->isModel);
-        $this->assertFalse($authorParam->isNestedRelationship);
-        $this->assertSame(User::class, $authorParam->modelClass);
-    }
-
-    public function test_scan_nested_action_counts_all_parameters(): void
-    {
-        $scanner = new ActionScanner(UpdatePostWithRelationsAction::class);
-        $definition = $scanner->scan();
-
-        // title, author, comments (nested), tags (nested) = 4
-        $this->assertCount(4, $definition->parameters);
-    }
-
     public function test_resolve_related_schema_class(): void
     {
         $result = ActionScanner::resolveRelatedSchemaClass(Comment::class);
@@ -280,6 +184,99 @@ class ActionScannerTest extends TestCase
         $result = ActionScanner::resolveRelatedSchemaClass('App\\Models\\NonexistentModel');
 
         $this->assertNull($result);
+    }
+
+    // --- DataSchema-based Scanning Tests ---
+
+    public function test_scan_discovers_has_many_with_action_schema(): void
+    {
+        $scanner = new ActionScanner(UpdatePostWithDataSchemaAction::class);
+        $definition = $scanner->scan();
+
+        $commentsParam = $this->findParam($definition->parameters, 'comments');
+
+        $this->assertNotNull($commentsParam);
+        $this->assertTrue($commentsParam->isNestedRelationship);
+        $this->assertFalse($commentsParam->isModel);
+        $this->assertNotNull($commentsParam->nestedRelationship);
+        $this->assertSame('hasMany', $commentsParam->nestedRelationship->relationshipType);
+        $this->assertTrue($commentsParam->nestedRelationship->isCollection);
+    }
+
+    public function test_scan_action_schema_resolves_fields_from_properties(): void
+    {
+        $scanner = new ActionScanner(UpdatePostWithDataSchemaAction::class);
+        $definition = $scanner->scan();
+
+        $commentsParam = $this->findParam($definition->parameters, 'comments');
+        $nested = $commentsParam->nestedRelationship;
+
+        $this->assertCount(1, $nested->fields);
+        $this->assertSame('body', $nested->fields[0]->name);
+        $this->assertSame('comments.body', $nested->fields[0]->dotPath);
+        $this->assertSame('string', $nested->fields[0]->type);
+    }
+
+    public function test_scan_action_schema_stores_class_reference(): void
+    {
+        $scanner = new ActionScanner(UpdatePostWithDataSchemaAction::class);
+        $definition = $scanner->scan();
+
+        $commentsParam = $this->findParam($definition->parameters, 'comments');
+
+        $this->assertSame(
+            \SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostCommentsDataSchema::class,
+            $commentsParam->nestedRelationship->dataSchemaClass,
+        );
+    }
+
+    public function test_scan_action_schema_resolves_related_model_from_schema(): void
+    {
+        $scanner = new ActionScanner(UpdatePostWithDataSchemaAction::class);
+        $definition = $scanner->scan();
+
+        $commentsParam = $this->findParam($definition->parameters, 'comments');
+
+        $this->assertSame(Comment::class, $commentsParam->nestedRelationship->relatedModel);
+    }
+
+    public function test_scan_action_schema_detects_pivot_fields(): void
+    {
+        $scanner = new ActionScanner(UpdatePostWithDataSchemaAction::class);
+        $definition = $scanner->scan();
+
+        $tagsParam = $this->findParam($definition->parameters, 'tags');
+        $nested = $tagsParam->nestedRelationship;
+
+        // id and name are regular fields, sortOrder is pivot
+        $this->assertCount(2, $nested->fields);
+        $this->assertSame('id', $nested->fields[0]->name);
+        $this->assertSame('name', $nested->fields[1]->name);
+
+        $this->assertCount(1, $nested->pivotFields);
+        $this->assertSame('sort_order', $nested->pivotFields[0]);
+    }
+
+    public function test_scan_action_schema_belongs_to_many(): void
+    {
+        $scanner = new ActionScanner(UpdatePostWithDataSchemaAction::class);
+        $definition = $scanner->scan();
+
+        $tagsParam = $this->findParam($definition->parameters, 'tags');
+
+        $this->assertNotNull($tagsParam);
+        $this->assertTrue($tagsParam->isNestedRelationship);
+        $this->assertSame('belongsToMany', $tagsParam->nestedRelationship->relationshipType);
+        $this->assertTrue($tagsParam->nestedRelationship->isCollection);
+    }
+
+    public function test_scan_action_schema_counts_all_parameters(): void
+    {
+        $scanner = new ActionScanner(UpdatePostWithDataSchemaAction::class);
+        $definition = $scanner->scan();
+
+        // title, author, comments (nested), tags (nested) = 4
+        $this->assertCount(4, $definition->parameters);
     }
 
     private function findParam(array $parameters, string $name): ?\SchemaCraft\Scanner\ActionParameter

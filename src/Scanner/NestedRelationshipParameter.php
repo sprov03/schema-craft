@@ -30,13 +30,13 @@ class NestedRelationshipParameter
         public array $fields = [],
         /** Pivot field names for belongsToMany/morphToMany. */
         public array $pivotFields = [],
-        /** Whether to sync (collections) or create/update. */
-        public bool $sync = false,
         /** The morph name for polymorphic relationships. */
         public ?string $morphName = null,
         /** The schema class for the related model (for field resolution). */
         public ?string $relatedSchemaClass = null,
         /** Recursively nested relationships for deep nesting. */
         public array $nestedRelationships = [],
+        /** The DataSchema class FQCN when defined via DataSchema (null for legacy field arrays). */
+        public ?string $dataSchemaClass = null,
     ) {}
 }

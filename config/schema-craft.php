@@ -28,6 +28,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Explicit Foreign Keys
+    |--------------------------------------------------------------------------
+    |
+    | When true, schema:from-database generates FK columns as visible PHP
+    | properties alongside the BelongsTo relationship attribute. When false
+    | (default), FK columns are implicit — derived from the relationship.
+    |
+    */
+
+    'explicit_foreign_keys' => false,
+
+    /*
+    |--------------------------------------------------------------------------
     | Query Definitions Path
     |--------------------------------------------------------------------------
     |

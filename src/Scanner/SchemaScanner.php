@@ -37,7 +37,10 @@ use SchemaCraft\Attributes\Primary;
 use SchemaCraft\Attributes\Relations\BelongsTo;
 use SchemaCraft\Attributes\Relations\BelongsToMany;
 use SchemaCraft\Attributes\Relations\HasMany;
+use SchemaCraft\Attributes\Relations\HasManyThrough;
 use SchemaCraft\Attributes\Relations\HasOne;
+use SchemaCraft\Attributes\Relations\HasOneThrough;
+use SchemaCraft\Attributes\Relations\MorphedByMany;
 use SchemaCraft\Attributes\Relations\MorphMany;
 use SchemaCraft\Attributes\Relations\MorphOne;
 use SchemaCraft\Attributes\Relations\MorphTo;
@@ -52,6 +55,7 @@ use SchemaCraft\Attributes\Unsigned;
 use SchemaCraft\Attributes\UsingPivot;
 use SchemaCraft\Attributes\With;
 use SchemaCraft\Attributes\Year;
+use SchemaCraft\Contracts\SchemaCraftType;
 use SchemaCraft\Migration\CanonicalColumn;
 use SchemaCraft\Schema;
 use SchemaCraft\Traits\SoftDeletesSchema;
@@ -71,6 +75,9 @@ class SchemaScanner
         MorphOne::class,
         MorphMany::class,
         MorphToMany::class,
+        MorphedByMany::class,
+        HasOneThrough::class,
+        HasManyThrough::class,
     ];
 
     public function __construct(
@@ -92,6 +99,7 @@ class SchemaScanner
         $fillable = [];
         $hidden = [];
         $with = [];
+        $pendingFkColumns = [];
 
         foreach ($this->getSchemaProperties($reflection) as $property) {
             $type = $property->getType();
@@ -115,20 +123,13 @@ class SchemaScanner
 
                 if ($relationAttr instanceof BelongsTo) {
                     $fkColumn = $this->buildForeignKeyColumn($property, $rel);
-                    $columns[] = $fkColumn;
-
-                    if ($isFillable) {
-                        $fillable[] = $fkColumn->name;
-                    }
-
-                    if ($isHidden) {
-                        $hidden[] = $fkColumn->name;
-                    }
+                    $pendingFkColumns[] = [$fkColumn, $property, $isFillable, $isHidden];
                 } elseif ($relationAttr instanceof MorphTo) {
                     $morphIndex = $this->hasAttribute($property, Index::class);
                     $columnTypeAttr = $this->getAttributeInstance($property, ColumnType::class);
                     $columns = array_merge($columns, $this->buildMorphToColumns($rel, $morphIndex, $columnTypeAttr?->type));
                 }
+                // Through and MorphedByMany relationships are virtual — no columns created.
 
                 if ($isWith) {
                     $with[] = $property->getName();
@@ -142,6 +143,49 @@ class SchemaScanner
 
                 if ($isHidden) {
                     $hidden[] = $property->getName();
+                }
+            }
+        }
+
+        // Resolve pending FK columns — dedup against explicitly declared columns
+        $explicitColumnNames = array_map(fn (ColumnDefinition $c) => $c->name, $columns);
+        foreach ($pendingFkColumns as [$fkColumn, $relProperty, $fkFillable, $fkHidden]) {
+            $existingIndex = array_search($fkColumn->name, $explicitColumnNames, true);
+
+            if ($existingIndex !== false) {
+                // Explicit column exists — apply index union from relationship
+                $relIndex = $this->hasAttribute($relProperty, Index::class);
+                if ($relIndex && ! $columns[$existingIndex]->index) {
+                    $columns[$existingIndex] = new ColumnDefinition(
+                        name: $columns[$existingIndex]->name,
+                        columnType: $columns[$existingIndex]->columnType,
+                        nullable: $columns[$existingIndex]->nullable,
+                        default: $columns[$existingIndex]->default,
+                        hasDefault: $columns[$existingIndex]->hasDefault,
+                        unsigned: $columns[$existingIndex]->unsigned,
+                        length: $columns[$existingIndex]->length,
+                        precision: $columns[$existingIndex]->precision,
+                        scale: $columns[$existingIndex]->scale,
+                        unique: $columns[$existingIndex]->unique,
+                        index: true,
+                        primary: $columns[$existingIndex]->primary,
+                        autoIncrement: $columns[$existingIndex]->autoIncrement,
+                        castType: $columns[$existingIndex]->castType,
+                        attributes: $columns[$existingIndex]->attributes,
+                        renamedFrom: $columns[$existingIndex]->renamedFrom,
+                        expressionDefault: $columns[$existingIndex]->expressionDefault,
+                    );
+                }
+            } else {
+                $columns[] = $fkColumn;
+                $explicitColumnNames[] = $fkColumn->name;
+
+                if ($fkFillable) {
+                    $fillable[] = $fkColumn->name;
+                }
+
+                if ($fkHidden) {
+                    $hidden[] = $fkColumn->name;
                 }
             }
         }
@@ -208,7 +252,7 @@ class SchemaScanner
         return $properties;
     }
 
-    private function getRelationAttribute(ReflectionProperty $property): BelongsTo|HasOne|HasMany|BelongsToMany|MorphTo|MorphOne|MorphMany|MorphToMany|null
+    private function getRelationAttribute(ReflectionProperty $property): BelongsTo|HasOne|HasMany|BelongsToMany|MorphTo|MorphOne|MorphMany|MorphToMany|MorphedByMany|HasOneThrough|HasManyThrough|null
     {
         foreach (self::RELATION_ATTRIBUTES as $attrClass) {
             $instance = $this->getAttributeInstance($property, $attrClass);
@@ -235,10 +279,10 @@ class SchemaScanner
 
         $columnType = $inferred['columnType'];
         $castType = $inferred['castType'];
-        $unsigned = false;
-        $length = null;
-        $precision = null;
-        $scale = null;
+        $unsigned = $inferred['unsigned'] ?? false;
+        $length = $inferred['length'] ?? null;
+        $precision = $inferred['precision'] ?? null;
+        $scale = $inferred['scale'] ?? null;
         $unique = false;
         $index = false;
         $primary = false;
@@ -346,6 +390,29 @@ class SchemaScanner
             ];
         }
 
+        if (is_a($typeName, SchemaCraftType::class, true)) {
+            $result = [
+                'columnType' => $typeName::schemaColumnType(),
+                'castType' => $typeName,
+            ];
+
+            $modifiers = $typeName::schemaColumnModifiers();
+            if (! empty($modifiers['unsigned'])) {
+                $result['unsigned'] = true;
+            }
+            if (isset($modifiers['length'])) {
+                $result['length'] = $modifiers['length'];
+            }
+            if (isset($modifiers['precision'])) {
+                $result['precision'] = $modifiers['precision'];
+            }
+            if (isset($modifiers['scale'])) {
+                $result['scale'] = $modifiers['scale'];
+            }
+
+            return $result;
+        }
+
         if (is_a($typeName, Castable::class, true) || is_a($typeName, CastsAttributes::class, true)) {
             return ['columnType' => 'json', 'castType' => $typeName];
         }
@@ -357,14 +424,12 @@ class SchemaScanner
 
     private function scanRelationship(
         ReflectionProperty $property,
-        BelongsTo|HasOne|HasMany|BelongsToMany|MorphTo|MorphOne|MorphMany|MorphToMany $relationAttr,
+        BelongsTo|HasOne|HasMany|BelongsToMany|MorphTo|MorphOne|MorphMany|MorphToMany|MorphedByMany|HasOneThrough|HasManyThrough $relationAttr,
         bool $nullable,
     ): RelationshipDefinition {
-        $foreignColumn = $this->getAttributeInstance($property, ForeignColumn::class)?->column;
         $onDelete = $this->getAttributeInstance($property, OnDelete::class)?->action;
         $onUpdate = $this->getAttributeInstance($property, OnUpdate::class)?->action;
         $noConstraint = $this->hasAttribute($property, NoConstraint::class);
-        $pivotTable = $this->getAttributeInstance($property, PivotTable::class)?->table;
         $pivotColumns = $this->getAttributeInstance($property, PivotColumns::class)?->columns;
         $pivotModel = $this->getAttributeInstance($property, UsingPivot::class)?->model;
 
@@ -377,6 +442,9 @@ class SchemaScanner
             $relationAttr instanceof MorphOne => 'morphOne',
             $relationAttr instanceof MorphMany => 'morphMany',
             $relationAttr instanceof MorphToMany => 'morphToMany',
+            $relationAttr instanceof MorphedByMany => 'morphToMany',
+            $relationAttr instanceof HasOneThrough => 'hasOneThrough',
+            $relationAttr instanceof HasManyThrough => 'hasManyThrough',
         };
 
         $relatedModel = $relationAttr instanceof MorphTo
@@ -386,6 +454,42 @@ class SchemaScanner
         $morphName = property_exists($relationAttr, 'morphName')
             ? $relationAttr->morphName
             : null;
+
+        // Read foreignKey from attribute (new), falling back to deprecated #[ForeignColumn]
+        $foreignColumn = null;
+        if (property_exists($relationAttr, 'foreignKey')) {
+            $foreignColumn = $relationAttr->foreignKey;
+        }
+        if ($foreignColumn === null) {
+            $foreignColumn = $this->getAttributeInstance($property, ForeignColumn::class)?->column;
+        }
+
+        // Read pivotTable from attribute (new), falling back to deprecated #[PivotTable]
+        $pivotTable = null;
+        if (property_exists($relationAttr, 'table')) {
+            $pivotTable = $relationAttr->table;
+        }
+        if ($pivotTable === null) {
+            $pivotTable = $this->getAttributeInstance($property, PivotTable::class)?->table;
+        }
+
+        // Read key overrides from attribute
+        $ownerKey = property_exists($relationAttr, 'ownerKey') ? $relationAttr->ownerKey : null;
+        $localKey = property_exists($relationAttr, 'localKey') ? $relationAttr->localKey : null;
+        $parentKey = property_exists($relationAttr, 'parentKey') ? $relationAttr->parentKey : null;
+        $relatedKey = property_exists($relationAttr, 'relatedKey') ? $relationAttr->relatedKey : null;
+        $foreignPivotKey = property_exists($relationAttr, 'foreignPivotKey') ? $relationAttr->foreignPivotKey : null;
+        $relatedPivotKey = property_exists($relationAttr, 'relatedPivotKey') ? $relationAttr->relatedPivotKey : null;
+
+        // Through relationship params
+        $through = property_exists($relationAttr, 'through') ? $relationAttr->through : null;
+        $firstKey = property_exists($relationAttr, 'firstKey') ? $relationAttr->firstKey : null;
+        $secondKey = property_exists($relationAttr, 'secondKey') ? $relationAttr->secondKey : null;
+        $secondLocalKey = property_exists($relationAttr, 'secondLocalKey') ? $relationAttr->secondLocalKey : null;
+
+        // MorphedByMany is MorphToMany with inverse = true
+        $inverse = $relationAttr instanceof MorphedByMany
+            || (property_exists($relationAttr, 'inverse') && $relationAttr->inverse);
 
         return new RelationshipDefinition(
             name: $property->getName(),
@@ -400,6 +504,17 @@ class SchemaScanner
             pivotColumns: $pivotColumns,
             morphName: $morphName,
             pivotModel: $pivotModel,
+            ownerKey: $ownerKey,
+            localKey: $localKey,
+            parentKey: $parentKey,
+            relatedKey: $relatedKey,
+            foreignPivotKey: $foreignPivotKey,
+            relatedPivotKey: $relatedPivotKey,
+            through: $through,
+            firstKey: $firstKey,
+            secondKey: $secondKey,
+            secondLocalKey: $secondLocalKey,
+            inverse: $inverse,
         );
     }
 

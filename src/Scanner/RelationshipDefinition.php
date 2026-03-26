@@ -20,5 +20,16 @@ class RelationshipDefinition
         public ?array $pivotColumns = null,
         public ?string $morphName = null,
         public ?string $pivotModel = null,
+        public ?string $ownerKey = null,
+        public ?string $localKey = null,
+        public ?string $parentKey = null,
+        public ?string $relatedKey = null,
+        public ?string $foreignPivotKey = null,
+        public ?string $relatedPivotKey = null,
+        public ?string $through = null,
+        public ?string $firstKey = null,
+        public ?string $secondKey = null,
+        public ?string $secondLocalKey = null,
+        public bool $inverse = false,
     ) {}
 }

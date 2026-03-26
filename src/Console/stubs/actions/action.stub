@@ -28,3 +28,4 @@ class {{ actionClass }} extends Action
 
 {{ run }}
 }
+{{ dataSchemas }}
