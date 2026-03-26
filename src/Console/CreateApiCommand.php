@@ -5,6 +5,7 @@ namespace SchemaCraft\Console;
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
+use SchemaCraft\Generator\StubResolver;
 
 class CreateApiCommand extends Command
 {
@@ -49,7 +50,7 @@ class CreateApiCommand extends Command
         $routeAbsolutePath = base_path($routeFile);
 
         if (! $files->exists($routeAbsolutePath)) {
-            $stubsPath = $this->resolveStubsPath();
+            $stubsPath = StubResolver::basePath();
             $stub = file_get_contents($stubsPath.'/api/route-file.stub');
 
             $content = str_replace(
@@ -271,16 +272,5 @@ PHP;
         }
 
         return $content;
-    }
-
-    private function resolveStubsPath(): string
-    {
-        $publishedPath = base_path('stubs/schema-craft');
-
-        if (is_dir($publishedPath.'/api')) {
-            return $publishedPath;
-        }
-
-        return dirname(__DIR__).'/Console/stubs';
     }
 }

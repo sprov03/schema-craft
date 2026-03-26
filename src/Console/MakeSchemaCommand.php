@@ -4,6 +4,7 @@ namespace SchemaCraft\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
+use SchemaCraft\Generator\StubResolver;
 
 class MakeSchemaCommand extends Command
 {
@@ -75,7 +76,7 @@ class MakeSchemaCommand extends Command
      */
     private function createSchema(Filesystem $files, string $schemaName, array $idConfig, bool $softDeletes): void
     {
-        $stub = $files->get($this->resolveStubPath('schema.stub'));
+        $stub = $files->get(StubResolver::resolve('schema.stub'));
 
         $content = str_replace(
             [
@@ -106,23 +107,9 @@ class MakeSchemaCommand extends Command
         $this->components->info("Schema [{$path}] created successfully.");
     }
 
-    /**
-     * Resolve a stub file path, preferring published stubs over package defaults.
-     */
-    private function resolveStubPath(string $filename): string
-    {
-        $publishedPath = base_path("stubs/schema-craft/{$filename}");
-
-        if (file_exists($publishedPath)) {
-            return $publishedPath;
-        }
-
-        return __DIR__."/stubs/{$filename}";
-    }
-
     private function createModel(Filesystem $files, string $name, string $schemaName, bool $softDeletes): void
     {
-        $stub = $files->get($this->resolveStubPath('model.stub'));
+        $stub = $files->get(StubResolver::resolve('model.stub'));
 
         $schemaFqcn = "App\\Schemas\\{$schemaName}";
 

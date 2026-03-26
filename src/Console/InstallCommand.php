@@ -4,6 +4,7 @@ namespace SchemaCraft\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
+use SchemaCraft\Generator\StubResolver;
 
 class InstallCommand extends Command
 {
@@ -27,7 +28,7 @@ class InstallCommand extends Command
             return self::SUCCESS;
         }
 
-        $stub = $files->get($this->resolveStubPath('base-model.stub'));
+        $stub = $files->get(StubResolver::resolve('base-model.stub'));
 
         $files->ensureDirectoryExists(dirname($path));
         $files->put($path, $stub);
@@ -35,19 +36,5 @@ class InstallCommand extends Command
         $this->components->info("BaseModel [{$path}] created successfully.");
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Resolve a stub file path, preferring published stubs over package defaults.
-     */
-    private function resolveStubPath(string $filename): string
-    {
-        $publishedPath = base_path("stubs/schema-craft/{$filename}");
-
-        if (file_exists($publishedPath)) {
-            return $publishedPath;
-        }
-
-        return __DIR__."/stubs/{$filename}";
     }
 }

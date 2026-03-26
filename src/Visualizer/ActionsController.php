@@ -14,6 +14,7 @@ use SchemaCraft\Generator\ActionFileGenerator;
 use SchemaCraft\Generator\Api\ApiCodeGenerator;
 use SchemaCraft\Generator\Api\ApiFileWriter;
 use SchemaCraft\Generator\Filament\FilamentActionCodeGenerator;
+use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Migration\SchemaDiscovery;
 use SchemaCraft\Scanner\ActionDefinition;
 use SchemaCraft\Scanner\ActionParameter;
@@ -528,7 +529,7 @@ class ActionsController
         $actionNamespace = 'App\\Models\\Actions\\'.$modelName;
         $schemaNamespace = $connectionConfig->schemaNamespace;
 
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new ActionFileGenerator($stubsPath);
 
         // Generate the Action class file
@@ -846,7 +847,7 @@ class ActionsController
 
         // If service file doesn't exist, create it
         if (! $exists) {
-            $apiGenerator = new ApiCodeGenerator($this->resolveStubsPath());
+            $apiGenerator = new ApiCodeGenerator(StubResolver::basePath());
             $serviceFile = $apiGenerator->generateService(
                 $table,
                 $modelName,
@@ -1046,7 +1047,7 @@ class ActionsController
 
         // If service file doesn't exist, create it first
         if (! $exists) {
-            $apiGenerator = new ApiCodeGenerator($this->resolveStubsPath());
+            $apiGenerator = new ApiCodeGenerator(StubResolver::basePath());
             $serviceFile = $apiGenerator->generateService(
                 $table,
                 $modelName,
@@ -1133,16 +1134,5 @@ class ActionsController
         $className = class_basename($schemaClass);
 
         return Str::beforeLast($className, 'Schema') ?: $className;
-    }
-
-    private function resolveStubsPath(): string
-    {
-        $publishedPath = base_path('stubs/schema-craft');
-
-        if (is_dir($publishedPath.'/actions')) {
-            return $publishedPath;
-        }
-
-        return dirname(__DIR__).'/Console/stubs';
     }
 }

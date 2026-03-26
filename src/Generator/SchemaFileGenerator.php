@@ -1078,40 +1078,41 @@ class SchemaFileGenerator
         bool $hasSoftDeletes,
         ?string $connection = null,
     ): string {
-        $lines = [];
-        $lines[] = '<?php';
-        $lines[] = '';
-        $lines[] = "namespace {$modelNamespace};";
-        $lines[] = '';
-
-        if ($hasSoftDeletes) {
-            $lines[] = 'use Illuminate\\Database\\Eloquent\\SoftDeletes;';
-        }
-        $lines[] = "use {$schemaNamespace}\\{$schemaName};";
-
-        $lines[] = '';
-        $lines[] = '/**';
-        $lines[] = " * @mixin {$schemaName}";
-        $lines[] = ' */';
-        $lines[] = "class {$modelName} extends BaseModel";
-        $lines[] = '{';
-
-        if ($hasSoftDeletes) {
-            $lines[] = '    use SoftDeletes;';
-            $lines[] = '';
-        }
-
-        $lines[] = "    protected static string \$schema = {$schemaName}::class;";
+        $content = StubResolver::render('model.stub', [
+            '{{ namespace }}' => $modelNamespace,
+            '{{ class }}' => $modelName,
+            '{{ schemaFqcn }}' => "{$schemaNamespace}\\{$schemaName}",
+            '{{ schemaClass }}' => $schemaName,
+            '{{ softDeletesImport }}' => $hasSoftDeletes
+                ? 'use Illuminate\\Database\\Eloquent\\SoftDeletes;'
+                : '',
+            '{{ softDeletesTrait }}' => $hasSoftDeletes
+                ? "    use SoftDeletes;\n\n"
+                : '',
+        ]);
 
         if ($connection !== null) {
-            $lines[] = '';
-            $lines[] = "    protected \$connection = '{$connection}';";
+            $content = $this->injectBeforeClosingBrace(
+                $content,
+                "\n    protected \$connection = '{$connection}';\n",
+            );
         }
 
-        $lines[] = '}';
-        $lines[] = '';
+        return $content;
+    }
 
-        return implode("\n", $lines);
+    /**
+     * Inject content before the final closing brace in a PHP class file.
+     */
+    private function injectBeforeClosingBrace(string $content, string $injection): string
+    {
+        $pos = strrpos($content, '}');
+
+        if ($pos !== false) {
+            return substr($content, 0, $pos).$injection.substr($content, $pos);
+        }
+
+        return $content;
     }
 
     /**

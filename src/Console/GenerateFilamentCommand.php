@@ -7,6 +7,7 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
 use SchemaCraft\Generator\Filament\FilamentCodeGenerator;
 use SchemaCraft\Generator\Filament\FilamentPolicyGenerator;
+use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Scanner\SchemaScanner;
 
 class GenerateFilamentCommand extends Command
@@ -75,7 +76,7 @@ class GenerateFilamentCommand extends Command
         $scanner = new SchemaScanner($schemaClass);
         $table = $scanner->scan();
 
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new FilamentCodeGenerator($stubsPath);
 
         $resourceNamespace = $this->option('resource-namespace');
@@ -172,16 +173,5 @@ class GenerateFilamentCommand extends Command
         $className = class_basename($schemaClass);
 
         return Str::beforeLast($className, 'Schema') ?: $className;
-    }
-
-    private function resolveStubsPath(): string
-    {
-        $publishedPath = base_path('stubs/schema-craft');
-
-        if (is_dir($publishedPath.'/filament')) {
-            return $publishedPath;
-        }
-
-        return dirname(__DIR__).'/Console/stubs';
     }
 }

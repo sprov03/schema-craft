@@ -16,6 +16,7 @@ use SchemaCraft\Generator\ControllerTestGenerator;
 use SchemaCraft\Generator\DependencyResolver;
 use SchemaCraft\Generator\FactoryGenerator;
 use SchemaCraft\Generator\ModelTestGenerator;
+use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Scanner\ActionScanner;
 use SchemaCraft\Scanner\SchemaScanner;
 use SchemaCraft\Scanner\TableDefinition;
@@ -69,7 +70,7 @@ class GenerateApiCommand extends Command
         $serviceNamespace = $connectionConfig->serviceNamespace;
         $schemaNamespace = $connectionConfig->schemaNamespace;
 
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new ApiCodeGenerator($stubsPath);
 
         $generatedFiles = $generator->generate(
@@ -188,7 +189,7 @@ class GenerateApiCommand extends Command
         $routeParam = $modelVariable;
         $actionSlug = Str::snake($actionName, '-');
 
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new ApiCodeGenerator($stubsPath);
 
         // Generate request file only for POST/PUT methods
@@ -509,19 +510,5 @@ class GenerateApiCommand extends Command
         $className = class_basename($schemaClass);
 
         return Str::beforeLast($className, 'Schema') ?: $className;
-    }
-
-    /**
-     * Resolve the stubs path, preferring published stubs over package defaults.
-     */
-    private function resolveStubsPath(): string
-    {
-        $publishedPath = base_path('stubs/schema-craft');
-
-        if (is_dir($publishedPath.'/api')) {
-            return $publishedPath;
-        }
-
-        return dirname(__DIR__).'/Console/stubs';
     }
 }

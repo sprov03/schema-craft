@@ -11,6 +11,7 @@ use SchemaCraft\Generator\DependencyResolver;
 use SchemaCraft\Generator\Sdk\ControllerActionScanner;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
 use SchemaCraft\Generator\Sdk\SdkSchemaContext;
+use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Migration\SchemaDiscovery;
 use SchemaCraft\Scanner\SchemaScanner;
 
@@ -111,7 +112,7 @@ class GenerateSdkCommand extends Command
         $sdkVersion = $this->option('sdk-version') ?? $apiConfig->sdkVersion;
 
         // Generate SDK files
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new SdkGenerator;
 
         $generatedFiles = $generator->generate(
@@ -244,19 +245,5 @@ class GenerateSdkCommand extends Command
         }
 
         return ConfigResolver::schemaDirectories();
-    }
-
-    /**
-     * Resolve the stubs path, preferring published stubs over package defaults.
-     */
-    private function resolveStubsPath(): string
-    {
-        $publishedPath = base_path('stubs/schema-craft');
-
-        if (is_dir($publishedPath.'/sdk')) {
-            return $publishedPath;
-        }
-
-        return dirname(__DIR__).'/Console/stubs';
     }
 }

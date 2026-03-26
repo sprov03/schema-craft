@@ -31,6 +31,7 @@ use SchemaCraft\Generator\ModelTestGenerator;
 use SchemaCraft\Generator\SchemaContentRenderer;
 use SchemaCraft\Generator\SchemaEditorPayload;
 use SchemaCraft\Generator\SchemaFileGenerator;
+use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Migration\DatabaseReader;
 use SchemaCraft\Migration\DatabaseTableState;
 use SchemaCraft\Scanner\ColumnDefinition;
@@ -90,7 +91,7 @@ class SchemaController
             ]);
         }
 
-        $stub = $files->get($this->resolveStubPath('base-model.stub'));
+        $stub = $files->get(StubResolver::resolve('base-model.stub'));
 
         $files->ensureDirectoryExists(dirname($path));
         $written = $files->put($path, $stub);
@@ -163,7 +164,7 @@ class SchemaController
 
         // Auto-install BaseModel if needed
         if ($createModel && ! $files->exists(app_path('Models/BaseModel.php'))) {
-            $stub = $files->get($this->resolveStubPath('base-model.stub'));
+            $stub = $files->get(StubResolver::resolve('base-model.stub'));
             $files->ensureDirectoryExists(app_path('Models'));
             $files->put(app_path('Models/BaseModel.php'), $stub);
         }
@@ -379,7 +380,7 @@ class SchemaController
 
         // Auto-install BaseModel if needed
         if ($createModel && ! $files->exists(app_path('Models/BaseModel.php'))) {
-            $stub = $files->get($this->resolveStubPath('base-model.stub'));
+            $stub = $files->get(StubResolver::resolve('base-model.stub'));
             $files->ensureDirectoryExists(app_path('Models'));
             $files->put(app_path('Models/BaseModel.php'), $stub);
         }
@@ -595,7 +596,7 @@ class SchemaController
                     $servicePath = $connectionConfig->servicePath($modelName);
                     $serviceRelPath = str_replace(base_path().'/', '', $servicePath);
                     $serviceExists = file_exists($servicePath);
-                    $stubsPath = $this->resolveStubsBasePath();
+                    $stubsPath = StubResolver::basePath();
                     $serviceContent = (new ApiCodeGenerator($stubsPath))->generateService(
                         $tableDef, $prefixedModel, $connectionConfig->modelNamespace, $connectionConfig->serviceNamespace,
                     )->content;
@@ -657,9 +658,6 @@ class SchemaController
      */
     private function generateSchemaFiles(Filesystem $files, array $names, array $idConfig, bool $softDeletes, bool $createModel): array
     {
-        $schemaStub = $files->get($this->resolveStubPath('schema.stub'));
-        $modelStub = $files->get($this->resolveStubPath('model.stub'));
-
         $generatedFiles = [];
 
         foreach ($names as $name) {
@@ -667,12 +665,14 @@ class SchemaController
             $schemaName = $name.'Schema';
 
             // Generate schema content
-            $schemaContent = str_replace(
-                ['{{ namespace }}', '{{ class }}', '{{ idImports }}', '{{ idProperty }}', '{{ softDeletesImport }}', '{{ softDeletesTrait }}'],
-                ['App\\Schemas', $schemaName, $idConfig['imports'], $idConfig['property'], $softDeletes ? 'use SchemaCraft\\Traits\\SoftDeletesSchema;' : '', $softDeletes ? "    use SoftDeletesSchema;\n" : ''],
-                $schemaStub,
-            );
-            $schemaContent = preg_replace('/\n{3,}/', "\n\n", $schemaContent);
+            $schemaContent = StubResolver::render('schema.stub', [
+                '{{ namespace }}' => 'App\\Schemas',
+                '{{ class }}' => $schemaName,
+                '{{ idImports }}' => $idConfig['imports'],
+                '{{ idProperty }}' => $idConfig['property'],
+                '{{ softDeletesImport }}' => $softDeletes ? 'use SchemaCraft\\Traits\\SoftDeletesSchema;' : '',
+                '{{ softDeletesTrait }}' => $softDeletes ? "    use SoftDeletesSchema;\n" : '',
+            ]);
 
             $schemaPath = "app/Schemas/{$schemaName}.php";
             $generatedFiles[] = [
@@ -684,13 +684,14 @@ class SchemaController
 
             // Generate model content
             if ($createModel) {
-                $schemaFqcn = "App\\Schemas\\{$schemaName}";
-                $modelContent = str_replace(
-                    ['{{ namespace }}', '{{ class }}', '{{ schemaFqcn }}', '{{ schemaClass }}', '{{ softDeletesImport }}', '{{ softDeletesTrait }}'],
-                    ['App\\Models', $name, $schemaFqcn, $schemaName, $softDeletes ? 'use Illuminate\\Database\\Eloquent\\SoftDeletes;' : '', $softDeletes ? "    use SoftDeletes;\n\n" : ''],
-                    $modelStub,
-                );
-                $modelContent = preg_replace('/\n{3,}/', "\n\n", $modelContent);
+                $modelContent = StubResolver::render('model.stub', [
+                    '{{ namespace }}' => 'App\\Models',
+                    '{{ class }}' => $name,
+                    '{{ schemaFqcn }}' => "App\\Schemas\\{$schemaName}",
+                    '{{ schemaClass }}' => $schemaName,
+                    '{{ softDeletesImport }}' => $softDeletes ? 'use Illuminate\\Database\\Eloquent\\SoftDeletes;' : '',
+                    '{{ softDeletesTrait }}' => $softDeletes ? "    use SoftDeletes;\n\n" : '',
+                ]);
 
                 $modelPath = "app/Models/{$name}.php";
                 $generatedFiles[] = [
@@ -711,20 +712,6 @@ class SchemaController
     private function tableToModelName(string $tableName): string
     {
         return Str::studly(Str::singular($tableName));
-    }
-
-    /**
-     * Resolve a stub file path, preferring published stubs over package defaults.
-     */
-    private function resolveStubPath(string $filename): string
-    {
-        $publishedPath = base_path("stubs/schema-craft/{$filename}");
-
-        if (file_exists($publishedPath)) {
-            return $publishedPath;
-        }
-
-        return dirname(__DIR__)."/Console/stubs/{$filename}";
     }
 
     /**
@@ -872,7 +859,7 @@ class SchemaController
             return;
         }
 
-        $stubsPath = $this->resolveStubsBasePath();
+        $stubsPath = StubResolver::basePath();
         $content = (new ApiCodeGenerator($stubsPath))->generateService(
             $table, $modelName, $config->modelNamespace, $config->serviceNamespace,
         )->content;
@@ -1237,20 +1224,6 @@ class SchemaController
         }
 
         return $prefixedModelName;
-    }
-
-    /**
-     * Resolve the API stubs base path, preferring published stubs.
-     */
-    private function resolveStubsBasePath(): string
-    {
-        $publishedPath = base_path('stubs/schema-craft');
-
-        if (is_dir($publishedPath.'/api')) {
-            return $publishedPath;
-        }
-
-        return dirname(__DIR__).'/Console/stubs';
     }
 
     /**

@@ -23,6 +23,7 @@ use SchemaCraft\Generator\Sdk\ControllerActionScanner;
 use SchemaCraft\Generator\Sdk\RuntimeRouteScanner;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
 use SchemaCraft\Generator\Sdk\SdkSchemaContext;
+use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Migration\SchemaDiscovery;
 use SchemaCraft\Scanner\SchemaScanner;
 
@@ -483,7 +484,7 @@ class GenerateController
 
         $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
 
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new ApiCodeGenerator($stubsPath);
 
         $file = $generator->generateService(
@@ -592,7 +593,7 @@ class GenerateController
         $routeAbsolutePath = base_path($routeFile);
 
         if (! $fs->exists($routeAbsolutePath)) {
-            $stubsPath = $this->resolveStubsPath();
+            $stubsPath = StubResolver::basePath();
             $stub = $fs->get($stubsPath.'/api/route-file.stub');
 
             $content = str_replace(
@@ -819,7 +820,7 @@ class GenerateController
         $scanner = new SchemaScanner($schemaClass);
         $table = $scanner->scan();
 
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new FilamentCodeGenerator($stubsPath);
 
         $files = $generator->generate(
@@ -852,7 +853,7 @@ class GenerateController
         $serviceNamespace = $connectionConfig->serviceNamespace;
         $schemaNamespace = $connectionConfig->schemaNamespace;
 
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new ApiCodeGenerator($stubsPath);
 
         $generatedFiles = $generator->generate(
@@ -951,7 +952,7 @@ class GenerateController
         $actionSlug = Str::snake($actionName, '-');
         $controllerClass = $modelName.'Controller';
 
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new ApiCodeGenerator($stubsPath);
 
         // Generate request file only for POST/PUT methods
@@ -1178,7 +1179,7 @@ class GenerateController
         $sdkClient = $request->input('client') ?? $apiConfig->sdkClient;
         $sdkVersion = $request->input('version') ?? $apiConfig->sdkVersion;
 
-        $stubsPath = $this->resolveStubsPath();
+        $stubsPath = StubResolver::basePath();
         $generator = new SdkGenerator;
 
         return $generator->generate(
@@ -1250,17 +1251,6 @@ class GenerateController
         }
 
         return null;
-    }
-
-    private function resolveStubsPath(): string
-    {
-        $publishedPath = base_path('stubs/schema-craft');
-
-        if (is_dir($publishedPath.'/api')) {
-            return $publishedPath;
-        }
-
-        return dirname(__DIR__).'/Console/stubs';
     }
 
     /**
