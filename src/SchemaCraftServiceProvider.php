@@ -15,8 +15,11 @@ use SchemaCraft\Console\RelationshipCommand;
 use SchemaCraft\Console\SchemaFromDatabaseCommand;
 use SchemaCraft\Console\SchemaMigrateCommand;
 use SchemaCraft\Console\SchemaStatusCommand;
+use SchemaCraft\Generators\GeneratorRegistry;
+use SchemaCraft\Generators\GeneratorRunner;
 use SchemaCraft\Visualizer\ActionsController;
 use SchemaCraft\Visualizer\GenerateController;
+use SchemaCraft\Visualizer\GeneratorController;
 use SchemaCraft\Visualizer\SchemaController;
 use SchemaCraft\Visualizer\StatusController;
 use SchemaCraft\Visualizer\VisualizerController;
@@ -28,6 +31,24 @@ class SchemaCraftServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(
             __DIR__.'/../config/schema-craft.php', 'schema-craft'
         );
+
+        $this->app->singleton(GeneratorRegistry::class, function () {
+            $registry = new GeneratorRegistry;
+
+            $path = config('schema-craft.generators_path');
+
+            if ($path && is_dir($path)) {
+                $registry->discover($path);
+            }
+
+            foreach (config('schema-craft.generators', []) as $class) {
+                $registry->register($class);
+            }
+
+            return $registry;
+        });
+
+        $this->app->bind(GeneratorRunner::class);
     }
 
     public function boot(): void
@@ -80,7 +101,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
     {
         $noCsrf = \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class;
 
-        Route::prefix('_schema-craft')->group(function () use ($noCsrf) {
+        Route::prefix('_schema-craft')->middleware(Visualizer\SchemaCraftErrorHandler::class)->group(function () use ($noCsrf) {
             Route::get('/', [VisualizerController::class, 'index']);
             Route::get('/api/schema', [VisualizerController::class, 'api']);
             Route::post('/api/apply-relationship', [VisualizerController::class, 'applyRelationship'])
@@ -176,6 +197,14 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 ->withoutMiddleware($noCsrf);
             Route::get('/api/actions/filament-action-preview', [ActionsController::class, 'filamentActionPreview']);
             Route::post('/api/actions/publish-filament-action', [ActionsController::class, 'publishFilamentAction'])
+                ->withoutMiddleware($noCsrf);
+
+            // Custom Generators API
+            Route::get('/api/generators/config', [GeneratorController::class, 'config']);
+            Route::get('/api/generators/detail', [GeneratorController::class, 'detail']);
+            Route::post('/api/generators/preview', [GeneratorController::class, 'preview'])
+                ->withoutMiddleware($noCsrf);
+            Route::post('/api/generators/run', [GeneratorController::class, 'run'])
                 ->withoutMiddleware($noCsrf);
 
             Route::post('/api/create-api', [GenerateController::class, 'createApi'])

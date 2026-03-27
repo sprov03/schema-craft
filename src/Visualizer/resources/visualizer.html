@@ -914,6 +914,46 @@
         @keyframes toast-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes toast-out { from { opacity: 1; } to { opacity: 0; transform: translateY(-10px); } }
 
+        /* ── Error Modal ─────────────────────────────────── */
+        .err-overlay {
+            position: fixed; inset: 0; z-index: 9500;
+            background: rgba(0,0,0,0.6); display: flex;
+            align-items: center; justify-content: center;
+            animation: fp-fade-in 0.2s ease-out;
+        }
+        .err-modal {
+            background: var(--bg-primary); border: 1px solid var(--error);
+            border-radius: 12px; width: 90vw; max-width: 720px; max-height: 80vh;
+            display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .err-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 20px; border-bottom: 1px solid var(--border);
+            background: rgba(239,68,68,0.08); border-radius: 12px 12px 0 0;
+        }
+        .err-header-title { font-size: 15px; font-weight: 600; color: var(--error); }
+        .err-close {
+            background: none; border: none; color: var(--text-muted); font-size: 20px;
+            cursor: pointer; padding: 4px 8px; border-radius: 4px;
+        }
+        .err-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .err-body { padding: 20px; overflow-y: auto; flex: 1; }
+        .err-message { font-size: 14px; line-height: 1.6; margin-bottom: 16px; word-break: break-word; }
+        .err-meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; }
+        .err-meta span { color: var(--text-primary); font-family: monospace; }
+        .err-trace-toggle {
+            font-size: 12px; color: var(--accent); cursor: pointer; background: none;
+            border: none; padding: 0; text-decoration: underline; margin-bottom: 8px; display: block;
+        }
+        .err-trace {
+            font-size: 11px; font-family: monospace; line-height: 1.8;
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: 6px; padding: 12px; max-height: 300px; overflow-y: auto;
+        }
+        .err-trace-line { color: var(--text-secondary); }
+        .err-trace-line .err-fn { color: var(--accent); }
+        .err-trace-line .err-loc { color: var(--text-muted); }
+
         /* ── File Preview Modal ───────────────────────────── */
         .fp-overlay {
             position: fixed; inset: 0; z-index: 9000;
@@ -1781,6 +1821,7 @@
             <button class="tab-btn" data-tab="status">Status</button>
             <button class="tab-btn" data-tab="generate">APIs</button>
             <button class="tab-btn" data-tab="actions">Actions</button>
+            <button class="tab-btn" data-tab="generators">Generators</button>
         </nav>
         <div class="header-actions">
             <button class="theme-toggle" id="theme-toggle">Light</button>
@@ -1844,6 +1885,7 @@
     <section id="status-tab" hidden></section>
     <section id="generate-tab" hidden></section>
     <section id="actions-tab" hidden></section>
+    <section id="generators-tab" hidden></section>
 
     <div id="toast-container" class="toast-container"></div>
 
@@ -1865,6 +1907,94 @@
         let activeTab = 'health';
         let explorerState = { loaded: new Map(), selected: null };
         let dragState = null;
+
+        // ── API Response Helper ──────
+        // Checks resp.ok; on failure reads the body and shows an error modal with details.
+        async function handleResponse(resp) {
+            if (resp.ok) return resp.json();
+            var errorMessage = 'HTTP ' + resp.status;
+            var errorData = null;
+            try {
+                var text = await resp.text();
+                try {
+                    var json = JSON.parse(text);
+                    if (json.error && json.message) {
+                        // Structured error from SchemaCraftErrorHandler middleware
+                        errorData = json;
+                        errorMessage = json.message;
+                    } else if (json.message) {
+                        errorMessage = json.message;
+                    }
+                } catch (_) {
+                    var match = text.match(/<title>(.*?)<\/title>/i);
+                    if (match) errorMessage = match[1];
+                    else if (text.length < 500) errorMessage = text;
+                }
+            } catch (_) {}
+            if (errorData) {
+                showErrorModal(errorData);
+            }
+            throw new Error(errorMessage);
+        }
+
+        function showErrorModal(data) {
+            // Remove any existing error modal
+            var existing = document.querySelector('.err-overlay');
+            if (existing) existing.remove();
+
+            var overlay = document.createElement('div');
+            overlay.className = 'err-overlay';
+
+            var html = '<div class="err-modal">' +
+                '<div class="err-header">' +
+                    '<span class="err-header-title">\u2717 Error</span>' +
+                    '<button class="err-close" title="Close">&times;</button>' +
+                '</div>' +
+                '<div class="err-body">' +
+                    '<div class="err-message">' + escapeHtml(data.message) + '</div>';
+
+            if (data.exception) {
+                html += '<div class="err-meta">' +
+                    '<strong>Exception:</strong> <span>' + escapeHtml(data.exception) + '</span></div>';
+            }
+            if (data.file) {
+                html += '<div class="err-meta">' +
+                    '<strong>Location:</strong> <span>' + escapeHtml(data.file) + ':' + data.line + '</span></div>';
+            }
+            if (data.trace && data.trace.length > 0) {
+                html += '<button class="err-trace-toggle">Show Stack Trace (' + data.trace.length + ' frames)</button>' +
+                    '<div class="err-trace" hidden>';
+                data.trace.forEach(function(frame, i) {
+                    var loc = frame.file ? escapeHtml(frame.file) + ':' + frame.line : '(internal)';
+                    var fn = frame.function ? escapeHtml(frame.function) : '';
+                    html += '<div class="err-trace-line">' +
+                        '<span style="color:var(--text-muted)">#' + i + '</span> ' +
+                        (fn ? '<span class="err-fn">' + fn + '</span> ' : '') +
+                        '<span class="err-loc">' + loc + '</span>' +
+                    '</div>';
+                });
+                html += '</div>';
+            }
+
+            html += '</div></div>';
+            overlay.innerHTML = html;
+            document.body.appendChild(overlay);
+
+            // Close handlers
+            overlay.querySelector('.err-close').addEventListener('click', function() { overlay.remove(); });
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+            // Trace toggle
+            var traceToggle = overlay.querySelector('.err-trace-toggle');
+            if (traceToggle) {
+                traceToggle.addEventListener('click', function() {
+                    var traceEl = overlay.querySelector('.err-trace');
+                    var hidden = traceEl.hidden;
+                    traceEl.hidden = !hidden;
+                    traceToggle.textContent = (hidden ? 'Hide' : 'Show') + ' Stack Trace (' + data.trace.length + ' frames)';
+                });
+            }
+        }
 
         // ── Shared Filter State (persisted in localStorage) ──────
         var sharedFilterState = {
@@ -1900,7 +2030,7 @@
                 return;
             }
             fetch('/_schema-craft/api/connections')
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     sharedFilterState.connections = data.connections;
                     if (!sharedFilterState.dbConnection) {
@@ -1909,14 +2039,14 @@
                     }
                     if (callback) callback();
                 })
-                .catch(function() { if (callback) callback(); });
+                .catch(function(e) { showToast('Failed to load connections: ' + e.message, 'error'); if (callback) callback(); });
         }
 
         function loadSharedTables(callback) {
             var url = '/_schema-craft/api/database/tables';
             if (sharedFilterState.dbConnection) url += '?db_connection=' + encodeURIComponent(sharedFilterState.dbConnection);
             fetch(url)
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     sharedFilterState.tables = data.tables.map(function(t) {
                         // Preserve selection state if schemasState has it
@@ -1930,7 +2060,7 @@
                     schemasState.tables = sharedFilterState.tables;
                     if (callback) callback();
                 })
-                .catch(function() { if (callback) callback(); });
+                .catch(function(e) { showToast('Failed to load tables: ' + e.message, 'error'); if (callback) callback(); });
         }
 
         function renderSharedConnectionDropdown(selectId) {
@@ -2040,7 +2170,7 @@
             try {
                 loadSharedFilterState();
                 const resp = await fetch('/_schema-craft/api/schema');
-                schemaData = await resp.json();
+                schemaData = await handleResponse(resp);
                 document.getElementById('loading').hidden = true;
                 renderHealthTab();
                 document.getElementById('health-tab').hidden = false;
@@ -2134,6 +2264,7 @@
             document.getElementById('status-tab').hidden = tab !== 'status';
             document.getElementById('generate-tab').hidden = tab !== 'generate';
             document.getElementById('actions-tab').hidden = tab !== 'actions';
+            document.getElementById('generators-tab').hidden = tab !== 'generators';
 
             updateQueryParams({ tab: tab });
             if (tab !== 'generate') {
@@ -2162,6 +2293,7 @@
             if (tab === 'status') initStatusTab();
             if (tab === 'generate') initGenerateTab();
             if (tab === 'actions') initActionsTab();
+            if (tab === 'generators') initGeneratorsTab();
         }
 
         function toggleTheme() {
@@ -2357,12 +2489,12 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify(data)
-            }).then(function(resp) { return resp.json(); }).then(function(result) {
+            }).then(handleResponse).then(function(result) {
                 if (result.success) {
                     btn.classList.add('applied');
                     btn.textContent = 'Applied!';
                     setTimeout(function() {
-                        fetch('/_schema-craft/api/schema').then(function(r) { return r.json(); }).then(function(d) {
+                        fetch('/_schema-craft/api/schema').then(handleResponse).then(function(d) {
                             schemaData = d;
                             renderHealthTab();
                             document.getElementById('health-tab').hidden = false;
@@ -2710,7 +2842,7 @@
             try {
                 var resp = await fetch('/_schema-craft/api/queries');
                 if (resp.ok) {
-                    var data = await resp.json();
+                    var data = await handleResponse(resp);
                     queryBuilderState.savedQueries = Array.isArray(data) ? data : (data.queries || []);
                 } else {
                     queryBuilderState.savedQueries = [];
@@ -2725,7 +2857,7 @@
             try {
                 var resp = await fetch('/_schema-craft/api/queries/' + encodeURIComponent(name));
                 if (!resp.ok) return;
-                var data = await resp.json();
+                var data = await handleResponse(resp);
                 var q = data.query || data;
 
                 // Reset state
@@ -4344,7 +4476,7 @@
             if (qbApiConfig) return qbApiConfig;
             try {
                 var resp = await fetch('/_schema-craft/api/query-config');
-                qbApiConfig = await resp.json();
+                qbApiConfig = await handleResponse(resp);
                 if (!queryBuilderState.selectedApi) {
                     queryBuilderState.selectedApi = qbApiConfig.defaultApi || 'default';
                 }
@@ -4646,7 +4778,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(definition),
                 });
-                var result = await resp.json();
+                var result = await handleResponse(resp);
                 if (resp.ok) {
                     queryBuilderState.currentQuery = queryBuilderState.name;
                     queryBuilderState.dirty = false;
@@ -4685,7 +4817,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(definition),
                 });
-                var result = await resp.json();
+                var result = await handleResponse(resp);
                 genBtn.textContent = origText;
                 genBtn.disabled = false;
 
@@ -4719,7 +4851,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(definition),
                 });
-                var result = await resp.json();
+                var result = await handleResponse(resp);
                 previewBtn.textContent = origText;
                 previewBtn.disabled = false;
 
@@ -5312,7 +5444,7 @@
 
         function checkInstallStatus() {
             fetch('/_schema-craft/api/install/status')
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     schemasState.baseModelInstalled = data.installed;
                     document.getElementById('sc-install-banner').hidden = data.installed;
@@ -5326,7 +5458,7 @@
             btn.textContent = 'Installing...';
 
             fetch('/_schema-craft/api/install', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' } })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (data.success) {
                         schemasState.baseModelInstalled = true;
@@ -5365,7 +5497,7 @@
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify(data),
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(result) {
                 if (!result.success) {
                     showToast(result.message || 'Failed to create schemas', 'error');
@@ -5561,7 +5693,7 @@
                         if (!previewOnly) body.force = force;
 
                         return fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(body) })
-                            .then(function(r) { return r.json(); })
+                            .then(handleResponse)
                             .then(function(result) {
                                 if (!result.success) throw new Error(result.message || 'Import failed');
                                 if (previewOnly) {
@@ -5603,7 +5735,7 @@
                             };
                             return fetch('/_schema-craft/api/schema/import/preview', {
                                 method: 'POST', headers: headers, body: JSON.stringify(body),
-                            }).then(function(r) { return r.json(); })
+                            }).then(handleResponse)
                             .then(function(result) {
                                 if (!result.success) throw new Error(result.message || 'Preview failed');
                                 var extrasOnly = result.files.filter(function(f) { return f.type !== 'schema'; });
@@ -5623,7 +5755,7 @@
                         };
                         return fetch('/_schema-craft/api/schema/import/extras', {
                             method: 'POST', headers: headers, body: JSON.stringify(body),
-                        }).then(function(r) { return r.json(); })
+                        }).then(handleResponse)
                         .then(function(result) {
                             if (!result.success) throw new Error(result.message || 'Extras generation failed');
                             var s = result.summary || {};
@@ -5652,7 +5784,7 @@
 
         function refreshSchemaData() {
             fetch('/_schema-craft/api/schema')
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     schemaData = data;
                     renderHealthContent();
@@ -5706,7 +5838,7 @@
         function loadStatusData() {
             document.getElementById('status-list').innerHTML = '<div style="padding:24px;color:var(--text-muted);text-align:center;">Loading status...</div>';
             fetch('/_schema-craft/api/status')
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     statusData = data;
                     renderStatusData();
@@ -5876,7 +6008,7 @@
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify({}),
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(data) {
                 if (!data.files || data.files.length === 0) {
                     showToast(data.message || 'Nothing to migrate.', 'info');
@@ -5890,7 +6022,7 @@
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify({}),
                     })
-                    .then(function(r) { return r.json(); })
+                    .then(handleResponse)
                     .then(function(result) {
                         if (result.success) {
                             showToast(result.message, 'success');
@@ -5917,7 +6049,7 @@
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify({ tables: [tableName] }),
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(data) {
                 if (!data.files || data.files.length === 0) {
                     showToast('No changes for ' + tableName + '.', 'info');
@@ -5929,7 +6061,7 @@
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify({ tables: [tableName] }),
                     })
-                    .then(function(r) { return r.json(); })
+                    .then(handleResponse)
                     .then(function(result) {
                         if (result.success) {
                             showToast(result.message, 'success');
@@ -5967,7 +6099,7 @@
             var url = '/_schema-craft/api/generate/config';
             if (api) url += '?api=' + encodeURIComponent(api);
             fetch(url)
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     generateConfig = data;
                     if (callback) callback();
@@ -6077,7 +6209,7 @@
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify({ name: name, prefix: prefix || undefined }),
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(data) {
                 if (data.success) {
                     showToast(data.message, 'success');
@@ -6214,7 +6346,7 @@
             content.innerHTML = '<div class="gen-empty-state">Loading...</div>';
 
             fetch('/_schema-craft/api/generate/stack-detail?schema=' + encodeURIComponent(schemaClass) + '&api=' + encodeURIComponent(genSelectedApi))
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (data.success === false) {
                         content.innerHTML = '<div class="gen-empty-state">' + escapeHtml(data.message || 'Failed to load.') + '</div>';
@@ -6310,7 +6442,7 @@
                             api: genSelectedApi,
                         }),
                     })
-                    .then(function(r) { return r.json(); })
+                    .then(handleResponse)
                     .then(function(data) {
                         if (data.success) {
                             showToast(data.message, 'success');
@@ -6344,7 +6476,7 @@
                             api: genSelectedApi,
                         }),
                     })
-                    .then(function(r) { return r.json(); })
+                    .then(handleResponse)
                     .then(function(data) {
                         if (data.success) {
                             showToast(data.message, 'success');
@@ -6455,7 +6587,7 @@
             });
 
             fetch('/_schema-craft/api/generate/resource-detail?schema=' + encodeURIComponent(schemaClass))
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (data.success === false) {
                         document.getElementById(bodyId).innerHTML =
@@ -6708,7 +6840,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(payload),
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
                     showFilePreviewModal(data.files, 'Add Action', function() {
@@ -6727,7 +6859,7 @@
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify(payload),
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(data) {
                 if (data.success) {
                     showToast(data.message, 'success');
@@ -6828,7 +6960,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(payload),
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
                     showFilePreviewModal(data.files, 'Generate Stack', function() {
@@ -6849,7 +6981,7 @@
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify(payload),
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(data) {
                 if (data.success) {
                     showToast(data.message, 'success');
@@ -6881,7 +7013,7 @@
             content.innerHTML = '<div class="gen-empty-state">Loading SDK config...</div>';
 
             fetch('/_schema-craft/api/sdk/config?api=' + encodeURIComponent(genSelectedApi))
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     genSdkConfig = data;
                     renderSdkView();
@@ -6939,7 +7071,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(payload),
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
                     showFilePreviewModal(data.files, 'Generate SDK', function() {
@@ -6960,7 +7092,7 @@
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify(payload),
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(data) {
                 if (data.success) {
                     showToast(data.message, 'success');
@@ -7008,7 +7140,7 @@
 
         function checkFilamentInstallStatus(callback) {
             fetch('/_schema-craft/api/filament/install-status')
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     var area = document.getElementById('gen-filament-install-area');
                     if (!area) { if (callback) callback(); return; }
@@ -7048,7 +7180,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(data) {
                 if (data.success) {
                     showToast('Filament installed successfully.', 'success');
@@ -7140,7 +7272,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(payload),
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
                     showFilePreviewModal(data.files, 'Generate Filament', function() {
@@ -7159,7 +7291,7 @@
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify(payload),
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(data) {
                 if (data.success) {
                     showToast(data.message, 'success');
@@ -7189,7 +7321,7 @@
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify({ schema: s.class, withPolicy: withPolicy }),
                     })
-                    .then(function(r) { return r.json(); })
+                    .then(handleResponse)
                     .then(function(data) {
                         if (data.success && data.files) {
                             allFiles = allFiles.concat(data.files);
@@ -7221,7 +7353,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify({ schema: s.class, withPolicy: withPolicy, force: force }),
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (data.success && data.files) {
                         totalCreated += data.files.filter(function(f) { return f.created; }).length;
@@ -7283,7 +7415,7 @@
                 if (dbConn) url += '&db_connection=' + encodeURIComponent(dbConn);
 
                 fetch(url)
-                    .then(function(r) { return r.json(); })
+                    .then(handleResponse)
                     .then(function(data) {
                         if (!data.success) { showToast(data.message || 'Failed to load schema', 'error'); return; }
                         self.state = {
@@ -7308,7 +7440,7 @@
                 var self = this;
                 var url = '/_schema-craft/api/schema/available-models';
                 if (self.dbConnection && self.dbConnection !== 'all') url += '?db_connection=' + encodeURIComponent(self.dbConnection);
-                fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+                fetch(url).then(handleResponse).then(function(data) {
                     self.availableModels = data.models || [];
                     // Re-render relationship forms if open
                     if (self.activeTab === 'relationships' && self.overlayEl) {
@@ -7842,7 +7974,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(payload)
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed', 'error'); return; }
                     showFilePreviewModal(data.files, function() { SchemaEditor.doSave(); }, 'Save Files');
@@ -7859,7 +7991,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(payload)
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Save failed', 'error'); return; }
                     showToast(data.message || 'Schema saved', 'success');
@@ -7897,7 +8029,7 @@
                                 db_connection: conn
                             })
                         })
-                        .then(function(r) { return r.json(); })
+                        .then(handleResponse)
                         .then(function(data) {
                             if (data.success) {
                                 var s = data.summary || {};
@@ -7930,7 +8062,7 @@
 
         function loadActionsConfig(callback) {
             fetch('/_schema-craft/api/actions/config')
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     actionsConfig = data;
                     if (callback) callback();
@@ -8074,7 +8206,7 @@
 
         function showActionDetailModal(actionClass) {
             fetch('/_schema-craft/api/actions/detail?action=' + encodeURIComponent(actionClass))
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Failed to load.', 'error'); return; }
                     renderActionDetailModal(data);
@@ -8168,7 +8300,7 @@
                     fetch('/_schema-craft/api/actions/service-preview?action=' + encodeURIComponent(action.actionClass), {
                         headers: { 'Accept': 'application/json' },
                     })
-                    .then(function(r) { return r.json(); })
+                    .then(handleResponse)
                     .then(function(data) {
                         btn.disabled = false;
                         btn.textContent = genBtnLabel;
@@ -8204,7 +8336,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify({ action: actionClass }),
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     btn.disabled = false;
                     btn.textContent = 'Regenerate Service Method';
@@ -8234,7 +8366,7 @@
                 fetch('/_schema-craft/api/actions/filament-action-preview?action=' + encodeURIComponent(action.actionClass), {
                     headers: { 'Accept': 'application/json' },
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) {
                         btn.disabled = false;
@@ -8264,7 +8396,7 @@
                                 force: data.hasExistingMethod,
                             }),
                         })
-                        .then(function(r) { return r.json(); })
+                        .then(handleResponse)
                         .then(function(result) {
                             btn.disabled = false;
                             if (result.success) {
@@ -8541,7 +8673,7 @@
                         fetch('/_schema-craft/api/actions/related-schema?model=' + encodeURIComponent(modelFqcn), {
                             headers: { 'Accept': 'application/json' },
                         })
-                        .then(function(r) { return r.json(); })
+                        .then(handleResponse)
                         .then(function(data) {
                             if (!data.success) {
                                 body.innerHTML = '<div class="act-rel-loading">No schema found for this model.</div>';
@@ -8701,7 +8833,7 @@
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(payload),
                 })
-                .then(function(r) { return r.json(); })
+                .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
                     // Don't close the field picker — keep it behind the preview modal
@@ -8734,7 +8866,7 @@
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 body: JSON.stringify(payload),
             })
-            .then(function(r) { return r.json(); })
+            .then(handleResponse)
             .then(function(data) {
                 if (data.success) {
                     showToast(data.message, 'success');
@@ -8760,6 +8892,311 @@
                     if (badge) badge.textContent = schema.actions ? schema.actions.length : 0;
                 }
             });
+        }
+
+        // ── Generators Tab ─────────────────────────────────
+        var generatorsInitialized = false;
+        var generatorsConfig = null;
+        var genSelectedGenerator = null;
+
+        function initGeneratorsTab() {
+            if (generatorsInitialized) return;
+            generatorsInitialized = true;
+            loadGeneratorsConfig(function() {
+                renderGeneratorsMain();
+            });
+        }
+
+        function loadGeneratorsConfig(callback) {
+            fetch('/_schema-craft/api/generators/config')
+                .then(handleResponse)
+                .then(function(data) {
+                    generatorsConfig = data;
+                    if (callback) callback();
+                })
+                .catch(function(e) { showToast('Failed to load generators config: ' + e.message, 'error'); });
+        }
+
+        function renderGeneratorsMain() {
+            var container = document.getElementById('generators-tab');
+            var generators = (generatorsConfig && generatorsConfig.generators) ? generatorsConfig.generators : [];
+
+            var listHtml = '';
+            generators.forEach(function(g) {
+                listHtml += '<li class="gen-stack-item" data-generator="' + escapeAttr(g.class) + '">' +
+                    '<span class="gen-stack-item-name">' + escapeHtml(g.name) + '</span>' +
+                    '<span class="gen-stack-item-badge">' + (g.inputs ? g.inputs.length : 0) + '</span>' +
+                '</li>';
+            });
+
+            if (!listHtml) {
+                listHtml = '<li style="padding:16px;color:var(--text-muted);font-size:12px;text-align:center;">No generators found.<br>Create a class extending SchemaCraftGenerator<br>in app/Generators/.</li>';
+            }
+
+            container.innerHTML =
+                '<div class="gen-main">' +
+                    '<div class="gen-sidebar">' +
+                        '<div class="gen-sidebar-header">' +
+                            '<span class="gen-sidebar-api-name">Custom Generators</span>' +
+                        '</div>' +
+                        '<div class="gen-sidebar-section-title">Generators</div>' +
+                        '<ul class="gen-stack-list" id="genr-list">' + listHtml + '</ul>' +
+                    '</div>' +
+                    '<div class="gen-content" id="genr-content">' +
+                        '<div class="gen-empty-state">Select a generator to configure it</div>' +
+                    '</div>' +
+                '</div>';
+
+            document.querySelectorAll('#genr-list .gen-stack-item[data-generator]').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    genSelectGenerator(item.dataset.generator);
+                });
+            });
+        }
+
+        function genSelectGenerator(generatorClass) {
+            genSelectedGenerator = generatorClass;
+
+            document.querySelectorAll('#genr-list .gen-stack-item').forEach(function(item) {
+                item.classList.toggle('active', item.dataset.generator === generatorClass);
+            });
+
+            var generatorDef = null;
+            if (generatorsConfig && generatorsConfig.generators) {
+                generatorDef = generatorsConfig.generators.find(function(g) { return g.class === generatorClass; });
+            }
+            if (!generatorDef) { showToast('Generator not found.', 'error'); return; }
+
+            renderGeneratorForm(generatorDef);
+        }
+
+        function renderGeneratorForm(generatorDef) {
+            var content = document.getElementById('genr-content');
+            var schemas = (generatorsConfig && generatorsConfig.schemas) ? generatorsConfig.schemas : [];
+
+            // Build schema slot pickers
+            var schemaPickersHtml = '';
+            (generatorDef.schemas || []).forEach(function(slotKey) {
+                var optionsHtml = '<option value="">-- Select a schema --</option>';
+                schemas.forEach(function(s) {
+                    optionsHtml += '<option value="' + escapeAttr(s.class) + '">' + escapeHtml(s.modelName) + ' (' + escapeHtml(shortName(s.class)) + ')</option>';
+                });
+                schemaPickersHtml +=
+                    '<div class="act-field-row" style="margin-bottom:16px;">' +
+                        '<label class="act-field-label">' + escapeHtml(slotKey) + ' schema</label>' +
+                        '<select class="sc-input genr-schema-picker" data-slot="' + escapeAttr(slotKey) + '" id="genr-schema-' + escapeAttr(slotKey) + '">' +
+                            optionsHtml +
+                        '</select>' +
+                        '<div class="genr-column-section" id="genr-cols-' + escapeAttr(slotKey) + '" style="display:none;margin-top:8px;">' +
+                            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Columns (leave all unchecked to include all)</div>' +
+                            '<div class="genr-columns-list" id="genr-cols-list-' + escapeAttr(slotKey) + '"></div>' +
+                        '</div>' +
+                    '</div>';
+            });
+
+            // Build input fields
+            var inputsHtml = '';
+            (generatorDef.inputs || []).forEach(function(input) {
+                inputsHtml += '<div class="act-field-row" style="margin-bottom:12px;">';
+                inputsHtml += '<label class="act-field-label">' + escapeHtml(input.label) + '</label>';
+
+                if (input.type === 'text') {
+                    inputsHtml += '<input type="text" class="sc-input genr-input" data-key="' + escapeAttr(input.key) + '" value="' + escapeAttr(input.default || '') + '">';
+                } else if (input.type === 'boolean') {
+                    inputsHtml += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
+                        '<input type="checkbox" class="genr-input" data-key="' + escapeAttr(input.key) + '" ' + (input.default ? 'checked' : '') + '>' +
+                        '<span style="font-size:12px;color:var(--text-muted);">Enabled</span>' +
+                    '</label>';
+                } else if (input.type === 'select') {
+                    var opts = '';
+                    Object.keys(input.options || {}).forEach(function(val) {
+                        opts += '<option value="' + escapeAttr(val) + '"' + (input.default === val ? ' selected' : '') + '>' + escapeHtml(input.options[val]) + '</option>';
+                    });
+                    inputsHtml += '<select class="sc-input genr-input" data-key="' + escapeAttr(input.key) + '">' + opts + '</select>';
+                } else if (input.type === 'schemaColumn') {
+                    inputsHtml += '<select class="sc-input genr-input genr-schema-col-picker" data-key="' + escapeAttr(input.key) + '" data-schema-key="' + escapeAttr(input.schemaKey || 'schema') + '">' +
+                        '<option value="">-- Select a column --</option>' +
+                    '</select>';
+                } else if (input.type === 'schemaColumns') {
+                    inputsHtml += '<div class="genr-schema-cols-picker" data-key="' + escapeAttr(input.key) + '" data-schema-key="' + escapeAttr(input.schemaKey || 'schema') + '">' +
+                        '<div style="font-size:11px;color:var(--text-muted);">Select a schema first</div>' +
+                    '</div>';
+                }
+
+                inputsHtml += '</div>';
+            });
+
+            content.innerHTML =
+                '<div class="gen-stack-detail">' +
+                    '<div class="gen-stack-header">' +
+                        '<span class="gen-stack-title">' + escapeHtml(generatorDef.name) + '</span>' +
+                        '<span class="gen-stack-route-prefix">' + escapeHtml(shortName(generatorDef.class)) + '</span>' +
+                    '</div>' +
+                    '<div style="padding:20px;">' +
+                        ((generatorDef.schemas && generatorDef.schemas.length > 0) ? '<div class="gen-endpoint-section-title" style="margin-bottom:12px;">Schema Slots</div>' + schemaPickersHtml : '') +
+                        ((generatorDef.inputs && generatorDef.inputs.length > 0) ? '<div class="gen-endpoint-section-title" style="margin-bottom:12px;">Inputs</div>' + inputsHtml : '') +
+                        '<div style="display:flex;gap:8px;margin-top:20px;">' +
+                            '<button class="sc-btn primary" id="genr-preview-btn">Preview</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+
+            // Schema picker change → load columns
+            content.querySelectorAll('.genr-schema-picker').forEach(function(select) {
+                select.addEventListener('change', function() {
+                    genLoadSchemaColumns(generatorDef, select.dataset.slot, select.value);
+                });
+            });
+
+            // Preview button
+            document.getElementById('genr-preview-btn').addEventListener('click', function() {
+                genPreview(generatorDef);
+            });
+        }
+
+        function genLoadSchemaColumns(generatorDef, slotKey, schemaClass) {
+            var colSection = document.getElementById('genr-cols-' + slotKey);
+            var colList = document.getElementById('genr-cols-list-' + slotKey);
+
+            if (!schemaClass) {
+                colSection.style.display = 'none';
+                genUpdateColumnPickers(generatorDef, slotKey, []);
+                return;
+            }
+
+            var params = new URLSearchParams({ generator: generatorDef.class });
+            params.set('schemas[' + slotKey + ']', schemaClass);
+
+            fetch('/_schema-craft/api/generators/detail?' + params.toString())
+                .then(handleResponse)
+                .then(function(data) {
+                    var columns = (data.schemaColumns && data.schemaColumns[slotKey]) ? data.schemaColumns[slotKey] : [];
+                    var html = '';
+                    columns.forEach(function(col) {
+                        html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px;">' +
+                            '<input type="checkbox" class="genr-col-check" data-slot="' + escapeAttr(slotKey) + '" data-col="' + escapeAttr(col.name) + '">' +
+                            '<span style="font-size:12px;font-family:monospace;">' + escapeHtml(col.name) + '</span>' +
+                            '<span style="font-size:11px;color:var(--text-muted);">' + escapeHtml(col.type) + '</span>' +
+                        '</label>';
+                    });
+                    colList.innerHTML = html || '<div style="font-size:12px;color:var(--text-muted);">No columns found</div>';
+                    colSection.style.display = columns.length ? 'block' : 'none';
+                    genUpdateColumnPickers(generatorDef, slotKey, columns);
+                })
+                .catch(function(e) { showToast('Failed to load columns: ' + e.message, 'error'); });
+        }
+
+        function genUpdateColumnPickers(generatorDef, slotKey, columns) {
+            // Update schemaColumn / schemaColumns pickers whose schemaKey matches this slot
+            var content = document.getElementById('genr-content');
+            if (!content) return;
+
+            content.querySelectorAll('.genr-schema-col-picker[data-schema-key="' + slotKey + '"]').forEach(function(select) {
+                var current = select.value;
+                var opts = '<option value="">-- Select a column --</option>';
+                columns.forEach(function(col) {
+                    opts += '<option value="' + escapeAttr(col.name) + '"' + (current === col.name ? ' selected' : '') + '>' +
+                        escapeHtml(col.name) + ' (' + escapeHtml(col.type) + ')' +
+                    '</option>';
+                });
+                select.innerHTML = opts;
+            });
+
+            content.querySelectorAll('.genr-schema-cols-picker[data-schema-key="' + slotKey + '"]').forEach(function(div) {
+                var html = '';
+                columns.forEach(function(col) {
+                    html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px;">' +
+                        '<input type="checkbox" class="genr-cols-check" data-col="' + escapeAttr(col.name) + '" data-key="' + escapeAttr(div.dataset.key) + '">' +
+                        '<span style="font-size:12px;font-family:monospace;">' + escapeHtml(col.name) + '</span>' +
+                        '<span style="font-size:11px;color:var(--text-muted);">' + escapeHtml(col.type) + '</span>' +
+                    '</label>';
+                });
+                div.innerHTML = html || '<div style="font-size:12px;color:var(--text-muted);">Select a schema first</div>';
+            });
+        }
+
+        function genBuildPayload(generatorDef) {
+            var content = document.getElementById('genr-content');
+            var payload = {
+                generator: generatorDef.class,
+                schemas: {},
+                inputs: {},
+            };
+
+            // Schema slots
+            (generatorDef.schemas || []).forEach(function(slotKey) {
+                var select = document.getElementById('genr-schema-' + slotKey);
+                if (!select || !select.value) return;
+
+                var selectedCols = [];
+                content.querySelectorAll('.genr-col-check[data-slot="' + slotKey + '"]:checked').forEach(function(cb) {
+                    selectedCols.push(cb.dataset.col);
+                });
+
+                payload.schemas[slotKey] = {
+                    class: select.value,
+                    selectedColumns: selectedCols,
+                };
+            });
+
+            // Inputs
+            content.querySelectorAll('.genr-input').forEach(function(el) {
+                var key = el.dataset.key;
+                if (!key) return;
+                if (el.type === 'checkbox') {
+                    payload.inputs[key] = el.checked;
+                } else {
+                    payload.inputs[key] = el.value;
+                }
+            });
+
+            // schemaColumns multi-select
+            var colsByKey = {};
+            content.querySelectorAll('.genr-cols-check:checked').forEach(function(cb) {
+                var key = cb.dataset.key;
+                if (!colsByKey[key]) colsByKey[key] = [];
+                colsByKey[key].push(cb.dataset.col);
+            });
+            Object.keys(colsByKey).forEach(function(key) {
+                payload.inputs[key] = colsByKey[key];
+            });
+
+            return payload;
+        }
+
+        function genPreview(generatorDef) {
+            var payload = genBuildPayload(generatorDef);
+
+            fetch('/_schema-craft/api/generators/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify(payload),
+            })
+                .then(handleResponse)
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
+                    showFilePreviewModal(data.files, 'Run Generator', function() {
+                        genRun(generatorDef);
+                    });
+                })
+                .catch(function(e) { showToast('Preview error: ' + e.message, 'error'); });
+        }
+
+        function genRun(generatorDef) {
+            var payload = genBuildPayload(generatorDef);
+            payload.force = false;
+
+            fetch('/_schema-craft/api/generators/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify(payload),
+            })
+                .then(handleResponse)
+                .then(function(data) {
+                    if (!data.success) { showToast(data.message || 'Generation failed.', 'error'); return; }
+                    showToast(data.message || 'Files generated.', 'success');
+                })
+                .catch(function(e) { showToast('Generation error: ' + e.message, 'error'); });
         }
 
         // ── Helpers ────────────────────────────────────────

@@ -53,6 +53,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Custom Generators
+    |--------------------------------------------------------------------------
+    |
+    | Path to scan for SchemaCraftGenerator subclasses (auto-discovery).
+    | Set to null to disable auto-discovery.
+    |
+    | The 'generators' array allows explicit registration of generator classes
+    | in addition to auto-discovered ones.
+    |
+    */
+
+    'generators_path' => app_path('Generators'),
+
+    'generators' => [
+        // App\Generators\MyGenerator::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | API Configurations
     |--------------------------------------------------------------------------
     |
