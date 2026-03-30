@@ -170,7 +170,7 @@ class ConnectionConfig
      *   Database\Factories → database/factories
      *   Tests\Unit → tests/Unit
      */
-    private function namespaceToDirectory(string $namespace): string
+    public static function namespaceToDirectory(string $namespace): string
     {
         $path = str_replace('\\', '/', $namespace);
 

@@ -526,7 +526,7 @@ class ActionsController
         $table = $scanner->scan();
         $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
 
-        $actionNamespace = 'App\\Models\\Actions\\'.$modelName;
+        $actionNamespace = $connectionConfig->modelNamespace.'\\Actions\\'.$modelName;
         $schemaNamespace = $connectionConfig->schemaNamespace;
 
         $stubsPath = StubResolver::basePath();
@@ -557,7 +557,7 @@ class ActionsController
         ];
 
         // Check if we should also generate/update the registry
-        $existingActions = $this->discoverActions($modelName);
+        $existingActions = $this->discoverActions($modelName, $connectionConfig->modelNamespace);
         $actionClassName = ucfirst($actionName).$modelName.'Action';
         $actionFqcn = $actionNamespace.'\\'.$actionClassName;
 
@@ -645,10 +645,11 @@ class ActionsController
      *
      * @return array<int, array{class: string, name: string, httpMethod: string, label: string|null}>
      */
-    private function discoverActions(string $modelName): array
+    private function discoverActions(string $modelName, string $modelNamespace): array
     {
         $actions = [];
-        $actionsDir = app_path("Models/Actions/{$modelName}");
+        $actionsNamespace = $modelNamespace.'\\Actions\\'.$modelName;
+        $actionsDir = base_path(ConnectionConfig::namespaceToDirectory($actionsNamespace));
 
         if (! is_dir($actionsDir)) {
             return $actions;
@@ -658,7 +659,7 @@ class ActionsController
 
         foreach ($files as $file) {
             $className = pathinfo($file, PATHINFO_FILENAME);
-            $fqcn = "App\\Models\\Actions\\{$modelName}\\{$className}";
+            $fqcn = $actionsNamespace.'\\'.$className;
 
             if (! class_exists($fqcn)) {
                 continue;
@@ -840,8 +841,9 @@ class ActionsController
             nullableOverrides: $nullableOverrides,
         );
 
-        $servicePath = $connectionConfig->servicePath($modelName);
-        $absPath = base_path($servicePath);
+        $prefixedModel = $connectionConfig->prefixedModelName($modelName);
+        $relPath = $connectionConfig->serviceDirectory().'/'.$prefixedModel.'Service.php';
+        $absPath = base_path($relPath);
         $exists = file_exists($absPath);
         $existingContent = $exists ? file_get_contents($absPath) : null;
 
@@ -876,7 +878,7 @@ class ActionsController
         }
 
         return [
-            'relPath' => $servicePath,
+            'relPath' => $relPath,
             'newContent' => $newContent,
         ];
     }
@@ -1039,7 +1041,8 @@ class ActionsController
         $schemaScanner = new SchemaScanner($schemaClass);
         $table = $schemaScanner->scan();
         $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
-        $servicePath = $connectionConfig->servicePath($modelName);
+        $prefixedModel = $connectionConfig->prefixedModelName($modelName);
+        $servicePath = $connectionConfig->serviceDirectory().'/'.$prefixedModel.'Service.php';
 
         $absPath = base_path($servicePath);
         $exists = file_exists($absPath);

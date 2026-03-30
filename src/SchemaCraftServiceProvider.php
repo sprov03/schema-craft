@@ -76,25 +76,49 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 __DIR__.'/../config/schema-craft.php' => config_path('schema-craft.php'),
             ], 'schema-craft-config');
 
-            $this->publishes([
-                __DIR__.'/Console/stubs/api' => base_path('stubs/schema-craft/api'),
-                __DIR__.'/Console/stubs/filament' => base_path('stubs/schema-craft/filament'),
-                __DIR__.'/Console/stubs/sdk' => base_path('stubs/schema-craft/sdk'),
-                __DIR__.'/Console/stubs/schema.stub' => base_path('stubs/schema-craft/schema.stub'),
-                __DIR__.'/Console/stubs/model.stub' => base_path('stubs/schema-craft/model.stub'),
-                __DIR__.'/Console/stubs/base-model.stub' => base_path('stubs/schema-craft/base-model.stub'),
-            ], 'schema-craft-stubs');
+            $stubPublishes = $this->buildStubPublishes();
 
-            $this->publishes([
-                __DIR__.'/../config/schema-craft.php' => config_path('schema-craft.php'),
-                __DIR__.'/Console/stubs/api' => base_path('stubs/schema-craft/api'),
-                __DIR__.'/Console/stubs/filament' => base_path('stubs/schema-craft/filament'),
-                __DIR__.'/Console/stubs/sdk' => base_path('stubs/schema-craft/sdk'),
-                __DIR__.'/Console/stubs/schema.stub' => base_path('stubs/schema-craft/schema.stub'),
-                __DIR__.'/Console/stubs/model.stub' => base_path('stubs/schema-craft/model.stub'),
-                __DIR__.'/Console/stubs/base-model.stub' => base_path('stubs/schema-craft/base-model.stub'),
-            ], 'schema-craft');
+            $this->publishes($stubPublishes, 'schema-craft-stubs');
+
+            $this->publishes(
+                array_merge(
+                    [__DIR__.'/../config/schema-craft.php' => config_path('schema-craft.php')],
+                    $stubPublishes,
+                ),
+                'schema-craft',
+            );
         }
+    }
+
+    /**
+     * Build the individual stub file publish mappings.
+     *
+     * Publishing individual files (instead of directories) ensures that
+     * `vendor:publish` without --force skips existing customized stubs
+     * while still copying any new stubs added to the package.
+     *
+     * @return array<string, string>
+     */
+    private function buildStubPublishes(): array
+    {
+        $packageStubs = __DIR__.'/Console/stubs';
+        $publishBase = base_path('stubs/schema-craft');
+        $publishes = [];
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($packageStubs, \FilesystemIterator::SKIP_DOTS),
+        );
+
+        foreach ($iterator as $file) {
+            if (! $file->isFile() || $file->getExtension() !== 'stub') {
+                continue;
+            }
+
+            $relativePath = str_replace($packageStubs.'/', '', $file->getPathname());
+            $publishes[$packageStubs.'/'.$relativePath] = $publishBase.'/'.$relativePath;
+        }
+
+        return $publishes;
     }
 
     private function registerVisualizerRoutes(): void
