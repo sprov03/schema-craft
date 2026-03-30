@@ -40,9 +40,18 @@ class ActionsController
         foreach ($schemaClasses as $schemaClass) {
             $modelName = $this->resolveModelName($schemaClass);
 
+            // Resolve connection config for namespace-aware discovery
+            try {
+                $scanner = new SchemaScanner($schemaClass);
+                $table = $scanner->scan();
+                $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+            } catch (\Throwable) {
+                $connectionConfig = ConfigResolver::connectionDefaults();
+            }
+
             // Discover action classes for this model
-            $actions = $this->discoverActions($modelName);
-            $hasRegistry = $this->hasRegistry($modelName);
+            $actions = $this->discoverActions($modelName, $connectionConfig->modelNamespace);
+            $hasRegistry = $this->hasRegistry($modelName, $connectionConfig->modelNamespace);
 
             // Scan schema columns for the field picker
             $columns = $this->scanSchemaColumns($schemaClass);
@@ -690,9 +699,9 @@ class ActionsController
     /**
      * Check if an ActionRegistry exists for a model.
      */
-    private function hasRegistry(string $modelName): bool
+    private function hasRegistry(string $modelName, string $modelNamespace): bool
     {
-        $registryClass = "App\\Models\\Actions\\{$modelName}\\{$modelName}Actions";
+        $registryClass = "{$modelNamespace}\\Actions\\{$modelName}\\{$modelName}Actions";
 
         return class_exists($registryClass);
     }

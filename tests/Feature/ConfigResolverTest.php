@@ -52,12 +52,18 @@ class ConfigResolverTest extends TestCase
         ConfigResolver::resolve('nonexistent');
     }
 
-    public function test_resolve_uses_configured_default(): void
+    public function test_resolve_uses_first_api_as_default(): void
     {
-        config()->set('schema-craft.default', 'partner');
-        config()->set('schema-craft.apis.partner', [
-            'namespaces' => [
-                'controller' => 'App\\Http\\Controllers\\PartnerApi',
+        config()->set('schema-craft.apis', [
+            'partner' => [
+                'namespaces' => [
+                    'controller' => 'App\\Http\\Controllers\\PartnerApi',
+                ],
+            ],
+            'internal' => [
+                'namespaces' => [
+                    'controller' => 'App\\Http\\Controllers\\InternalApi',
+                ],
             ],
         ]);
 

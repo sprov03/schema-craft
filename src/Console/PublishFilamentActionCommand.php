@@ -5,6 +5,8 @@ namespace SchemaCraft\Console;
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use SchemaCraft\Action;
+use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\Config\ConnectionConfig;
 use SchemaCraft\Generator\Api\ApiFileWriter;
 use SchemaCraft\Generator\Filament\FilamentActionCodeGenerator;
 use SchemaCraft\Scanner\ActionScanner;
@@ -105,15 +107,20 @@ class PublishFilamentActionCommand extends Command
             $input .= 'Action';
         }
 
-        // Try to find it by scanning action directories
-        $actionsDir = app_path('Models/Actions');
+        // Search all configured model namespaces for the action
+        foreach (ConfigResolver::allConnectionNames() as $name) {
+            $config = ConfigResolver::resolveConnection($name);
+            $actionsDir = base_path(ConnectionConfig::namespaceToDirectory($config->modelNamespace.'\\Actions'));
 
-        if (is_dir($actionsDir)) {
+            if (! is_dir($actionsDir)) {
+                continue;
+            }
+
             $dirs = glob($actionsDir.'/*', GLOB_ONLYDIR);
 
             foreach ($dirs as $dir) {
                 $modelName = basename($dir);
-                $fqcn = "App\\Models\\Actions\\{$modelName}\\{$input}";
+                $fqcn = "{$config->modelNamespace}\\Actions\\{$modelName}\\{$input}";
 
                 if (class_exists($fqcn)) {
                     return $fqcn;

@@ -212,7 +212,7 @@ class SchemaController
 
         return new JsonResponse([
             'connections' => $connections,
-            'default' => config('schema-craft.default_connection', 'default'),
+            'default' => $names[0] ?? 'default',
         ]);
     }
 

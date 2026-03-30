@@ -356,17 +356,13 @@ class GenerateApiCommand extends Command
             $input .= 'Action';
         }
 
-        // Try to resolve relative to the schema's namespace
-        $schemaNamespace = Str::beforeLast($schemaClass, '\\');
         $modelName = $this->resolveModelName($schemaClass);
 
-        // Try App\Models\Actions\{Model}\{Input}
-        $candidates = [
-            "App\\Models\\Actions\\{$modelName}\\{$input}",
-            "{$schemaNamespace}\\Actions\\{$input}",
-        ];
+        // Search all configured model namespaces for the action
+        foreach (ConfigResolver::allConnectionNames() as $name) {
+            $config = ConfigResolver::resolveConnection($name);
+            $candidate = "{$config->modelNamespace}\\Actions\\{$modelName}\\{$input}";
 
-        foreach ($candidates as $candidate) {
             if (class_exists($candidate)) {
                 return $candidate;
             }

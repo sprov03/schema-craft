@@ -163,7 +163,7 @@ class VisualizerController
     public function queryConfig(): JsonResponse
     {
         $apis = config('schema-craft.apis', []);
-        $defaultApi = config('schema-craft.default', 'default');
+        $defaultApi = array_key_first($apis) ?? 'default';
 
         return new JsonResponse([
             'apis' => $apis,
@@ -199,7 +199,7 @@ class VisualizerController
         $storage->save($query);
 
         // Resolve API config
-        $selectedApi = $validated['api'] ?? config('schema-craft.default', 'default');
+        $selectedApi = $validated['api'] ?? array_key_first(config('schema-craft.apis', [])) ?? 'default';
         $apiConfig = config("schema-craft.apis.{$selectedApi}", []);
 
         // Analyze indexes

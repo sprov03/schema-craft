@@ -4,18 +4,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Default API
-    |--------------------------------------------------------------------------
-    |
-    | The default API configuration to use when no --api option is specified.
-    |
-    */
-
-    'default' => 'default',
-    'default_connection' => 'default',
-
-    /*
-    |--------------------------------------------------------------------------
     | Schema Paths
     |--------------------------------------------------------------------------
     |
@@ -133,38 +121,5 @@ return [
             // DB Connection
             'connection' => 'default',
         ],
-        'prefix-example' => [
-            'prefixes' => [
-                'service' => 'Prefix',
-                'schema' => 'Prefix',
-                'model' => 'Prefix',
-            ],
-            'namespaces' => [
-                'service' => 'App\\Models\\Services',
-                'schema' => 'App\\Schemas',
-                'model' => 'App\\Models',
-                'factory' => 'Database\\Factories',
-                'test' => 'Tests\\Unit',
-            ],
-            // DB Connection
-            'connection' => 'default',
-        ],
-        'name-spaced-example' => [
-            'prefixes' => [
-                'service' => '',
-                'schema' => '',
-                'model' => '',
-            ],
-            'namespaces' => [
-                'service' => 'App\\Models\\Services\\Namespaced',
-                'schema' => 'App\\Schemas\\Namespaced',
-                'model' => 'App\\Models\\Namespaced',
-                'factory' => 'Database\\Factories\\Namespaced',
-                'test' => 'Tests\\Unit\\Namespaced',
-            ],
-            // DB Connection
-            'connection' => 'default',
-        ],
     ],
-
 ];

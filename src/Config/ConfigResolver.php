@@ -27,7 +27,7 @@ class ConfigResolver
             return self::connectionDefaults();
         }
 
-        $connectionName ??= config('schema-craft.default_connection', 'default');
+        $connectionName ??= array_key_first($connections) ?? 'default';
 
         if (! isset($connections[$connectionName])) {
             throw new InvalidArgumentException(
@@ -107,7 +107,7 @@ class ConfigResolver
             return self::defaults();
         }
 
-        $apiName ??= config('schema-craft.default', 'default');
+        $apiName ??= array_key_first($apis) ?? 'default';
 
         if (! isset($apis[$apiName])) {
             throw new InvalidArgumentException(
