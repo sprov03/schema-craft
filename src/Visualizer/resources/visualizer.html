@@ -8547,8 +8547,9 @@
             container.innerHTML =
                 '<div class="gen-main">' +
                     '<div class="gen-sidebar">' +
-                        '<div class="gen-sidebar-header">' +
+                        '<div class="gen-sidebar-header" style="display:flex;align-items:center;justify-content:space-between;">' +
                             '<span class="gen-sidebar-api-name">Actions</span>' +
+                            '<button class="sc-btn sm" id="act-docs-btn">Docs</button>' +
                         '</div>' +
                         '<div class="gen-sidebar-section-title">Schemas</div>' +
                         '<div class="gen-sidebar-search">' +
@@ -8560,6 +8561,11 @@
                         '<div class="gen-empty-state">Select a schema to view its actions</div>' +
                     '</div>' +
                 '</div>';
+
+            // Docs button
+            document.getElementById('act-docs-btn').addEventListener('click', function() {
+                showActionsDocsModal();
+            });
 
             // Search filter
             document.getElementById('act-schema-search').addEventListener('input', function(e) {
@@ -8711,6 +8717,7 @@
                             escapeHtml(action.label || action.name) +
                         '</span>' +
                         '<div style="display:flex;gap:8px;align-items:center;">' +
+                            '<button class="sc-btn sm" id="act-modal-docs">Docs</button>' +
                             '<button class="sc-btn sm" id="act-modal-edit">Edit</button>' +
                             '<button class="fp-close" id="act-modal-close">&times;</button>' +
                         '</div>' +
@@ -8873,6 +8880,11 @@
                     btn.textContent = 'Publish Filament Action';
                     showToast('Error: ' + e.message, 'error');
                 });
+            });
+
+            // Docs button — opens usage reference for this specific action
+            overlay.querySelector('#act-modal-docs').addEventListener('click', function() {
+                showActionsDocsModal(action);
             });
 
             // Edit action button
@@ -9344,6 +9356,262 @@
                     var badge = item.querySelector('.gen-stack-item-badge');
                     if (badge) badge.textContent = schema.actions ? schema.actions.length : 0;
                 }
+            });
+        }
+
+        // ── Actions Docs Modal ──────────────────────────────
+
+        function showActionsDocsModal(overrideAction) {
+            // Resolve context: specific action override > selected schema > generic fallback
+            var schema = null;
+            var action = overrideAction || null;
+
+            if (actSelectedSchema && actionsConfig && actionsConfig.schemas) {
+                schema = actionsConfig.schemas.find(function(s) { return s.class === actSelectedSchema; });
+            }
+            if (!action && schema && schema.actions && schema.actions.length > 0) {
+                action = schema.actions[0];
+            }
+
+            var isGeneric = !action;
+
+            // Derive modelName — from action namespace when available, schema otherwise
+            var modelName;
+            if (action) {
+                var fqcn  = action.actionClass || action.class || '';
+                var parts = fqcn.split('\\');
+                modelName = parts.length >= 2 ? parts[parts.length - 2] : (schema ? schema.modelName : 'YourModel');
+            } else if (schema) {
+                modelName = schema.modelName;
+            } else {
+                modelName = 'YourModel';
+            }
+
+            var registryShort   = modelName + 'Actions';
+            var actionShort     = action ? shortName(action.actionClass || action.class) : 'YourAction';
+            var serviceMethod   = action ? action.serviceMethod : 'yourAction';
+            var httpMethod      = action ? action.httpMethod.toLowerCase() : 'put';
+
+            // Derive registry import from action namespace
+            var registryImport;
+            if (action && (action.actionClass || action.class)) {
+                var fqcn    = action.actionClass || action.class;
+                var lastSep = fqcn.lastIndexOf('\\');
+                var ns      = lastSep > 0 ? fqcn.substring(0, lastSep) : '';
+                registryImport = ns ? ns + '\\' + registryShort : registryShort;
+            } else {
+                registryImport = 'App\\Models\\Actions\\' + modelName + '\\' + registryShort;
+            }
+
+            // Route segment: kebab-case of serviceMethod
+            var routeSegment = serviceMethod.replace(/([A-Z])/g, function(m) { return '-' + m.toLowerCase(); }).replace(/^-/, '');
+            var modelParam   = modelName.replace(/([A-Z])/g, function(m, i) { return i === 0 ? m.toLowerCase() : '_' + m.toLowerCase(); }) + '_id';
+
+            // ─ Code snippets ──────────────────────────────────────────────
+
+            var snippetViewRecord =
+'use ' + escapeHtml(registryImport) + ';\n\n' +
+'// ViewRecord or EditRecord page\n' +
+'protected function getHeaderActions(): array\n' +
+'{\n' +
+'    return [\n' +
+'        ' + escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()->filamentAction($this->record),\n' +
+'    ];\n' +
+'}';
+
+            var snippetListRecords =
+'use ' + escapeHtml(registryImport) + ';\n\n' +
+'// ListRecords page — no existing record, form starts from PHP defaults\n' +
+'protected function getHeaderActions(): array\n' +
+'{\n' +
+'    return [\n' +
+'        ' + escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()->filamentAction(),\n' +
+'    ];\n' +
+'}';
+
+            var snippetWithDefaults =
+'use ' + escapeHtml(registryImport) + ';\n' +
+'use ' + escapeHtml(action ? (action.actionClass || action.class) : 'App\\Models\\Actions\\' + modelName + '\\' + actionShort) + ';\n\n' +
+escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
+'    ->withDefaults(function (' + escapeHtml(actionShort) + ' $action) use ($parentRecord): void {\n' +
+'        // Set typed properties directly — these override record values and PHP defaults\n' +
+'        // $action->status = \'draft\';\n' +
+'        // $action->owner  = auth()->user();\n' +
+'    })\n' +
+'    ->filamentAction($this->record);';
+
+            var snippetFromRecord =
+'// Inside ' + escapeHtml(actionShort) + '.php\n' +
+'// Override to map fields that do not match column names 1:1\n' +
+'protected function fromRecord(\\Illuminate\\Database\\Eloquent\\Model $record): void\n' +
+'{\n' +
+'    // Default behaviour auto-maps matching column names — only override when needed\n' +
+'    // $this->city    = $record->mailing_city;\n' +
+'    // $this->country = $record->billing_country;\n' +
+'    // $this->email   = $record->owner->email;\n' +
+'}';
+
+            var snippetPrecedence =
+'// Fill-data precedence (lowest → highest):\n' +
+'//\n' +
+'//  1. PHP property defaults     public ?string $status = \'draft\';\n' +
+'//  2. fromRecord($record)       class-level mapping from model columns\n' +
+'//  3. withDefaults(fn)          call-site override — always wins\n' +
+'//\n' +
+'// The base class converts these to the flat array Filament\'s fillForm() needs.\n' +
+'// Developers never touch the array directly.';
+
+            var httpUpper = httpMethod.toUpperCase();
+            var snippetApi =
+'use ' + escapeHtml(action ? (action.actionClass || action.class) : 'App\\Models\\Actions\\' + modelName + '\\' + actionShort) + ';\n' +
+'use App\\Http\\Resources\\' + escapeHtml(modelName) + 'Resource;\n\n' +
+'Route::prefix(\'v1/' + escapeHtml(modelName.toLowerCase()) + 's/{' + escapeHtml(modelParam) + '}\')\n' +
+'    ->middleware([\'auth:sanctum\'])\n' +
+'    ->group(function () {\n' +
+'        (new ' + escapeHtml(actionShort) + ')->endpoint(' + escapeHtml(modelName) + 'Resource::class);\n' +
+'        // Registers: ' + httpUpper + ' /v1/' + escapeHtml(modelName.toLowerCase()) + 's/{' + escapeHtml(modelParam) + '}/' + escapeHtml(routeSegment) + '\n' +
+'    });';
+
+            var snippetApiPost =
+'// For POST (create) actions endpoint() automatically passes new ' + escapeHtml(modelName) + '()\n' +
+'// For PUT/PATCH/DELETE it fetches the model by {' + escapeHtml(modelParam) + '} via forAuthUser()->findOrFail()\n\n' +
+'// Request body is validated against action->rules(),\n' +
+'// mapped via action->mapData(), then passed to run().\n' +
+'// Returns: ' + escapeHtml(modelName) + 'Resource  (or 204 No Content for DELETE)';
+
+            // ─ Section builder helpers ────────────────────────────────────
+
+            function docSection(title, badge, badgeClass, code, note) {
+                return '<div style="margin-bottom:28px;">' +
+                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">' +
+                        '<span style="font-size:13px;font-weight:600;color:var(--text-primary);">' + title + '</span>' +
+                        (badge ? '<span class="ep-section-badge ' + badgeClass + '">' + badge + '</span>' : '') +
+                    '</div>' +
+                    (note ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">' + note + '</div>' : '') +
+                    '<pre class="act-service-code" style="max-height:none;white-space:pre;">' + code + '</pre>' +
+                '</div>';
+            }
+
+            function docDivider(label) {
+                return '<div style="display:flex;align-items:center;gap:10px;margin:24px 0 20px;">' +
+                    '<div style="flex:1;height:1px;background:var(--border);"></div>' +
+                    '<span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);">' + label + '</span>' +
+                    '<div style="flex:1;height:1px;background:var(--border);"></div>' +
+                '</div>';
+            }
+
+            // ─ Compatibility table ────────────────────────────────────────
+
+            var compatTable =
+                '<table class="act-param-table" style="width:100%;font-size:12px;">' +
+                    '<thead><tr>' +
+                        '<th style="text-align:left;padding:8px 10px;color:var(--text-muted);border-bottom:1px solid var(--border);">Filament Context</th>' +
+                        '<th style="text-align:left;padding:8px 10px;color:var(--text-muted);border-bottom:1px solid var(--border);">Call</th>' +
+                        '<th style="text-align:left;padding:8px 10px;color:var(--text-muted);border-bottom:1px solid var(--border);">Notes</th>' +
+                    '</tr></thead>' +
+                    '<tbody>' +
+                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">ViewRecord header</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction($this->record)</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">Record pre-fills the form</td></tr>' +
+                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">EditRecord header</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction($this->record)</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">Record pre-fills the form</td></tr>' +
+                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">ListRecords header</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction()</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">No record — form starts from PHP defaults</td></tr>' +
+                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">Any Filament page</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction($record ?? null)</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">Record is optional</td></tr>' +
+                    '</tbody>' +
+                '</table>';
+
+            // ─ Tab content ────────────────────────────────────────────────
+
+            var filamentTabContent =
+                (isGeneric ? '<div style="padding:8px 12px;background:var(--accent-dim);border:1px solid var(--accent);border-radius:6px;font-size:12px;color:var(--accent);margin-bottom:20px;">Select a schema with actions from the sidebar to see real class names in these examples.</div>' : '') +
+                docSection('Fill-Data Precedence', null, '', snippetPrecedence, null) +
+                docDivider('Filament Contexts') +
+                docSection(
+                    'ViewRecord &amp; EditRecord — update existing',
+                    'Header Action', 'params',
+                    snippetViewRecord,
+                    'Use when the page already has a loaded record. The form pre-fills from the record via <code style="font-family:var(--font-mono);font-size:11px;">fromRecord()</code>.'
+                ) +
+                docSection(
+                    'ListRecords — create new',
+                    'Header Action', 'fields',
+                    snippetListRecords,
+                    'No record available. The form starts from PHP property defaults. Works for POST (create) actions.'
+                ) +
+                docDivider('Customising Fill Data') +
+                docSection(
+                    'withDefaults() — call-site override',
+                    'Highest Priority', 'body',
+                    snippetWithDefaults,
+                    'Override any field at the call site using typed properties. Wins over both PHP defaults and record values. Useful for injecting context from the page (current user, parent record, etc.).'
+                ) +
+                docSection(
+                    'fromRecord() — class-level mapping',
+                    'Class Override', 'relations',
+                    snippetFromRecord,
+                    'Add this method to the action class when column names don\'t match property names, or when the value needs to be derived from a relationship rather than a direct attribute.'
+                ) +
+                docDivider('Where filamentAction() Works') +
+                '<div style="margin-bottom:8px;">' + compatTable + '</div>';
+
+            var apiTabContent =
+                (isGeneric ? '<div style="padding:8px 12px;background:var(--accent-dim);border:1px solid var(--accent);border-radius:6px;font-size:12px;color:var(--accent);margin-bottom:20px;">Select a schema with actions from the sidebar to see real class names in these examples.</div>' : '') +
+                docSection(
+                    'Register an API endpoint',
+                    httpUpper, 'gen-endpoint-method ' + httpMethod,
+                    snippetApi,
+                    'Call <code style="font-family:var(--font-mono);font-size:11px;">endpoint()</code> inside a route group. The action\'s HTTP method, route segment, and model binding are all derived automatically from the action definition.'
+                ) +
+                docSection(
+                    'How endpoint() handles the record',
+                    null, '',
+                    snippetApiPost,
+                    null
+                );
+
+            // ─ Modal ──────────────────────────────────────────────────────
+
+            var overlay = document.createElement('div');
+            overlay.className = 'fp-overlay';
+            overlay.innerHTML =
+                '<div class="fp-modal" style="max-width:820px;">' +
+                    '<div class="fp-header">' +
+                        '<span class="fp-header-title">Actions — Usage Reference</span>' +
+                        '<div style="display:flex;align-items:center;gap:8px;">' +
+                            (isGeneric
+                                ? ''
+                                : overrideAction
+                                    ? '<span style="font-size:12px;color:var(--text-muted);">Docs for <span style="font-family:var(--font-mono);color:var(--text-secondary);">' + escapeHtml(actionShort) + '</span></span>'
+                                    : '<span style="font-size:12px;color:var(--text-muted);">Examples using <span style="font-family:var(--font-mono);color:var(--text-secondary);">' + escapeHtml(registryShort) + '</span></span>'
+                            ) +
+                            '<button class="fp-close" id="act-docs-close">&times;</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 20px;">' +
+                        '<button class="ep-tab active" id="act-docs-tab-filament">Filament</button>' +
+                        '<button class="ep-tab" id="act-docs-tab-api">API</button>' +
+                    '</div>' +
+                    '<div style="flex:1;overflow-y:auto;padding:24px;" id="act-docs-body">' +
+                        '<div id="act-docs-filament">' + filamentTabContent + '</div>' +
+                        '<div id="act-docs-api" style="display:none;">' + apiTabContent + '</div>' +
+                    '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            function close() { overlay.remove(); }
+            overlay.querySelector('#act-docs-close').addEventListener('click', close);
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) { close(); } });
+
+            // Tab switching
+            overlay.querySelector('#act-docs-tab-filament').addEventListener('click', function() {
+                overlay.querySelector('#act-docs-tab-filament').classList.add('active');
+                overlay.querySelector('#act-docs-tab-api').classList.remove('active');
+                overlay.querySelector('#act-docs-filament').style.display = '';
+                overlay.querySelector('#act-docs-api').style.display = 'none';
+            });
+            overlay.querySelector('#act-docs-tab-api').addEventListener('click', function() {
+                overlay.querySelector('#act-docs-tab-api').classList.add('active');
+                overlay.querySelector('#act-docs-tab-filament').classList.remove('active');
+                overlay.querySelector('#act-docs-api').style.display = '';
+                overlay.querySelector('#act-docs-filament').style.display = 'none';
             });
         }
 
