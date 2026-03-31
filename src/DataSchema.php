@@ -2,9 +2,11 @@
 
 namespace SchemaCraft;
 
+use Carbon\Carbon;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionProperty;
+use SchemaCraft\Contracts\CastsDataSchemaProperty;
 use SchemaCraft\Exceptions\DataSchemaHydrationException;
 
 /**
@@ -42,6 +44,9 @@ abstract class DataSchema implements \JsonSerializable
      *     hasDefault: bool,
      *     default: mixed,
      *     isDataSchema: bool,
+     *     isCastsProperty: bool,
+     *     isBackedEnum: bool,
+     *     isDatetime: bool,
      * }>>
      */
     private static array $propertyCache = [];
@@ -67,6 +72,9 @@ abstract class DataSchema implements \JsonSerializable
      *     hasDefault: bool,
      *     default: mixed,
      *     isDataSchema: bool,
+     *     isCastsProperty: bool,
+     *     isBackedEnum: bool,
+     *     isDatetime: bool,
      * }>
      */
     private static function resolveProperties(): array
@@ -95,6 +103,9 @@ abstract class DataSchema implements \JsonSerializable
             $isBuiltin = $type instanceof ReflectionNamedType && $type->isBuiltin();
             $nullable = $type instanceof ReflectionNamedType ? $type->allowsNull() : true;
             $isDataSchema = $typeName !== null && ! $isBuiltin && is_subclass_of($typeName, self::class, true);
+            $isCastsProperty = $typeName !== null && ! $isBuiltin && is_a($typeName, CastsDataSchemaProperty::class, true);
+            $isBackedEnum = $typeName !== null && ! $isBuiltin && is_subclass_of($typeName, \BackedEnum::class, true);
+            $isDatetime = $typeName !== null && ! $isBuiltin && is_a($typeName, \DateTimeInterface::class, true);
 
             $properties[] = [
                 'name' => $prop->getName(),
@@ -104,6 +115,9 @@ abstract class DataSchema implements \JsonSerializable
                 'hasDefault' => $prop->hasDefaultValue(),
                 'default' => $prop->hasDefaultValue() ? $prop->getDefaultValue() : null,
                 'isDataSchema' => $isDataSchema,
+                'isCastsProperty' => $isCastsProperty,
+                'isBackedEnum' => $isBackedEnum,
+                'isDatetime' => $isDatetime,
             ];
         }
 
@@ -185,16 +199,46 @@ abstract class DataSchema implements \JsonSerializable
             if ($data !== null && array_key_exists($name, $data)) {
                 $value = $data[$name];
 
-                // Nested DataSchema — recurse
-                if ($prop['isDataSchema']) {
-                    if ($value === null && $prop['nullable']) {
+                // Null value — respect nullability
+                if ($value === null) {
+                    if ($prop['nullable']) {
                         $instance->{$name} = null;
-                    } elseif ($value === null) {
-                        // Non-nullable nested DataSchema with null value — create with defaults
-                        $instance->{$name} = $prop['typeName']::fromArray(null);
-                    } else {
-                        $instance->{$name} = $prop['typeName']::fromArray((array) $value);
+
+                        continue;
                     }
+
+                    // Non-nullable DataSchema — create with defaults
+                    if ($prop['isDataSchema']) {
+                        $instance->{$name} = $prop['typeName']::fromArray(null);
+
+                        continue;
+                    }
+                }
+
+                // Nested DataSchema — recurse
+                if ($prop['isDataSchema'] && $value !== null) {
+                    $instance->{$name} = $prop['typeName']::fromArray((array) $value);
+
+                    continue;
+                }
+
+                // CastsDataSchemaProperty — custom fromRaw/toRaw
+                if ($prop['isCastsProperty'] && $value !== null) {
+                    $instance->{$name} = $prop['typeName']::fromRaw($value);
+
+                    continue;
+                }
+
+                // BackedEnum — PHP native ::from()
+                if ($prop['isBackedEnum'] && $value !== null) {
+                    $instance->{$name} = $prop['typeName']::from($value);
+
+                    continue;
+                }
+
+                // DateTimeInterface — Carbon::parse()
+                if ($prop['isDatetime'] && $value !== null) {
+                    $instance->{$name} = Carbon::parse($value);
 
                     continue;
                 }
@@ -245,6 +289,12 @@ abstract class DataSchema implements \JsonSerializable
 
             if ($value instanceof self) {
                 $result[$name] = $value->toArray();
+            } elseif ($value instanceof CastsDataSchemaProperty) {
+                $result[$name] = $value->toRaw();
+            } elseif ($value instanceof \BackedEnum) {
+                $result[$name] = $value->value;
+            } elseif ($value instanceof \DateTimeInterface) {
+                $result[$name] = $value->toIso8601String();
             } else {
                 $result[$name] = $value;
             }

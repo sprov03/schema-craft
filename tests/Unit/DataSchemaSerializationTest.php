@@ -2,7 +2,10 @@
 
 namespace Tests\Unit;
 
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use PHPUnit\Framework\TestCase;
+use SchemaCraft\Contracts\CastsDataSchemaProperty;
 use SchemaCraft\DataSchema;
 use SchemaCraft\Exceptions\DataSchemaHydrationException;
 
@@ -48,6 +51,74 @@ class NonNullableNoDefaultDataSchema extends DataSchema
     public string $requiredField;
 
     public int $requiredInt;
+}
+
+enum StatusTestEnum: string
+{
+    case Active = 'active';
+    case Inactive = 'inactive';
+    case Pending = 'pending';
+}
+
+enum PriorityTestEnum: int
+{
+    case Low = 1;
+    case Medium = 2;
+    case High = 3;
+}
+
+class TestBitmask implements CastsDataSchemaProperty
+{
+    public function __construct(
+        public readonly int $value = 0,
+    ) {}
+
+    public static function fromRaw(mixed $value): static
+    {
+        return new static((int) $value);
+    }
+
+    public function toRaw(): mixed
+    {
+        return $this->value;
+    }
+
+    public function hasFlag(int $flag): bool
+    {
+        return ($this->value & $flag) === $flag;
+    }
+}
+
+class DateTimeDataSchema extends DataSchema
+{
+    public ?CarbonInterface $createdAt = null;
+
+    public ?CarbonInterface $updatedAt = null;
+}
+
+class EnumDataSchema extends DataSchema
+{
+    public ?StatusTestEnum $status = null;
+
+    public ?PriorityTestEnum $priority = null;
+}
+
+class CastsPropertyDataSchema extends DataSchema
+{
+    public ?TestBitmask $flags = null;
+}
+
+class MixedTypesDataSchema extends DataSchema
+{
+    public string $name = '';
+
+    public ?CarbonInterface $scheduledAt = null;
+
+    public ?StatusTestEnum $status = null;
+
+    public ?TestBitmask $permissions = null;
+
+    public int $count = 0;
 }
 
 // ── Tests ────────────────────────────────────────────
@@ -330,5 +401,222 @@ class DataSchemaSerializationTest extends TestCase
         $this->assertJson($json);
         $decoded = json_decode($json, true);
         $this->assertSame('serialize', $decoded['label']);
+    }
+
+    // ── DateTimeInterface (Carbon) ─────────────────
+
+    public function test_from_array_with_datetime_string_hydrates_to_carbon(): void
+    {
+        $dto = DateTimeDataSchema::fromArray([
+            'createdAt' => '2026-03-31T12:00:00Z',
+            'updatedAt' => '2026-01-15 08:30:00',
+        ]);
+
+        $this->assertInstanceOf(CarbonInterface::class, $dto->createdAt);
+        $this->assertInstanceOf(CarbonInterface::class, $dto->updatedAt);
+        $this->assertSame('2026-03-31', $dto->createdAt->format('Y-m-d'));
+        $this->assertSame('2026-01-15', $dto->updatedAt->format('Y-m-d'));
+    }
+
+    public function test_from_array_with_nullable_datetime_as_null(): void
+    {
+        $dto = DateTimeDataSchema::fromArray([
+            'createdAt' => null,
+            'updatedAt' => null,
+        ]);
+
+        $this->assertNull($dto->createdAt);
+        $this->assertNull($dto->updatedAt);
+    }
+
+    public function test_from_array_with_datetime_missing_uses_default(): void
+    {
+        $dto = DateTimeDataSchema::fromArray([]);
+
+        $this->assertNull($dto->createdAt);
+        $this->assertNull($dto->updatedAt);
+    }
+
+    public function test_to_array_with_datetime_serializes_to_iso8601(): void
+    {
+        $dto = DateTimeDataSchema::fromArray([
+            'createdAt' => '2026-03-31T12:00:00+00:00',
+        ]);
+
+        $result = $dto->toArray();
+
+        $this->assertIsString($result['createdAt']);
+        $this->assertStringContainsString('2026-03-31', $result['createdAt']);
+        $this->assertNull($result['updatedAt']);
+    }
+
+    public function test_datetime_round_trip(): void
+    {
+        $original = [
+            'createdAt' => '2026-03-31T12:00:00+00:00',
+            'updatedAt' => null,
+        ];
+
+        $dto = DateTimeDataSchema::fromArray($original);
+        $result = $dto->toArray();
+
+        // Re-hydrate from the serialized output to verify it round-trips
+        $dto2 = DateTimeDataSchema::fromArray($result);
+        $this->assertSame($dto->createdAt->toIso8601String(), $dto2->createdAt->toIso8601String());
+        $this->assertNull($dto2->updatedAt);
+    }
+
+    // ── BackedEnum ─────────────────────────────────
+
+    public function test_from_array_with_string_backed_enum(): void
+    {
+        $dto = EnumDataSchema::fromArray([
+            'status' => 'active',
+            'priority' => 2,
+        ]);
+
+        $this->assertSame(StatusTestEnum::Active, $dto->status);
+        $this->assertSame(PriorityTestEnum::Medium, $dto->priority);
+    }
+
+    public function test_from_array_with_nullable_enum_as_null(): void
+    {
+        $dto = EnumDataSchema::fromArray([
+            'status' => null,
+            'priority' => null,
+        ]);
+
+        $this->assertNull($dto->status);
+        $this->assertNull($dto->priority);
+    }
+
+    public function test_from_array_with_enum_missing_uses_default(): void
+    {
+        $dto = EnumDataSchema::fromArray([]);
+
+        $this->assertNull($dto->status);
+        $this->assertNull($dto->priority);
+    }
+
+    public function test_to_array_with_enums_serializes_to_value(): void
+    {
+        $dto = EnumDataSchema::fromArray([
+            'status' => 'pending',
+            'priority' => 3,
+        ]);
+
+        $result = $dto->toArray();
+
+        $this->assertSame('pending', $result['status']);
+        $this->assertSame(3, $result['priority']);
+    }
+
+    public function test_enum_round_trip(): void
+    {
+        $original = [
+            'status' => 'inactive',
+            'priority' => 1,
+        ];
+
+        $dto = EnumDataSchema::fromArray($original);
+        $result = $dto->toArray();
+
+        $this->assertSame($original, $result);
+    }
+
+    // ── CastsDataSchemaProperty ────────────────────
+
+    public function test_from_array_with_casts_property(): void
+    {
+        $dto = CastsPropertyDataSchema::fromArray([
+            'flags' => 5,
+        ]);
+
+        $this->assertInstanceOf(TestBitmask::class, $dto->flags);
+        $this->assertSame(5, $dto->flags->value);
+        $this->assertTrue($dto->flags->hasFlag(1));
+        $this->assertTrue($dto->flags->hasFlag(4));
+        $this->assertFalse($dto->flags->hasFlag(2));
+    }
+
+    public function test_from_array_with_nullable_casts_property_as_null(): void
+    {
+        $dto = CastsPropertyDataSchema::fromArray([
+            'flags' => null,
+        ]);
+
+        $this->assertNull($dto->flags);
+    }
+
+    public function test_to_array_with_casts_property_serializes_to_raw(): void
+    {
+        $dto = CastsPropertyDataSchema::fromArray([
+            'flags' => 7,
+        ]);
+
+        $result = $dto->toArray();
+
+        $this->assertSame(7, $result['flags']);
+    }
+
+    public function test_casts_property_round_trip(): void
+    {
+        $original = ['flags' => 5];
+
+        $dto = CastsPropertyDataSchema::fromArray($original);
+        $result = $dto->toArray();
+
+        $this->assertSame($original, $result);
+    }
+
+    // ── Mixed types ────────────────────────────────
+
+    public function test_from_array_with_mixed_types(): void
+    {
+        $dto = MixedTypesDataSchema::fromArray([
+            'name' => 'Test Event',
+            'scheduledAt' => '2026-06-15T09:00:00+00:00',
+            'status' => 'active',
+            'permissions' => 3,
+            'count' => 42,
+        ]);
+
+        $this->assertSame('Test Event', $dto->name);
+        $this->assertInstanceOf(CarbonInterface::class, $dto->scheduledAt);
+        $this->assertSame(StatusTestEnum::Active, $dto->status);
+        $this->assertInstanceOf(TestBitmask::class, $dto->permissions);
+        $this->assertSame(3, $dto->permissions->value);
+        $this->assertSame(42, $dto->count);
+    }
+
+    public function test_to_array_with_mixed_types_serializes_all(): void
+    {
+        $dto = MixedTypesDataSchema::fromArray([
+            'name' => 'Test Event',
+            'scheduledAt' => '2026-06-15T09:00:00+00:00',
+            'status' => 'active',
+            'permissions' => 3,
+            'count' => 42,
+        ]);
+
+        $result = $dto->toArray();
+
+        $this->assertSame('Test Event', $result['name']);
+        $this->assertIsString($result['scheduledAt']);
+        $this->assertStringContainsString('2026-06-15', $result['scheduledAt']);
+        $this->assertSame('active', $result['status']);
+        $this->assertSame(3, $result['permissions']);
+        $this->assertSame(42, $result['count']);
+    }
+
+    public function test_mixed_types_with_all_null(): void
+    {
+        $dto = MixedTypesDataSchema::fromArray([]);
+
+        $this->assertSame('', $dto->name);
+        $this->assertNull($dto->scheduledAt);
+        $this->assertNull($dto->status);
+        $this->assertNull($dto->permissions);
+        $this->assertSame(0, $dto->count);
     }
 }
