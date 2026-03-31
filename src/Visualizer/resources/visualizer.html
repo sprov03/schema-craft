@@ -1145,6 +1145,89 @@
         }
         .sc-filter-count { opacity: 0.7; margin-left: 2px; }
 
+        /* ── Schema Tab Header Bar ──────────────────────────── */
+        .sc-schemas-header {
+            display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;
+        }
+        .sc-schemas-header .sc-form-label { margin-bottom: 0; }
+        .sc-schemas-header .sc-input { width: auto; min-width: 200px; }
+        .sc-schemas-title { font-size: 16px; font-weight: 600; margin-right: auto; }
+
+        /* ── Schema Detail Modal ─────────────────────────────── */
+        .sd-overlay {
+            position: fixed; inset: 0; z-index: 9000;
+            background: rgba(0,0,0,0.6); display: flex;
+            align-items: center; justify-content: center;
+            animation: fp-fade-in 0.2s ease-out;
+        }
+        .sd-modal {
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 12px; width: 90vw; max-width: 800px; max-height: 85vh;
+            display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .sd-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 20px; border-bottom: 1px solid var(--border);
+        }
+        .sd-header-left { display: flex; align-items: center; gap: 10px; }
+        .sd-header-title { font-size: 15px; font-weight: 600; }
+        .sd-status-badge {
+            padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;
+        }
+        .sd-status-badge.in-sync { background: var(--success-dim); color: var(--success); }
+        .sd-status-badge.needs-migration { background: var(--warning-dim); color: var(--warning); }
+        .sd-status-badge.not-imported { background: var(--info-dim); color: var(--info); }
+        .sd-status-badge.new-table { background: var(--info-dim); color: var(--info); }
+        .sd-close {
+            background: none; border: none; color: var(--text-muted); font-size: 20px;
+            cursor: pointer; padding: 4px 8px; border-radius: 4px;
+        }
+        .sd-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .sd-body { padding: 20px; overflow-y: auto; flex: 1; }
+        .sd-section { margin-bottom: 20px; }
+        .sd-section-title {
+            font-size: 12px; font-weight: 600; text-transform: uppercase;
+            color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 10px;
+        }
+        .sd-info-grid {
+            display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px;
+        }
+        .sd-info-label { color: var(--text-muted); }
+        .sd-info-value { font-family: var(--font-mono); font-size: 12px; }
+        .sd-empty { color: var(--text-muted); font-size: 13px; font-style: italic; }
+        .sd-footer {
+            padding: 14px 20px; border-top: 1px solid var(--border);
+            display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;
+        }
+
+        /* ── Create Schema Modal ─────────────────────────────── */
+        .cs-overlay {
+            position: fixed; inset: 0; z-index: 9000;
+            background: rgba(0,0,0,0.6); display: flex;
+            align-items: center; justify-content: center;
+            animation: fp-fade-in 0.2s ease-out;
+        }
+        .cs-modal {
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 12px; width: 90vw; max-width: 520px;
+            display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .cs-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 20px; border-bottom: 1px solid var(--border);
+        }
+        .cs-header-title { font-size: 15px; font-weight: 600; }
+        .cs-close {
+            background: none; border: none; color: var(--text-muted); font-size: 20px;
+            cursor: pointer; padding: 4px 8px; border-radius: 4px;
+        }
+        .cs-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .cs-body { padding: 20px; }
+        .cs-footer {
+            padding: 14px 20px; border-top: 1px solid var(--border);
+            display: flex; gap: 10px; justify-content: flex-end;
+        }
+
         /* ── Status Tab ───────────────────────────────────── */
         #status-tab { padding: 24px; max-width: 900px; margin: 0 auto; }
         .sc-status-actions {
@@ -2319,6 +2402,7 @@
                     '<div class="sc-import-filters" id="health-import-filters">' +
                         '<button class="sc-filter-tab active" data-filter="all">All</button>' +
                         '<button class="sc-filter-tab" data-filter="not-imported">Not Imported</button>' +
+                        '<button class="sc-filter-tab" data-filter="needs-migration">Needs Migration</button>' +
                         '<button class="sc-filter-tab" data-filter="needs-factory-test">Needs Factory+Test</button>' +
                         '<button class="sc-filter-tab" data-filter="needs-service">Needs Service</button>' +
                         '<button class="sc-filter-tab" data-filter="complete">Complete</button>' +
@@ -5351,81 +5435,52 @@
                     '<span class="sc-banner-text">BaseModel is not installed. It is required for generated models to work properly.</span>' +
                     '<button class="sc-btn sm primary" id="sc-install-btn">Install BaseModel</button>' +
                 '</div>' +
-                '<div class="sc-tab-layout">' +
-                    '<div class="sc-panel">' +
-                        '<div class="sc-panel-header">Create Schema</div>' +
-                        '<div class="sc-panel-body">' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-form-label">Schema Names (comma-separated)</label>' +
-                                '<input type="text" class="sc-input" id="sc-create-names" placeholder="Post, Comment, Tag">' +
-                            '</div>' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-form-label">Primary Key</label>' +
-                                '<div class="sc-radio-group">' +
-                                    '<label class="sc-radio-label"><input type="radio" name="sc-pk" value="auto" checked> Auto-increment</label>' +
-                                    '<label class="sc-radio-label"><input type="radio" name="sc-pk" value="uuid"> UUID</label>' +
-                                    '<label class="sc-radio-label"><input type="radio" name="sc-pk" value="ulid"> ULID</label>' +
-                                '</div>' +
-                            '</div>' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-soft-deletes"> Include soft deletes</label>' +
-                            '</div>' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-create-model" checked> Create model file</label>' +
-                            '</div>' +
+                '<div class="sc-panel">' +
+                    '<div class="sc-panel-header" style="display:flex;align-items:center;gap:12px;">' +
+                        '<span style="flex:1;">Schemas</span>' +
+                        '<select class="sc-input" id="sc-db-connection" style="width:auto;min-width:180px;padding:4px 10px;font-size:12px;"><option>Loading...</option></select>' +
+                        '<button class="sc-btn sm primary" id="sc-new-schema-btn">New Schema</button>' +
+                    '</div>' +
+                    '<div class="sc-panel-body">' +
+                        '<div class="sc-import-filters" id="sc-import-filters">' +
+                            '<button class="sc-filter-tab active" data-filter="all">All</button>' +
+                            '<button class="sc-filter-tab" data-filter="not-imported">Not Imported</button>' +
+                            '<button class="sc-filter-tab" data-filter="needs-migration">Needs Migration</button>' +
+                            '<button class="sc-filter-tab" data-filter="needs-factory-test">Needs Factory+Test</button>' +
+                            '<button class="sc-filter-tab" data-filter="needs-service">Needs Service</button>' +
+                            '<button class="sc-filter-tab" data-filter="complete">Complete</button>' +
                         '</div>' +
-                        '<div class="sc-panel-footer">' +
-                            '<button class="sc-btn" id="sc-create-editor" style="margin-right:auto;" title="Open the visual schema editor for full control">Schema Editor</button>' +
-                            '<button class="sc-btn" id="sc-create-preview">Preview</button>' +
-                            '<button class="sc-btn primary" id="sc-create-submit">Create</button>' +
+                        '<div class="sc-search-bar">' +
+                            '<input type="text" class="sc-input" id="sc-import-search" placeholder="Search schemas and tables...">' +
+                            '<button class="sc-btn sm" id="sc-select-all">All</button>' +
+                            '<button class="sc-btn sm" id="sc-deselect-all">None</button>' +
+                        '</div>' +
+                        '<div class="sc-table-list" id="sc-table-list" style="max-height:none;">' +
+                            '<div style="color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center;">Loading...</div>' +
+                        '</div>' +
+                        '<div class="sc-form-group" style="margin-top:16px;">' +
+                            '<div class="sc-form-label">Generate:</div>' +
+                            '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-schema" checked> Schema + Model</label>' +
+                            '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-factory-test"> Factory + Model Test</label>' +
+                            '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-service"> Service</label>' +
+                        '</div>' +
+                        '<div class="sc-form-group">' +
+                            '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-force"> Force overwrite existing files</label>' +
                         '</div>' +
                     '</div>' +
-                    '<div class="sc-panel">' +
-                        '<div class="sc-panel-header">Import from Database</div>' +
-                        '<div class="sc-panel-body">' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-form-label">Database Connection</label>' +
-                                '<select class="sc-input" id="sc-db-connection" style="width: 100%;"><option>Loading...</option></select>' +
-                            '</div>' +
-                            '<div class="sc-import-filters" id="sc-import-filters">' +
-                                '<button class="sc-filter-tab active" data-filter="all">All</button>' +
-                                '<button class="sc-filter-tab" data-filter="not-imported">Not Imported</button>' +
-                                '<button class="sc-filter-tab" data-filter="needs-factory-test">Needs Factory+Test</button>' +
-                                '<button class="sc-filter-tab" data-filter="needs-service">Needs Service</button>' +
-                                '<button class="sc-filter-tab" data-filter="complete">Complete</button>' +
-                            '</div>' +
-                            '<div class="sc-search-bar">' +
-                                '<input type="text" class="sc-input" id="sc-import-search" placeholder="Search tables...">' +
-                                '<button class="sc-btn sm" id="sc-select-all">All</button>' +
-                                '<button class="sc-btn sm" id="sc-deselect-all">None</button>' +
-                            '</div>' +
-                            '<div class="sc-table-list" id="sc-table-list">' +
-                                '<div style="color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center;">Loading tables...</div>' +
-                            '</div>' +
-                            '<div class="sc-form-group">' +
-                                '<div class="sc-form-label">Generate:</div>' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-schema" checked> Schema + Model</label>' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-factory-test"> Factory + Model Test</label>' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-service"> Service</label>' +
-                            '</div>' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="sc-import-force"> Force overwrite existing files</label>' +
-                            '</div>' +
-                        '</div>' +
-                        '<div class="sc-panel-footer">' +
-                            '<button class="sc-btn" id="sc-import-preview">Preview</button>' +
-                            '<button class="sc-btn primary" id="sc-import-submit">Import</button>' +
-                        '</div>' +
+                    '<div class="sc-panel-footer">' +
+                        '<button class="sc-btn" id="sc-import-preview">Preview</button>' +
+                        '<button class="sc-btn primary" id="sc-import-submit">Import</button>' +
+                        '<button class="sc-btn primary" id="sc-migrate-btn" style="margin-left:auto;">Generate Migrations</button>' +
                     '</div>' +
                 '</div>';
 
             // Bind events
             document.getElementById('sc-install-btn').addEventListener('click', doInstallBaseModel);
-            document.getElementById('sc-create-editor').addEventListener('click', function() { SchemaEditor.openNew(schemasDbConnection); });
-            document.getElementById('sc-create-preview').addEventListener('click', function() { doCreateSchema(true); });
-            document.getElementById('sc-create-submit').addEventListener('click', function() { doCreateSchema(false); });
+            document.getElementById('sc-new-schema-btn').addEventListener('click', showCreateSchemaModal);
             document.getElementById('sc-import-preview').addEventListener('click', function() { doImportSchema(true); });
             document.getElementById('sc-import-submit').addEventListener('click', function() { doImportSchema(false); });
+            document.getElementById('sc-migrate-btn').addEventListener('click', function() { doBatchMigrate(); });
             document.getElementById('sc-import-search').addEventListener('input', function(e) {
                 schemasState.tableSearchQuery = e.target.value.toLowerCase();
                 renderTableList();
@@ -5440,6 +5495,100 @@
             document.getElementById('sc-db-connection').addEventListener('change', function() {
                 onSharedConnectionChange(this.value);
             });
+        }
+
+        function showCreateSchemaModal() {
+            var overlay = document.createElement('div');
+            overlay.className = 'cs-overlay';
+            overlay.innerHTML =
+                '<div class="cs-modal">' +
+                    '<div class="cs-header">' +
+                        '<span class="cs-header-title">New Schema</span>' +
+                        '<button class="cs-close" id="cs-close">&times;</button>' +
+                    '</div>' +
+                    '<div class="cs-body">' +
+                        '<div class="sc-form-group">' +
+                            '<label class="sc-form-label">Schema Names (comma-separated)</label>' +
+                            '<input type="text" class="sc-input" id="cs-create-names" placeholder="Post, Comment, Tag">' +
+                        '</div>' +
+                        '<div class="sc-form-group">' +
+                            '<label class="sc-form-label">Primary Key</label>' +
+                            '<div class="sc-radio-group">' +
+                                '<label class="sc-radio-label"><input type="radio" name="cs-pk" value="auto" checked> Auto-increment</label>' +
+                                '<label class="sc-radio-label"><input type="radio" name="cs-pk" value="uuid"> UUID</label>' +
+                                '<label class="sc-radio-label"><input type="radio" name="cs-pk" value="ulid"> ULID</label>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="sc-form-group">' +
+                            '<label class="sc-checkbox-label"><input type="checkbox" id="cs-soft-deletes"> Include soft deletes</label>' +
+                        '</div>' +
+                        '<div class="sc-form-group">' +
+                            '<label class="sc-checkbox-label"><input type="checkbox" id="cs-create-model" checked> Create model file</label>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="cs-footer">' +
+                        '<button class="sc-btn" id="cs-editor-btn" style="margin-right:auto;" title="Open the visual schema editor for full control">Schema Editor</button>' +
+                        '<button class="sc-btn" id="cs-preview-btn">Preview</button>' +
+                        '<button class="sc-btn primary" id="cs-create-btn">Create</button>' +
+                    '</div>' +
+                '</div>';
+            document.body.appendChild(overlay);
+
+            function closeModal() { overlay.remove(); }
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal(); });
+            document.getElementById('cs-close').addEventListener('click', closeModal);
+            document.getElementById('cs-editor-btn').addEventListener('click', function() {
+                closeModal();
+                SchemaEditor.openNew(schemasDbConnection);
+            });
+            document.getElementById('cs-preview-btn').addEventListener('click', function() { doCreateSchemaFromModal(true, closeModal); });
+            document.getElementById('cs-create-btn').addEventListener('click', function() { doCreateSchemaFromModal(false, closeModal); });
+
+            // Focus the name input
+            setTimeout(function() { document.getElementById('cs-create-names').focus(); }, 100);
+        }
+
+        function doCreateSchemaFromModal(previewOnly, closeModal) {
+            var names = document.getElementById('cs-create-names').value.trim();
+            var pk = document.querySelector('input[name="cs-pk"]:checked');
+            var data = {
+                names: names,
+                primaryKey: pk ? pk.value : 'auto',
+                softDeletes: document.getElementById('cs-soft-deletes').checked,
+                createModel: document.getElementById('cs-create-model').checked,
+            };
+
+            if (!data.names) {
+                showToast('Please enter at least one schema name', 'warning');
+                return;
+            }
+
+            var url = previewOnly ? '/_schema-craft/api/schema/create/preview' : '/_schema-craft/api/schema/create';
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify(data),
+            })
+            .then(handleResponse)
+            .then(function(result) {
+                if (!result.success) {
+                    showToast(result.message || 'Failed to create schemas', 'error');
+                    return;
+                }
+                if (previewOnly) {
+                    showFilePreviewModal(result.files, 'Write Files', function() {
+                        doCreateSchemaFromModal(false, closeModal);
+                    });
+                } else {
+                    var count = result.files ? result.files.length : 0;
+                    showToast(result.message || count + ' file(s) created', 'success');
+                    closeModal();
+                    loadDatabaseTables();
+                    refreshSchemaData();
+                }
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
         }
 
         function checkInstallStatus() {
@@ -5472,50 +5621,6 @@
                 .finally(function() { btn.disabled = false; btn.textContent = 'Install BaseModel'; });
         }
 
-        function getCreateFormData() {
-            var names = document.getElementById('sc-create-names').value.trim();
-            var pk = document.querySelector('input[name="sc-pk"]:checked');
-            return {
-                names: names,
-                primaryKey: pk ? pk.value : 'auto',
-                softDeletes: document.getElementById('sc-soft-deletes').checked,
-                createModel: document.getElementById('sc-create-model').checked,
-            };
-        }
-
-        function doCreateSchema(previewOnly) {
-            var data = getCreateFormData();
-            if (!data.names) {
-                showToast('Please enter at least one schema name', 'warning');
-                return;
-            }
-
-            var url = previewOnly ? '/_schema-craft/api/schema/create/preview' : '/_schema-craft/api/schema/create';
-
-            fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify(data),
-            })
-            .then(handleResponse)
-            .then(function(result) {
-                if (!result.success) {
-                    showToast(result.message || 'Failed to create schemas', 'error');
-                    return;
-                }
-
-                if (previewOnly) {
-                    showFilePreviewModal(result.files, function() { doCreateSchema(false); }, 'Write Files');
-                } else {
-                    var count = result.files ? result.files.length : 0;
-                    showToast(result.message || count + ' file(s) created', 'success');
-                    loadDatabaseTables(); // Refresh import panel statuses
-                    refreshSchemaData();
-                }
-            })
-            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
-        }
-
         // ── DB Connections ────────────────────────────────
         function loadConnections() {
             loadSharedConnections(function() {
@@ -5531,17 +5636,83 @@
             });
         }
 
-        // ── Import from Database ────────────────────────
+        // ── Schema & Table Data ────────────────────────
+        var schemaStatusData = null;
+
         function loadDatabaseTables() {
             loadSharedTables(function() {
-                renderTableList();
-                syncSharedFiltersToUI();
+                // Also fetch schema status to enrich with diff data
+                fetch('/_schema-craft/api/status')
+                    .then(handleResponse)
+                    .then(function(data) {
+                        schemaStatusData = data;
+                        enrichTablesWithStatus();
+                        renderTableList();
+                        syncSharedFiltersToUI();
+                    })
+                    .catch(function() {
+                        // Status fetch failed — still render tables without diff info
+                        renderTableList();
+                        syncSharedFiltersToUI();
+                    });
             });
+        }
+
+        function enrichTablesWithStatus() {
+            if (!schemaStatusData || !schemaStatusData.schemas || !sharedFilterState.tables) return;
+
+            var tables = sharedFilterState.tables;
+
+            // Build lookup of tables by name for quick matching
+            var tablesByName = {};
+            tables.forEach(function(t) { tablesByName[t.name] = t; });
+
+            // Enrich existing tables with diff status
+            schemaStatusData.schemas.forEach(function(schema) {
+                var t = tablesByName[schema.tableName];
+                if (t) {
+                    t.diffStatus = schema.status;
+                    t.tableDiff = schema.diff || null;
+                    t.schemaClass = t.schemaClass || schema.schemaClass;
+                    t.needsMigration = schema.status === 'has_changes' || schema.status === 'new_table';
+                } else {
+                    // Schema exists but no DB table — add to list
+                    var newEntry = {
+                        name: schema.tableName,
+                        modelName: schema.tableName.replace(/(^|_)([a-z])/g, function(m, sep, c) { return c.toUpperCase(); }),
+                        dbConnection: schema.connection || null,
+                        hasSchema: true,
+                        hasModel: false,
+                        hasFactory: false,
+                        hasModelTest: false,
+                        hasService: false,
+                        schemaClass: schema.schemaClass,
+                        selected: false,
+                        diffStatus: 'new_table',
+                        tableDiff: schema.diff || null,
+                        needsMigration: true,
+                        schemaOnly: true,
+                    };
+                    tables.push(newEntry);
+                    tablesByName[schema.tableName] = newEntry;
+                }
+            });
+
+            // Mark tables that have schemas and are in sync
+            tables.forEach(function(t) {
+                if (t.hasSchema && !t.diffStatus) {
+                    t.diffStatus = 'in_sync';
+                    t.needsMigration = false;
+                }
+            });
+
+            schemasState.tables = sharedFilterState.tables;
         }
 
         function matchesImportFilter(t, filter) {
             switch (filter) {
                 case 'not-imported': return !t.hasSchema;
+                case 'needs-migration': return t.needsMigration === true;
                 case 'needs-factory-test': return t.hasSchema && t.hasModel && (!t.hasFactory || !t.hasModelTest);
                 case 'needs-service': return t.hasSchema && t.hasModel && t.hasFactory && t.hasModelTest && !t.hasService;
                 case 'complete': return t.hasSchema && t.hasModel && t.hasFactory && t.hasModelTest && t.hasService;
@@ -5581,6 +5752,14 @@
 
             list.innerHTML = filtered.map(function(t) {
                 var badges = '';
+                // Diff status badge
+                if (t.diffStatus === 'new_table') {
+                    badges += '<span class="sc-mini-badge" style="background:var(--info-dim);color:var(--info);">New Table</span>';
+                } else if (t.diffStatus === 'has_changes') {
+                    badges += '<span class="sc-mini-badge" style="background:var(--warning-dim);color:var(--warning);">Out of Sync</span>';
+                } else if (t.diffStatus === 'in_sync') {
+                    badges += '<span class="sc-mini-badge has">In Sync</span>';
+                }
                 badges += t.hasSchema ? '<span class="sc-mini-badge has">Schema</span>' : '';
                 badges += t.hasModel ? '<span class="sc-mini-badge has">Model</span>' : '';
                 badges += t.hasFactory ? '<span class="sc-mini-badge has">Factory</span>' : '';
@@ -5590,21 +5769,18 @@
                     ? '<span class="sc-conn-tag">' + escapeHtml(t.dbConnection) + '</span>'
                     : '';
                 var tableKey = t.dbConnection ? t.name + '::' + t.dbConnection : t.name;
-                var editBtn = t.hasSchema && t.schemaClass
-                    ? '<button class="sc-btn sm se-edit-schema-btn" data-schema="' + escapeAttr(t.schemaClass) + '" data-conn="' + escapeAttr(t.dbConnection || '') + '" title="Edit Schema" style="padding:2px 8px;font-size:11px;">Edit</button>'
-                    : '';
-                return '<div class="sc-table-item">' +
+                return '<div class="sc-table-item" data-table-key="' + escapeAttr(tableKey) + '" style="cursor:pointer;">' +
                     '<input type="checkbox" class="sc-table-cb" data-table="' + escapeAttr(tableKey) + '"' + (t.selected ? ' checked' : '') + '>' +
                     '<span class="sc-table-name">' + escapeHtml(t.name) + '</span>' +
                     connTag +
                     '<span class="sc-table-badges">' + badges + '</span>' +
-                    editBtn +
                 '</div>';
             }).join('');
 
             // Bind checkbox events (use composite key for lookup)
             list.querySelectorAll('.sc-table-cb').forEach(function(cb) {
-                cb.addEventListener('change', function() {
+                cb.addEventListener('change', function(e) {
+                    e.stopPropagation();
                     var key = cb.dataset.table;
                     var parts = key.split('::');
                     var tableName = parts[0];
@@ -5616,11 +5792,19 @@
                 });
             });
 
-            // Bind schema edit buttons
-            list.querySelectorAll('.se-edit-schema-btn').forEach(function(btn) {
-                btn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    SchemaEditor.openEdit(btn.dataset.schema, btn.dataset.conn || schemasDbConnection);
+            // Bind row click for detail modal
+            list.querySelectorAll('.sc-table-item').forEach(function(row) {
+                row.addEventListener('click', function(e) {
+                    // Don't open modal if clicking checkbox
+                    if (e.target.classList.contains('sc-table-cb')) return;
+                    var key = row.dataset.tableKey;
+                    var parts = key.split('::');
+                    var tableName = parts[0];
+                    var conn = parts[1] || null;
+                    var table = schemasState.tables.find(function(t) {
+                        return t.name === tableName && (!conn || t.dbConnection === conn);
+                    });
+                    if (table) showSchemaDetailModal(table);
                 });
             });
         }
@@ -5780,6 +5964,275 @@
                     refreshSchemaData();
                 }
             }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+        }
+
+        // ── Schema Detail Modal ────────────────────────
+        function showSchemaDetailModal(table) {
+            var overlay = document.createElement('div');
+            overlay.className = 'sd-overlay';
+
+            var statusBadge = '';
+            var statusClass = '';
+            if (!table.hasSchema) {
+                statusBadge = 'Not Imported';
+                statusClass = 'not-imported';
+            } else if (table.diffStatus === 'new_table') {
+                statusBadge = 'New Table';
+                statusClass = 'new-table';
+            } else if (table.diffStatus === 'has_changes') {
+                statusBadge = 'Needs Migration';
+                statusClass = 'needs-migration';
+            } else {
+                statusBadge = 'In Sync';
+                statusClass = 'in-sync';
+            }
+
+            var bodyHtml = '';
+
+            // Info section
+            bodyHtml += '<div class="sd-section">' +
+                '<div class="sd-section-title">Details</div>' +
+                '<div class="sd-info-grid">' +
+                    '<span class="sd-info-label">Table</span><span class="sd-info-value">' + escapeHtml(table.name) + '</span>' +
+                    (table.schemaClass ? '<span class="sd-info-label">Schema</span><span class="sd-info-value">' + escapeHtml(table.schemaClass) + '</span>' : '') +
+                    (table.dbConnection ? '<span class="sd-info-label">Connection</span><span class="sd-info-value">' + escapeHtml(table.dbConnection) + '</span>' : '') +
+                '</div>' +
+            '</div>';
+
+            // File status
+            if (table.hasSchema) {
+                bodyHtml += '<div class="sd-section">' +
+                    '<div class="sd-section-title">Files</div>' +
+                    '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+                        '<span class="sc-mini-badge has">Schema</span>' +
+                        (table.hasModel ? '<span class="sc-mini-badge has">Model</span>' : '<span class="sc-mini-badge">Model</span>') +
+                        (table.hasFactory ? '<span class="sc-mini-badge has">Factory</span>' : '<span class="sc-mini-badge">Factory</span>') +
+                        (table.hasModelTest ? '<span class="sc-mini-badge has">Test</span>' : '<span class="sc-mini-badge">Test</span>') +
+                        (table.hasService ? '<span class="sc-mini-badge has">Service</span>' : '<span class="sc-mini-badge">Service</span>') +
+                    '</div>' +
+                '</div>';
+            }
+
+            // Diff section
+            if (table.tableDiff) {
+                bodyHtml += '<div class="sd-section">' +
+                    '<div class="sd-section-title">Changes</div>' +
+                    renderDiffDetail(table.tableDiff) +
+                '</div>';
+            } else if (table.hasSchema && table.diffStatus === 'in_sync') {
+                bodyHtml += '<div class="sd-section">' +
+                    '<div class="sd-section-title">Changes</div>' +
+                    '<div class="sd-empty">Schema and database are in sync.</div>' +
+                '</div>';
+            } else if (!table.hasSchema) {
+                bodyHtml += '<div class="sd-section">' +
+                    '<div class="sd-section-title">Status</div>' +
+                    '<div class="sd-empty">No schema file exists for this table. Import to generate one.</div>' +
+                '</div>';
+            }
+
+            // Migration preview section (placeholder, loaded on demand)
+            if (table.needsMigration) {
+                bodyHtml += '<div class="sd-section" id="sd-migration-section">' +
+                    '<div class="sd-section-title">Migration Preview</div>' +
+                    '<div id="sd-migration-content" class="sd-empty">Click "Preview Migration" to see the generated code.</div>' +
+                '</div>';
+            }
+
+            // Footer actions
+            var footerHtml = '';
+            if (table.hasSchema && table.schemaClass) {
+                footerHtml += '<button class="sc-btn" id="sd-edit-schema">Edit Schema</button>';
+            }
+            if (!table.hasSchema) {
+                footerHtml += '<button class="sc-btn primary" id="sd-import-btn">Import Schema</button>';
+            }
+            if (table.needsMigration) {
+                footerHtml += '<button class="sc-btn" id="sd-preview-migration">Preview Migration</button>';
+                footerHtml += '<button class="sc-btn primary" id="sd-generate-migration">Generate Migration</button>';
+            }
+
+            overlay.innerHTML =
+                '<div class="sd-modal">' +
+                    '<div class="sd-header">' +
+                        '<div class="sd-header-left">' +
+                            '<span class="sd-header-title">' + escapeHtml(table.name) + '</span>' +
+                            '<span class="sd-status-badge ' + statusClass + '">' + statusBadge + '</span>' +
+                        '</div>' +
+                        '<button class="sd-close" id="sd-close">&times;</button>' +
+                    '</div>' +
+                    '<div class="sd-body">' + bodyHtml + '</div>' +
+                    '<div class="sd-footer">' + footerHtml + '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            function closeModal() { overlay.remove(); }
+            overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal(); });
+            document.getElementById('sd-close').addEventListener('click', closeModal);
+
+            // Edit schema button
+            var editBtn = document.getElementById('sd-edit-schema');
+            if (editBtn) {
+                editBtn.addEventListener('click', function() {
+                    closeModal();
+                    SchemaEditor.openEdit(table.schemaClass, table.dbConnection || schemasDbConnection);
+                });
+            }
+
+            // Import button (for tables without schemas)
+            var importBtn = document.getElementById('sd-import-btn');
+            if (importBtn) {
+                importBtn.addEventListener('click', function() {
+                    var conn = table.dbConnection || schemasDbConnection || 'default';
+                    var body = {
+                        tables: [table.name],
+                        createModel: true,
+                        createFactory: false,
+                        createModelTest: false,
+                        createService: false,
+                        db_connection: conn,
+                    };
+                    fetch('/_schema-craft/api/schema/import/preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify(body),
+                    })
+                    .then(handleResponse)
+                    .then(function(result) {
+                        if (!result.success) { showToast(result.message || 'Import failed', 'error'); return; }
+                        showFilePreviewModal(result.files, 'Write Files', function() {
+                            body.force = false;
+                            fetch('/_schema-craft/api/schema/import', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                                body: JSON.stringify(body),
+                            })
+                            .then(handleResponse)
+                            .then(function(r) {
+                                if (r.success) {
+                                    showToast('Schema imported successfully', 'success');
+                                    closeModal();
+                                    loadDatabaseTables();
+                                    refreshSchemaData();
+                                } else {
+                                    showToast(r.message || 'Import failed', 'error');
+                                }
+                            })
+                            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                        });
+                    })
+                    .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                });
+            }
+
+            // Preview migration button
+            var previewMigBtn = document.getElementById('sd-preview-migration');
+            if (previewMigBtn) {
+                previewMigBtn.addEventListener('click', function() {
+                    var contentEl = document.getElementById('sd-migration-content');
+                    contentEl.innerHTML = '<span style="color:var(--text-muted);">Loading...</span>';
+                    fetch('/_schema-craft/api/migrate/preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ tables: [table.name] }),
+                    })
+                    .then(handleResponse)
+                    .then(function(data) {
+                        if (!data.files || data.files.length === 0) {
+                            contentEl.innerHTML = '<span class="sd-empty">No migration needed.</span>';
+                            return;
+                        }
+                        contentEl.innerHTML = data.files.map(function(f) {
+                            return '<div style="margin-bottom:8px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">' + escapeHtml(f.path) + '</div>' +
+                                '<pre style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:12px;font-family:var(--font-mono);overflow-x:auto;white-space:pre;line-height:1.6;color:var(--text-primary);">' + escapeHtml(f.content) + '</pre>';
+                        }).join('');
+                    })
+                    .catch(function(e) { contentEl.innerHTML = '<span style="color:var(--error);">Error: ' + escapeHtml(e.message) + '</span>'; });
+                });
+            }
+
+            // Generate migration button
+            var genMigBtn = document.getElementById('sd-generate-migration');
+            if (genMigBtn) {
+                genMigBtn.addEventListener('click', function() {
+                    fetch('/_schema-craft/api/migrate/preview', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ tables: [table.name] }),
+                    })
+                    .then(handleResponse)
+                    .then(function(data) {
+                        if (!data.files || data.files.length === 0) {
+                            showToast('No changes for ' + table.name, 'info');
+                            return;
+                        }
+                        showFilePreviewModal(data.files, 'Write Migration', function() {
+                            fetch('/_schema-craft/api/migrate', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                                body: JSON.stringify({ tables: [table.name] }),
+                            })
+                            .then(handleResponse)
+                            .then(function(result) {
+                                if (result.success) {
+                                    showToast(result.message, 'success');
+                                    closeModal();
+                                    loadDatabaseTables();
+                                    refreshSchemaData();
+                                } else {
+                                    showToast(result.message || 'Migration failed', 'error');
+                                }
+                            })
+                            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                        });
+                    })
+                    .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                });
+            }
+        }
+
+        // ── Batch Migration ─────────────────────────────
+        function doBatchMigrate() {
+            var selected = getSelectedTables().filter(function(t) { return t.needsMigration; });
+            if (selected.length === 0) {
+                showToast('Select schemas that need migration first', 'warning');
+                return;
+            }
+
+            var tableNames = selected.map(function(t) { return t.name; });
+
+            fetch('/_schema-craft/api/migrate/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ tables: tableNames }),
+            })
+            .then(handleResponse)
+            .then(function(data) {
+                if (!data.files || data.files.length === 0) {
+                    showToast('No migrations needed for selected schemas.', 'info');
+                    return;
+                }
+                showFilePreviewModal(data.files, 'Write Migrations', function() {
+                    fetch('/_schema-craft/api/migrate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                        body: JSON.stringify({ tables: tableNames }),
+                    })
+                    .then(handleResponse)
+                    .then(function(result) {
+                        if (result.success) {
+                            showToast(result.message, 'success');
+                            loadDatabaseTables();
+                            refreshSchemaData();
+                        } else {
+                            showToast(result.message || 'Migration failed', 'error');
+                        }
+                    })
+                    .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                });
+            })
+            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
         }
 
         function refreshSchemaData() {
