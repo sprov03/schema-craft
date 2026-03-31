@@ -54,6 +54,11 @@ class TableDefinitionNormalizer
 
             $fkColumn = $rel->foreignColumn ?? Str::snake($rel->name).'_id';
             $relatedModel = $rel->relatedModel;
+
+            if (! class_exists($relatedModel)) {
+                continue;
+            }
+
             $foreignTable = (new $relatedModel)->getTable();
 
             $foreignKeys[] = new CanonicalForeignKey(
