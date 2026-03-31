@@ -5,6 +5,7 @@ namespace SchemaCraft\Visualizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Migration\DatabaseReader;
 use SchemaCraft\Migration\DatabaseTableNormalizer;
 use SchemaCraft\Migration\MigrationDiffSorter;
@@ -182,7 +183,7 @@ class StatusController
      */
     private function runDiffPipeline(): array
     {
-        $directories = config('schema-craft.schema_paths', [app_path('Schemas')]);
+        $directories = ConfigResolver::schemaDirectories();
 
         $discovery = new SchemaDiscovery;
         $reader = new DatabaseReader;
@@ -232,7 +233,7 @@ class StatusController
      */
     private function collectDiffs(?array $filterTables): array
     {
-        $directories = config('schema-craft.schema_paths', [app_path('Schemas')]);
+        $directories = ConfigResolver::schemaDirectories();
 
         $discovery = new SchemaDiscovery;
         $reader = new DatabaseReader;

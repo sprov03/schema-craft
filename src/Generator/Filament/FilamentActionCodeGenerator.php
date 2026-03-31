@@ -26,7 +26,7 @@ class FilamentActionCodeGenerator
         $label = $meta['label'] ?? Str::headline($definition->serviceMethod);
 
         $lines = [];
-        $lines[] = '    public function filamentAction(Model $record): FilamentAction';
+        $lines[] = '    public function filamentAction(?Model $record = null): FilamentAction';
         $lines[] = '    {';
 
         // Build the action chain
@@ -48,15 +48,8 @@ class FilamentActionCodeGenerator
             $lines[] = '            ])';
         }
 
-        // Fill form
-        $fillLines = $this->buildFillFormLines($definition, '                ');
-        if (! empty($fillLines)) {
-            $lines[] = '            ->fillForm(fn () => [';
-            foreach ($fillLines as $fillLine) {
-                $lines[] = $fillLine;
-            }
-            $lines[] = '            ])';
-        }
+        // Fill form — delegates to the precedence chain (PHP defaults → fromRecord → withDefaults)
+        $lines[] = '            ->fillForm(fn () => $this->toFillArray())';
 
         // Action closure
         $lines[] = '            ->action(function (array $data) use ($record): void {';
@@ -135,47 +128,6 @@ class FilamentActionCodeGenerator
                 $lines = array_merge($lines, $this->buildBelongsToLines($param, $indent));
             } else {
                 $lines = array_merge($lines, $this->buildScalarLines($param, $indent));
-            }
-        }
-
-        return $lines;
-    }
-
-    /**
-     * Build fillForm data lines for all parameters.
-     *
-     * @return string[]
-     */
-    private function buildFillFormLines(ActionDefinition $definition, string $indent): array
-    {
-        $lines = [];
-
-        foreach ($definition->parameters as $param) {
-            if ($param->isNestedRelationship && $param->nestedRelationship !== null) {
-                $nested = $param->nestedRelationship;
-
-                if ($nested->isCollection) {
-                    $lines[] = "{$indent}'{$nested->name}' => \$record->{$nested->name}->map(fn (\$item) => [";
-                    foreach ($nested->fields as $field) {
-                        $lines[] = "{$indent}    '{$field->name}' => \$item->{$field->name},";
-                    }
-                    foreach ($nested->pivotFields as $pivot) {
-                        $lines[] = "{$indent}    '{$pivot}' => \$item->pivot?->{$pivot},";
-                    }
-                    $lines[] = "{$indent}])->toArray(),";
-                } else {
-                    $lines[] = "{$indent}'{$nested->name}' => [";
-                    foreach ($nested->fields as $field) {
-                        $lines[] = "{$indent}    '{$field->name}' => \$record->{$nested->name}?->{$field->name},";
-                    }
-                    $lines[] = "{$indent}],";
-                }
-            } elseif ($param->isModel) {
-                $fkColumn = $param->foreignKeyColumn ?? $param->name.'_id';
-                $lines[] = "{$indent}'{$fkColumn}' => \$record->{$fkColumn},";
-            } else {
-                $columnName = $param->columnName ?? $param->name;
-                $lines[] = "{$indent}'{$columnName}' => \$record->{$columnName},";
             }
         }
 

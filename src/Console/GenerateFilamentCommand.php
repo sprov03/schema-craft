@@ -5,9 +5,11 @@ namespace SchemaCraft\Console;
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
+use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Generator\Filament\FilamentCodeGenerator;
 use SchemaCraft\Generator\Filament\FilamentPolicyGenerator;
 use SchemaCraft\Generator\StubResolver;
+use SchemaCraft\Migration\SchemaDiscovery;
 use SchemaCraft\Scanner\SchemaScanner;
 
 class GenerateFilamentCommand extends Command
@@ -133,26 +135,7 @@ class GenerateFilamentCommand extends Command
      */
     private function discoverSchemas(): array
     {
-        $schemaNamespace = 'App\\Schemas';
-        $schemaDir = app_path('Schemas');
-
-        if (! is_dir($schemaDir)) {
-            return [];
-        }
-
-        $schemas = [];
-        $files = glob($schemaDir.'/*Schema.php');
-
-        foreach ($files as $file) {
-            $className = pathinfo($file, PATHINFO_FILENAME);
-            $fqcn = $schemaNamespace.'\\'.$className;
-
-            if (class_exists($fqcn) && is_subclass_of($fqcn, \SchemaCraft\Schema::class)) {
-                $schemas[] = $fqcn;
-            }
-        }
-
-        return $schemas;
+        return (new SchemaDiscovery)->discover(ConfigResolver::schemaDirectories());
     }
 
     private function resolveSchemaClass(string $input): string

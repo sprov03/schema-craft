@@ -3,6 +3,7 @@
 namespace SchemaCraft\Console;
 
 use Illuminate\Console\Command;
+use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Migration\DatabaseReader;
 use SchemaCraft\Migration\DatabaseTableNormalizer;
 use SchemaCraft\Migration\MigrationGenerator;
@@ -104,7 +105,7 @@ class SchemaMigrateCommand extends Command
             return $paths;
         }
 
-        return [app_path('Schemas')];
+        return ConfigResolver::schemaDirectories();
     }
 
     private function getMigrationPath(): string

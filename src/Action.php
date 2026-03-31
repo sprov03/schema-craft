@@ -44,6 +44,17 @@ abstract class Action
     /** @var array<class-string<Action>, ActionDefinition> */
     private static array $scanCache = [];
 
+    /** @var \Closure|null Call-site override applied last in the fill-data chain. */
+    private ?\Closure $defaultsFn = null;
+
+    /**
+     * Internal store for FK and nested fill values populated by fromRecord().
+     * Scalar values are stored directly on typed properties instead.
+     *
+     * @var array<string, mixed>
+     */
+    private array $formFillData = [];
+
     /**
      * Get the schema class this action operates on.
      *
@@ -67,6 +78,25 @@ abstract class Action
         $baseName = preg_replace('/Action$/', '', $className);
 
         return lcfirst($baseName);
+    }
+
+    /**
+     * Set call-site default property values, overriding both PHP defaults and record data.
+     *
+     * The closure receives the typed action instance and should set properties directly:
+     *
+     *   ->withDefaults(function (CreateContactAction $action) use ($record): void {
+     *       $action->status = 'draft';
+     *       $action->owner = auth()->user();
+     *   })
+     *
+     * withDefaults() is the highest-priority layer in the fill-data chain.
+     */
+    public function withDefaults(\Closure $fn): static
+    {
+        $this->defaultsFn = $fn;
+
+        return $this;
     }
 
     /**
@@ -222,10 +252,8 @@ abstract class Action
 
     /**
      * Execute the action: map data → call run().
-     *
-     * @param  \Illuminate\Database\Eloquent\Model  $record
      */
-    public function execute($record, array $data): mixed
+    public function execute(?Model $record, array $data): mixed
     {
         $mapped = $this->mapData($data);
 
@@ -235,12 +263,25 @@ abstract class Action
     /**
      * Build a Filament Action with auto-generated modal form from this action's definition.
      *
-     * Override this method in a specific Action to customize the Filament form.
+     * Fill-data precedence (lowest → highest):
+     *   1. PHP property defaults defined on the action class
+     *   2. fromRecord($record) — maps record data onto typed properties
+     *   3. withDefaults(fn) — call-site overrides, always win
      *
-     * @param  Model  $record  The model instance to operate on
+     * Override this method in a specific Action to fully customize the Filament form.
      */
-    public function filamentAction(Model $record): FilamentAction
+    public function filamentAction(?Model $record = null): FilamentAction
     {
+        // Step 2: overlay record data onto typed properties (PHP defaults are already set)
+        if ($record !== null && $record->exists) {
+            $this->fromRecord($record);
+        }
+
+        // Step 3: call-site overrides win over everything
+        if ($this->defaultsFn !== null) {
+            ($this->defaultsFn)($this);
+        }
+
         $definition = static::definition();
         $meta = static::meta();
         $actionName = Str::camel($definition->serviceMethod);
@@ -255,7 +296,7 @@ abstract class Action
         $schema = $this->buildFilamentSchema($definition);
         if (! empty($schema)) {
             $action->schema($schema);
-            $action->fillForm(fn () => $this->buildFilamentFillData($definition, $record));
+            $action->fillForm(fn () => $this->toFillArray());
         }
 
         $actionInstance = $this;
@@ -264,6 +305,129 @@ abstract class Action
         });
 
         return $action;
+    }
+
+    /**
+     * Populate action properties from a model record.
+     *
+     * Default implementation maps scalar parameters from record attributes by column name,
+     * and stores FK/nested values internally for use by toFillArray().
+     *
+     * Override in an action class for non-trivial column-to-property mapping:
+     *
+     *   protected function fromRecord(Model $record): void
+     *   {
+     *       $this->recipientEmail = $record->owner->email;
+     *       $this->type = $record->origin_type;
+     *   }
+     */
+    protected function fromRecord(Model $record): void
+    {
+        $definition = static::definition();
+        $attributes = $record->getAttributes();
+
+        foreach ($definition->parameters as $param) {
+            if ($param->isNestedRelationship && $param->nestedRelationship !== null) {
+                $nested = $param->nestedRelationship;
+                $relation = $record->{$nested->name};
+
+                if ($nested->isCollection && $relation !== null) {
+                    $items = [];
+                    foreach ($relation as $related) {
+                        $item = [];
+                        foreach ($nested->fields as $field) {
+                            $item[$field->name] = $related->{$field->name};
+                        }
+                        foreach ($nested->pivotFields as $pivotField) {
+                            $item[$pivotField] = $related->pivot?->{$pivotField};
+                        }
+                        $items[] = $item;
+                    }
+                    $this->formFillData[$nested->name] = $items;
+                } elseif (! $nested->isCollection && $relation !== null) {
+                    $item = [];
+                    foreach ($nested->fields as $field) {
+                        $item[$field->name] = $relation->{$field->name};
+                    }
+                    $this->formFillData[$nested->name] = $item;
+                }
+            } elseif ($param->isModel) {
+                $fkColumn = $param->foreignKeyColumn ?? $param->name.'_id';
+                $this->formFillData[$fkColumn] = $record->{$fkColumn};
+            } else {
+                $columnName = $param->columnName ?? $param->name;
+                if (array_key_exists($columnName, $attributes)) {
+                    $this->{$param->name} = $record->{$columnName};
+                }
+            }
+        }
+    }
+
+    /**
+     * Convert the action's current property state to the flat array Filament's fillForm() expects.
+     *
+     * Reads scalar properties from $this (last-write-wins across the precedence chain)
+     * and FK/nested data from the internal store populated by fromRecord().
+     * A Model instance set on a FK property by withDefaults() takes precedence over the store.
+     *
+     * @return array<string, mixed>
+     */
+    protected function toFillArray(): array
+    {
+        $definition = static::definition();
+        $data = [];
+
+        foreach ($definition->parameters as $param) {
+            if ($param->isNestedRelationship && $param->nestedRelationship !== null) {
+                $nested = $param->nestedRelationship;
+
+                try {
+                    $propValue = $this->{$param->name};
+
+                    if ($propValue instanceof \Illuminate\Support\Collection) {
+                        $data[$nested->name] = $propValue->map(function ($item) use ($nested) {
+                            if ($item instanceof Model) {
+                                $result = [];
+                                foreach ($nested->fields as $field) {
+                                    $result[$field->name] = $item->{$field->name};
+                                }
+
+                                return $result;
+                            }
+
+                            return is_array($item) ? $item : (array) $item;
+                        })->toArray();
+                    } elseif (array_key_exists($nested->name, $this->formFillData)) {
+                        $data[$nested->name] = $this->formFillData[$nested->name];
+                    }
+                } catch (\Error) {
+                    if (array_key_exists($nested->name, $this->formFillData)) {
+                        $data[$nested->name] = $this->formFillData[$nested->name];
+                    }
+                }
+            } elseif ($param->isModel) {
+                $fkColumn = $param->foreignKeyColumn ?? $param->name.'_id';
+
+                try {
+                    $propValue = $this->{$param->name};
+                    $data[$fkColumn] = $propValue instanceof Model
+                        ? $propValue->getKey()
+                        : ($this->formFillData[$fkColumn] ?? null);
+                } catch (\Error) {
+                    $data[$fkColumn] = $this->formFillData[$fkColumn] ?? null;
+                }
+            } else {
+                $columnName = $param->columnName ?? $param->name;
+
+                try {
+                    $data[$columnName] = $this->{$param->name};
+                } catch (\Error) {
+                    $data[$columnName] = $param->hasDefault ? $param->default : null;
+                }
+            }
+        }
+
+        return $data;
     }
 
     /**
@@ -286,52 +450,6 @@ abstract class Action
         }
 
         return $components;
-    }
-
-    /**
-     * Build fill data from the record for the Filament form.
-     *
-     * @return array<string, mixed>
-     */
-    protected function buildFilamentFillData(ActionDefinition $definition, Model $record): array
-    {
-        $data = [];
-
-        foreach ($definition->parameters as $param) {
-            if ($param->isNestedRelationship && $param->nestedRelationship !== null) {
-                $nested = $param->nestedRelationship;
-                $relation = $record->{$nested->name};
-
-                if ($nested->isCollection && $relation !== null) {
-                    $items = [];
-                    foreach ($relation as $related) {
-                        $item = [];
-                        foreach ($nested->fields as $field) {
-                            $item[$field->name] = $related->{$field->name};
-                        }
-                        foreach ($nested->pivotFields as $pivotField) {
-                            $item[$pivotField] = $related->pivot?->{$pivotField};
-                        }
-                        $items[] = $item;
-                    }
-                    $data[$nested->name] = $items;
-                } elseif (! $nested->isCollection && $relation !== null) {
-                    $item = [];
-                    foreach ($nested->fields as $field) {
-                        $item[$field->name] = $relation->{$field->name};
-                    }
-                    $data[$nested->name] = $item;
-                }
-            } elseif ($param->isModel) {
-                $fkColumn = $param->foreignKeyColumn ?? $param->name.'_id';
-                $data[$fkColumn] = $record->{$fkColumn};
-            } else {
-                $columnName = $param->columnName ?? $param->name;
-                $data[$columnName] = $record->{$columnName};
-            }
-        }
-
-        return $data;
     }
 
     /**

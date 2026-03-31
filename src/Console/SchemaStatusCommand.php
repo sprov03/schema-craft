@@ -3,6 +3,7 @@
 namespace SchemaCraft\Console;
 
 use Illuminate\Console\Command;
+use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Migration\DatabaseReader;
 use SchemaCraft\Migration\DatabaseTableNormalizer;
 use SchemaCraft\Migration\SchemaDiffer;
@@ -106,8 +107,7 @@ class SchemaStatusCommand extends Command
             return $paths;
         }
 
-        // Default: scan app/Schemas directory
-        return [app_path('Schemas')];
+        return ConfigResolver::schemaDirectories();
     }
 
     private function renderDiffDetails(\SchemaCraft\Migration\TableDiff $diff): void
