@@ -5,6 +5,7 @@ namespace SchemaCraft\Tests\Fixtures\Actions\Post;
 use SchemaCraft\Action;
 use SchemaCraft\Attributes\Actions\ActionMeta;
 use SchemaCraft\Attributes\Relations\BelongsTo;
+use SchemaCraft\Attributes\Text;
 use SchemaCraft\Tests\Fixtures\Models\Category;
 use SchemaCraft\Tests\Fixtures\Models\User;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
@@ -18,6 +19,7 @@ class CreatePostAction extends Action
 
     public string $slug;
 
+    #[Text]
     public ?string $body;
 
     public bool $isFeature = false;

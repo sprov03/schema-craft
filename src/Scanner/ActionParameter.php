@@ -26,6 +26,8 @@ class ActionParameter
         public ?string $foreignKeyColumn = null,
         /** The database column name for scalar properties (e.g. 'document_folder_url'). */
         public ?string $columnName = null,
+        /** The schema column type (e.g. 'text', 'mediumText', 'longText') when known. */
+        public ?string $columnType = null,
         /** The relationship name (from BelongsTo attribute or property name). */
         public ?string $relationship = null,
         /** Whether this parameter represents nested relationship data (array of related fields). */

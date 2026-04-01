@@ -6,6 +6,7 @@ use Filament\Actions\Action as FilamentAction;
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Fieldset;
 use Illuminate\Database\Eloquent\Model;
@@ -509,13 +510,29 @@ abstract class Action
     /**
      * Build a Filament form component for a scalar parameter.
      */
-    protected function buildScalarFilamentComponent(ActionParameter $param): TextInput|Checkbox
+    protected function buildScalarFilamentComponent(ActionParameter $param): TextInput|Textarea|Checkbox
     {
         $columnName = $param->columnName ?? $param->name;
 
         if ($param->type === 'bool') {
             $field = Checkbox::make($columnName)
                 ->label(Str::headline($param->name));
+
+            if ($param->hasDefault) {
+                $field->default($param->default);
+            }
+
+            return $field;
+        }
+
+        // Use Textarea for text, mediumText, and longText column types
+        if (in_array($param->columnType, ['text', 'mediumText', 'longText'])) {
+            $field = Textarea::make($columnName)
+                ->label(Str::headline($param->name));
+
+            if (! $param->nullable && ! $param->hasDefault) {
+                $field->required();
+            }
 
             if ($param->hasDefault) {
                 $field->default($param->default);

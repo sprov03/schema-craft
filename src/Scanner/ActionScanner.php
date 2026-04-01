@@ -10,6 +10,8 @@ use ReflectionNamedType;
 use ReflectionProperty;
 use SchemaCraft\Action;
 use SchemaCraft\Attributes\Actions\ActionMeta;
+use SchemaCraft\Attributes\LongText;
+use SchemaCraft\Attributes\MediumText;
 use SchemaCraft\Attributes\Pivot;
 use SchemaCraft\Attributes\Relations\BelongsTo;
 use SchemaCraft\Attributes\Relations\BelongsToMany;
@@ -19,6 +21,7 @@ use SchemaCraft\Attributes\Relations\MorphMany;
 use SchemaCraft\Attributes\Relations\MorphOne;
 use SchemaCraft\Attributes\Relations\MorphTo;
 use SchemaCraft\Attributes\Relations\MorphToMany;
+use SchemaCraft\Attributes\Text;
 use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\DataSchema;
 use SchemaCraft\Schema;
@@ -817,6 +820,8 @@ class ActionScanner
         $propName = $prop->getName();
         $columnName = Str::snake($propName);
 
+        $columnType = $this->resolveTextColumnType($prop);
+
         return new ActionParameter(
             name: $propName,
             type: $typeName,
@@ -825,7 +830,28 @@ class ActionScanner
             default: $default,
             isModel: false,
             columnName: $columnName,
+            columnType: $columnType,
         );
+    }
+
+    /**
+     * Check for #[Text], #[MediumText], or #[LongText] attributes on a property.
+     */
+    private function resolveTextColumnType(ReflectionProperty $prop): ?string
+    {
+        if (! empty($prop->getAttributes(Text::class))) {
+            return 'text';
+        }
+
+        if (! empty($prop->getAttributes(MediumText::class))) {
+            return 'mediumText';
+        }
+
+        if (! empty($prop->getAttributes(LongText::class))) {
+            return 'longText';
+        }
+
+        return null;
     }
 
     /**

@@ -4,6 +4,7 @@ namespace SchemaCraft\Tests\Feature;
 
 use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use SchemaCraft\Action;
 use SchemaCraft\FieldProxy;
@@ -241,6 +242,19 @@ class ConfigureFieldsTest extends TestCase
         $this->assertInstanceOf(TextInput::class, $this->findComponent($components, 'slug'));
         $this->assertInstanceOf(Select::class, $this->findComponent($components, 'author_id'));
         $this->assertInstanceOf(Select::class, $this->findComponent($components, 'category_id'));
+    }
+
+    // ─── Text column types use Textarea ────────────────────────────────
+
+    public function test_text_attribute_generates_textarea_component(): void
+    {
+        $action = new CreatePostAction;
+
+        $components = $this->getSchemaComponents($action);
+
+        // body has #[Text] — should be a Textarea, not TextInput
+        $bodyComponent = $this->findComponent($components, 'body');
+        $this->assertInstanceOf(Textarea::class, $bodyComponent);
     }
 
     // ─── Proxy isset ─────────────────────────────────────────────────

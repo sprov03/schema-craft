@@ -9515,6 +9515,49 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 '// mapped via action->mapData(), then passed to run().\n' +
 '// Returns: ' + escapeHtml(modelName) + 'Resource  (or 204 No Content for DELETE)';
 
+            var snippetConfigureFieldsModify =
+'use ' + escapeHtml(registryImport) + ';\n' +
+'use SchemaCraft\\FieldProxy;\n\n' +
+escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
+'    ->configureFields(function (FieldProxy $fields): void {\n' +
+'        // Modify the auto-generated component — tweak options, searchable, preload, etc.\n' +
+'        // Property names match your action\'s typed properties (camelCase)\n' +
+'        $fields->account\n' +
+'            ->options(fn () => Account::active()->pluck(\'name\', \'id\'))\n' +
+'            ->searchable()\n' +
+'            ->preload();\n\n' +
+'        // Modify labels, placeholders, or any Filament method\n' +
+'        $fields->status->label(\'Current Status\');\n' +
+'    })\n' +
+'    ->filamentAction($this->record);';
+
+            var snippetConfigureFieldsReplace =
+'use ' + escapeHtml(registryImport) + ';\n' +
+'use Filament\\Forms\\Components\\Textarea;\n' +
+'use SchemaCraft\\FieldProxy;\n\n' +
+escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
+'    ->configureFields(function (FieldProxy $fields): void {\n' +
+'        // Replace the entire auto-generated component via assignment\n' +
+'        $fields->name = Textarea::make(\'name\')\n' +
+'            ->rows(3)\n' +
+'            ->placeholder(\'Enter a description...\');\n' +
+'    })\n' +
+'    ->filamentAction($this->record);';
+
+            var snippetConfigureFieldsCombined =
+'use ' + escapeHtml(registryImport) + ';\n' +
+'use ' + escapeHtml(action ? (action.actionClass || action.class) : 'App\\Models\\Actions\\' + modelName + '\\' + actionShort) + ';\n' +
+'use SchemaCraft\\FieldProxy;\n\n' +
+escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
+'    ->withDefaults(function (' + escapeHtml(actionShort) + ' $action) use ($parentRecord): void {\n' +
+'        $action->account = $parentRecord->account;\n' +
+'    })\n' +
+'    ->configureFields(function (FieldProxy $fields): void {\n' +
+'        // Lock the account field since it\'s pre-filled from context\n' +
+'        $fields->account->disabled();\n' +
+'    })\n' +
+'    ->filamentAction($this->record);';
+
             // ─ Section builder helpers ────────────────────────────────────
 
             function docSection(title, badge, badgeClass, code, note) {
@@ -9583,6 +9626,25 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     'Class Override', 'relations',
                     snippetFromRecord,
                     'Add this method to the action class when column names don\'t match property names, or when the value needs to be derived from a relationship rather than a direct attribute.'
+                ) +
+                docDivider('Customising Form Fields') +
+                docSection(
+                    'configureFields() — modify auto-generated components',
+                    'Modify Mode', 'params',
+                    snippetConfigureFieldsModify,
+                    'Access any field by its camelCase property name on the <code style="font-family:var(--font-mono);font-size:11px;">FieldProxy</code>. The returned object is the Filament component — chain any Filament method directly (e.g. <code style="font-family:var(--font-mono);font-size:11px;">->searchable()</code>, <code style="font-family:var(--font-mono);font-size:11px;">->preload()</code>, <code style="font-family:var(--font-mono);font-size:11px;">->label()</code>).'
+                ) +
+                docSection(
+                    'configureFields() — replace a component entirely',
+                    'Replace Mode', 'body',
+                    snippetConfigureFieldsReplace,
+                    'Assign a new Filament component to any property to completely replace the auto-generated one. The <code style="font-family:var(--font-mono);font-size:11px;">make()</code> name must match the original field name.'
+                ) +
+                docSection(
+                    'configureFields() + withDefaults() — combined',
+                    'Full Example', 'fields',
+                    snippetConfigureFieldsCombined,
+                    'Use <code style="font-family:var(--font-mono);font-size:11px;">withDefaults()</code> to set values and <code style="font-family:var(--font-mono);font-size:11px;">configureFields()</code> to customise presentation. The Action is the data contract; field configuration is a call-site concern. Same action, different UI per page.'
                 ) +
                 docDivider('Where filamentAction() Works') +
                 '<div style="margin-bottom:8px;">' + compatTable + '</div>';
