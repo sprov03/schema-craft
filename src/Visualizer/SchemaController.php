@@ -120,6 +120,7 @@ class SchemaController
             'primaryKey' => ['sometimes', 'string', 'in:auto,uuid,ulid'],
             'softDeletes' => ['sometimes', 'boolean'],
             'createModel' => ['sometimes', 'boolean'],
+            'db_connection' => ['sometimes', 'string'],
         ]);
 
         $names = array_filter(array_map('trim', explode(',', $request->input('names'))));
@@ -128,11 +129,12 @@ class SchemaController
             return new JsonResponse(['success' => false, 'message' => 'No schema names provided.'], 422);
         }
 
+        $connectionConfig = ConfigResolver::resolveConnection($request->input('db_connection'));
         $idConfig = $this->resolveIdConfig($request->input('primaryKey', 'auto'));
         $softDeletes = $request->boolean('softDeletes', false);
         $createModel = $request->boolean('createModel', true);
 
-        $generatedFiles = $this->generateSchemaFiles($files, $names, $idConfig, $softDeletes, $createModel);
+        $generatedFiles = $this->generateSchemaFiles($files, $names, $idConfig, $softDeletes, $createModel, $connectionConfig);
 
         return new JsonResponse([
             'success' => true,
@@ -150,6 +152,7 @@ class SchemaController
             'primaryKey' => ['sometimes', 'string', 'in:auto,uuid,ulid'],
             'softDeletes' => ['sometimes', 'boolean'],
             'createModel' => ['sometimes', 'boolean'],
+            'db_connection' => ['sometimes', 'string'],
         ]);
 
         $names = array_filter(array_map('trim', explode(',', $request->input('names'))));
@@ -158,18 +161,20 @@ class SchemaController
             return new JsonResponse(['success' => false, 'message' => 'No schema names provided.'], 422);
         }
 
+        $connectionConfig = ConfigResolver::resolveConnection($request->input('db_connection'));
         $idConfig = $this->resolveIdConfig($request->input('primaryKey', 'auto'));
         $softDeletes = $request->boolean('softDeletes', false);
         $createModel = $request->boolean('createModel', true);
 
         // Auto-install BaseModel if needed
+        $modelDir = base_path(ConnectionConfig::namespaceToDirectory($connectionConfig->modelNamespace));
         if ($createModel && ! $files->exists(app_path('Models/BaseModel.php'))) {
             $stub = $files->get(StubResolver::resolve('base-model.stub'));
             $files->ensureDirectoryExists(app_path('Models'));
             $files->put(app_path('Models/BaseModel.php'), $stub);
         }
 
-        $generatedFiles = $this->generateSchemaFiles($files, $names, $idConfig, $softDeletes, $createModel);
+        $generatedFiles = $this->generateSchemaFiles($files, $names, $idConfig, $softDeletes, $createModel, $connectionConfig);
 
         $results = [];
         foreach ($generatedFiles as $file) {
@@ -656,25 +661,28 @@ class SchemaController
      * @param  array{imports: string, property: string}  $idConfig
      * @return array<int, array{path: string, content: string, exists: bool, type: string}>
      */
-    private function generateSchemaFiles(Filesystem $files, array $names, array $idConfig, bool $softDeletes, bool $createModel): array
+    private function generateSchemaFiles(Filesystem $files, array $names, array $idConfig, bool $softDeletes, bool $createModel, ConnectionConfig $connectionConfig): array
     {
         $generatedFiles = [];
+        $schemaDir = ConnectionConfig::namespaceToDirectory($connectionConfig->schemaNamespace);
+        $modelDir = ConnectionConfig::namespaceToDirectory($connectionConfig->modelNamespace);
 
         foreach ($names as $name) {
             $name = Str::studly($name);
-            $schemaName = $name.'Schema';
+            $prefixedSchema = $connectionConfig->prefixedSchemaName($name);
+            $prefixedModel = $connectionConfig->prefixedModelName($name);
 
             // Generate schema content
             $schemaContent = StubResolver::render('schema.stub', [
-                '{{ namespace }}' => 'App\\Schemas',
-                '{{ class }}' => $schemaName,
+                '{{ namespace }}' => $connectionConfig->schemaNamespace,
+                '{{ class }}' => $prefixedSchema,
                 '{{ idImports }}' => $idConfig['imports'],
                 '{{ idProperty }}' => $idConfig['property'],
                 '{{ softDeletesImport }}' => $softDeletes ? 'use SchemaCraft\\Traits\\SoftDeletesSchema;' : '',
                 '{{ softDeletesTrait }}' => $softDeletes ? "    use SoftDeletesSchema;\n" : '',
             ]);
 
-            $schemaPath = "app/Schemas/{$schemaName}.php";
+            $schemaPath = "{$schemaDir}/{$prefixedSchema}.php";
             $generatedFiles[] = [
                 'path' => $schemaPath,
                 'content' => $schemaContent,
@@ -684,16 +692,18 @@ class SchemaController
 
             // Generate model content
             if ($createModel) {
+                $schemaFqcn = $connectionConfig->schemaNamespace.'\\'.$prefixedSchema;
+
                 $modelContent = StubResolver::render('model.stub', [
-                    '{{ namespace }}' => 'App\\Models',
-                    '{{ class }}' => $name,
-                    '{{ schemaFqcn }}' => "App\\Schemas\\{$schemaName}",
-                    '{{ schemaClass }}' => $schemaName,
+                    '{{ namespace }}' => $connectionConfig->modelNamespace,
+                    '{{ class }}' => $prefixedModel,
+                    '{{ schemaFqcn }}' => $schemaFqcn,
+                    '{{ schemaClass }}' => $prefixedSchema,
                     '{{ softDeletesImport }}' => $softDeletes ? 'use Illuminate\\Database\\Eloquent\\SoftDeletes;' : '',
                     '{{ softDeletesTrait }}' => $softDeletes ? "    use SoftDeletes;\n\n" : '',
                 ]);
 
-                $modelPath = "app/Models/{$name}.php";
+                $modelPath = "{$modelDir}/{$prefixedModel}.php";
                 $generatedFiles[] = [
                     'path' => $modelPath,
                     'content' => $modelContent,

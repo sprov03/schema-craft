@@ -5508,6 +5508,10 @@
                     '</div>' +
                     '<div class="cs-body">' +
                         '<div class="sc-form-group">' +
+                            '<label class="sc-form-label">Connection</label>' +
+                            '<select class="sc-input" id="cs-connection"></select>' +
+                        '</div>' +
+                        '<div class="sc-form-group">' +
                             '<label class="sc-form-label">Schema Names (comma-separated)</label>' +
                             '<input type="text" class="sc-input" id="cs-create-names" placeholder="Post, Comment, Tag">' +
                         '</div>' +
@@ -5544,6 +5548,21 @@
             document.getElementById('cs-preview-btn').addEventListener('click', function() { doCreateSchemaFromModal(true, closeModal); });
             document.getElementById('cs-create-btn').addEventListener('click', function() { doCreateSchemaFromModal(false, closeModal); });
 
+            // Populate connection dropdown
+            var connSelect = document.getElementById('cs-connection');
+            fetch('/_schema-craft/api/schema/connections')
+                .then(handleResponse)
+                .then(function(data) {
+                    var current = schemasDbConnection || data.default || 'default';
+                    (data.connections || []).forEach(function(c) {
+                        var opt = document.createElement('option');
+                        opt.value = c.name;
+                        opt.textContent = c.name + (c.schemaNamespace ? ' (' + c.schemaNamespace + ')' : '');
+                        if (c.name === current) opt.selected = true;
+                        connSelect.appendChild(opt);
+                    });
+                });
+
             // Focus the name input
             setTimeout(function() { document.getElementById('cs-create-names').focus(); }, 100);
         }
@@ -5551,11 +5570,13 @@
         function doCreateSchemaFromModal(previewOnly, closeModal) {
             var names = document.getElementById('cs-create-names').value.trim();
             var pk = document.querySelector('input[name="cs-pk"]:checked');
+            var connSelect = document.getElementById('cs-connection');
             var data = {
                 names: names,
                 primaryKey: pk ? pk.value : 'auto',
                 softDeletes: document.getElementById('cs-soft-deletes').checked,
                 createModel: document.getElementById('cs-create-model').checked,
+                db_connection: connSelect ? connSelect.value : null,
             };
 
             if (!data.names) {
@@ -5663,24 +5684,35 @@
 
             var tables = sharedFilterState.tables;
 
-            // Build lookup of tables by name for quick matching
+            // Build connection-aware lookup: "tableName::connection" → table object
+            var tablesByKey = {};
             var tablesByName = {};
-            tables.forEach(function(t) { tablesByName[t.name] = t; });
+            tables.forEach(function(t) {
+                var key = t.dbConnection ? t.name + '::' + t.dbConnection : t.name;
+                tablesByKey[key] = t;
+                // Also index by name alone for fallback matching
+                if (!tablesByName[t.name]) {
+                    tablesByName[t.name] = t;
+                }
+            });
 
             // Enrich existing tables with diff status
             schemaStatusData.schemas.forEach(function(schema) {
-                var t = tablesByName[schema.tableName];
+                var conn = schema.connection || null;
+                var key = conn ? schema.tableName + '::' + conn : schema.tableName;
+                var t = tablesByKey[key] || tablesByName[schema.tableName];
                 if (t) {
                     t.diffStatus = schema.status;
                     t.tableDiff = schema.diff || null;
                     t.schemaClass = t.schemaClass || schema.schemaClass;
+                    t.hasSchema = true;
                     t.needsMigration = schema.status === 'has_changes' || schema.status === 'new_table';
                 } else {
                     // Schema exists but no DB table — add to list
                     var newEntry = {
                         name: schema.tableName,
                         modelName: schema.tableName.replace(/(^|_)([a-z])/g, function(m, sep, c) { return c.toUpperCase(); }),
-                        dbConnection: schema.connection || null,
+                        dbConnection: conn,
                         hasSchema: true,
                         hasModel: false,
                         hasFactory: false,
@@ -5694,7 +5726,11 @@
                         schemaOnly: true,
                     };
                     tables.push(newEntry);
-                    tablesByName[schema.tableName] = newEntry;
+                    var newKey = conn ? schema.tableName + '::' + conn : schema.tableName;
+                    tablesByKey[newKey] = newEntry;
+                    if (!tablesByName[schema.tableName]) {
+                        tablesByName[schema.tableName] = newEntry;
+                    }
                 }
             });
 

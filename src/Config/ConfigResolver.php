@@ -153,21 +153,43 @@ class ConfigResolver
     }
 
     /**
+     * Resolve the connection config name for a given schema class.
+     *
+     * Matches the schema class's namespace against all configured db_connections.
+     * Returns the first matching connection config name, or 'default' if none match.
+     */
+    public static function resolveConnectionNameForSchema(string $schemaClass): string
+    {
+        $schemaNamespace = substr($schemaClass, 0, (int) strrpos($schemaClass, '\\'));
+        $connections = config('schema-craft.db_connections');
+
+        if ($connections !== null) {
+            foreach ($connections as $name => $config) {
+                $connConfig = ConnectionConfig::fromArray($name, $config);
+
+                if ($connConfig->schemaNamespace === $schemaNamespace) {
+                    return $name;
+                }
+            }
+        }
+
+        return 'default';
+    }
+
+    /**
      * Get the configured schema directories.
      *
-     * Includes explicit schema_paths from config, plus schema directories
-     * derived from each db_connections entry's schema namespace.
+     * Derives schema directories from each db_connections entry's schema
+     * namespace. Falls back to app/Schemas when no connections are configured.
      *
      * @return string[]
      */
     public static function schemaDirectories(): array
     {
-        $paths = config('schema-craft.schema_paths') ?? [app_path('Schemas')];
-
-        // Also include schema directories from db_connections
+        $paths = [];
         $connections = config('schema-craft.db_connections');
 
-        if ($connections !== null) {
+        if ($connections !== null && count($connections) > 0) {
             foreach ($connections as $name => $config) {
                 $connConfig = ConnectionConfig::fromArray($name, $config);
                 $dir = self::namespaceToPath($connConfig->schemaNamespace);
@@ -176,6 +198,11 @@ class ConfigResolver
                     $paths[] = $dir;
                 }
             }
+        }
+
+        // Fallback when no db_connections are configured
+        if (count($paths) === 0) {
+            $paths[] = app_path('Schemas');
         }
 
         return $paths;

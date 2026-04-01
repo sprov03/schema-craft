@@ -204,10 +204,13 @@ class StatusController
             $renameMap = TableDefinitionNormalizer::extractRenameMap($desired);
             $diff = $differ->diff($desiredCanonical, $actualCanonical, $renameMap);
 
+            $connectionName = ConfigResolver::resolveConnectionNameForSchema($schemaClass);
+
             if ($diff->isEmpty()) {
                 $results[] = [
                     'schemaClass' => $schemaClass,
                     'tableName' => $desired->tableName,
+                    'connection' => $connectionName,
                     'status' => 'in_sync',
                     'diff' => null,
                 ];
@@ -216,6 +219,7 @@ class StatusController
                 $results[] = [
                     'schemaClass' => $schemaClass,
                     'tableName' => $desired->tableName,
+                    'connection' => $connectionName,
                     'status' => $status,
                     'diff' => $this->serializeDiff($diff),
                 ];

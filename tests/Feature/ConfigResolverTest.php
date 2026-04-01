@@ -126,28 +126,59 @@ class ConfigResolverTest extends TestCase
 
     // ─── schemaDirectories() ────────────────────────────────────
 
-    public function test_schema_directories_returns_configured_paths(): void
+    public function test_schema_directories_derived_from_db_connections(): void
     {
-        config()->set('schema-craft.schema_paths', [
-            app_path('Schemas'),
-            app_path('Domain/Schemas'),
+        config()->set('schema-craft.db_connections', [
+            'default' => [
+                'namespaces' => ['schema' => 'App\\Schemas'],
+            ],
+            'crm' => [
+                'namespaces' => ['schema' => 'App\\Schemas\\Crm'],
+            ],
         ]);
 
         $dirs = ConfigResolver::schemaDirectories();
 
         $this->assertCount(2, $dirs);
-        $this->assertStringEndsWith('Schemas', $dirs[0]);
-        $this->assertStringEndsWith('Domain/Schemas', $dirs[1]);
+        $this->assertStringEndsWith('app/Schemas', $dirs[0]);
+        $this->assertStringEndsWith('app/Schemas/Crm', $dirs[1]);
     }
 
-    public function test_schema_directories_returns_default_when_no_config(): void
+    public function test_schema_directories_deduplicates_same_namespace(): void
     {
-        config()->set('schema-craft.schema_paths', null);
+        config()->set('schema-craft.db_connections', [
+            'default' => [
+                'namespaces' => ['schema' => 'App\\Schemas'],
+            ],
+            'replica' => [
+                'namespaces' => ['schema' => 'App\\Schemas'],
+            ],
+        ]);
 
         $dirs = ConfigResolver::schemaDirectories();
 
         $this->assertCount(1, $dirs);
-        $this->assertStringEndsWith('Schemas', $dirs[0]);
+        $this->assertStringEndsWith('app/Schemas', $dirs[0]);
+    }
+
+    public function test_schema_directories_falls_back_when_no_connections(): void
+    {
+        config()->set('schema-craft.db_connections', null);
+
+        $dirs = ConfigResolver::schemaDirectories();
+
+        $this->assertCount(1, $dirs);
+        $this->assertStringEndsWith('app/Schemas', $dirs[0]);
+    }
+
+    public function test_schema_directories_falls_back_when_connections_empty(): void
+    {
+        config()->set('schema-craft.db_connections', []);
+
+        $dirs = ConfigResolver::schemaDirectories();
+
+        $this->assertCount(1, $dirs);
+        $this->assertStringEndsWith('app/Schemas', $dirs[0]);
     }
 
     // ─── resolveByDatabaseConnection() ───────────────────────────

@@ -4,18 +4,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Schema Paths
-    |--------------------------------------------------------------------------
-    |
-    | Directories to scan for schema classes. These are used by commands like
-    | schema:generate-sdk to discover schema classes automatically.
-    |
-    */
-
-    'schema_paths' => [app_path('Schemas')],
-
-    /*
-    |--------------------------------------------------------------------------
     | Explicit Foreign Keys
     |--------------------------------------------------------------------------
     |
