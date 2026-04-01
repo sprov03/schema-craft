@@ -132,6 +132,51 @@ abstract class SchemaModel extends Model
     }
 
     /**
+     * Resolve a dynamic relation resolver, with schema fallback.
+     *
+     * If the standard resolver lookup misses (e.g. booted() failed or was
+     * skipped), fall back to the schema to find the relationship and
+     * self-heal by registering the resolver for future calls.
+     *
+     * @param  class-string  $class
+     * @param  string  $key
+     * @return \Closure|null
+     */
+    public function relationResolver($class, $key)
+    {
+        $resolver = parent::relationResolver($class, $key);
+
+        if ($resolver !== null) {
+            return $resolver;
+        }
+
+        if (! isset(static::$schema)) {
+            return null;
+        }
+
+        try {
+            $tableDefinition = static::resolveSchema();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        foreach ($tableDefinition->relationships as $rel) {
+            if ($rel->name === $key) {
+                $callback = function (Model $model) use ($rel) {
+                    return static::buildRelation($model, $rel);
+                };
+
+                // Self-heal: register so this fallback isn't needed again
+                static::resolveRelationUsing($key, $callback);
+
+                return $callback;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Resolve and cache the schema definition for this model's schema class.
      */
     protected static function resolveSchema(): TableDefinition

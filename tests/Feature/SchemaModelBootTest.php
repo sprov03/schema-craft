@@ -199,4 +199,63 @@ class SchemaModelBootTest extends TestCase
         // but we can verify the guard clause works.
         $this->assertTrue(true);
     }
+
+    public function test_relation_resolver_fallback_finds_relationship_when_booted_missed_it(): void
+    {
+        $user = User::create(['name' => 'John', 'email' => 'john@test.com', 'password' => 'secret']);
+        $post = Post::create(['title' => 'Hello', 'slug' => 'hello', 'subtitle' => 'Sub', 'price' => 9.99, 'author_id' => $user->id]);
+
+        // Simulate the resolver being missing (as if booted() didn't register it)
+        $resolversProp = new \ReflectionProperty(\Illuminate\Database\Eloquent\Model::class, 'relationResolvers');
+        $originalResolvers = $resolversProp->getValue();
+
+        // Remove all resolvers for Post
+        $resolvers = $originalResolvers;
+        unset($resolvers[Post::class]);
+        $resolversProp->setValue(null, $resolvers);
+
+        // Verify the standard resolver is gone (check parent directly)
+        $this->assertNull(parent::class !== null
+            ? (static::$relationResolvers[Post::class]['author'] ?? null)
+            : null
+        );
+
+        // The fallback in relationResolver() should STILL find it from the schema
+        $this->assertNotNull($post->relationResolver(Post::class, 'author'));
+
+        // Calling the relationship should work
+        $relation = $post->author();
+        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Relations\BelongsTo::class, $relation);
+
+        // isRelation() should also work via the fallback
+        $this->assertTrue($post->isRelation('author'));
+        $this->assertTrue($post->isRelation('tags'));
+
+        // Self-healing: the fallback should have re-registered the resolver
+        $currentResolvers = $resolversProp->getValue();
+        $this->assertArrayHasKey('author', $currentResolvers[Post::class] ?? []);
+
+        // Restore original resolvers
+        $resolversProp->setValue(null, $originalResolvers);
+    }
+
+    public function test_relation_resolver_fallback_returns_null_for_non_existent_relationship(): void
+    {
+        $post = new Post;
+
+        // Simulate missing resolvers
+        $resolversProp = new \ReflectionProperty(\Illuminate\Database\Eloquent\Model::class, 'relationResolvers');
+        $originalResolvers = $resolversProp->getValue();
+
+        $resolvers = $originalResolvers;
+        unset($resolvers[Post::class]);
+        $resolversProp->setValue(null, $resolvers);
+
+        // Non-existent relationship should return null (not throw)
+        $this->assertNull($post->relationResolver(Post::class, 'nonExistentRelation'));
+        $this->assertFalse($post->isRelation('nonExistentRelation'));
+
+        // Restore
+        $resolversProp->setValue(null, $originalResolvers);
+    }
 }
