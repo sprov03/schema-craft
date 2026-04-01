@@ -47,6 +47,9 @@ abstract class Action
     /** @var \Closure|null Call-site override applied last in the fill-data chain. */
     private ?\Closure $defaultsFn = null;
 
+    /** @var \Closure|null Call-site closure to customize auto-generated Filament field components. */
+    private ?\Closure $fieldConfigFn = null;
+
     /**
      * Internal store for FK and nested fill values populated by fromRecord().
      * Scalar values are stored directly on typed properties instead.
@@ -95,6 +98,31 @@ abstract class Action
     public function withDefaults(\Closure $fn): static
     {
         $this->defaultsFn = $fn;
+
+        return $this;
+    }
+
+    /**
+     * Customize auto-generated Filament form fields at the call site.
+     *
+     * The closure receives the typed action instance. Inside the closure,
+     * property access returns the auto-generated Filament component for
+     * that field, allowing modification or full replacement:
+     *
+     *   ->configureFields(function (CreateForAccountDogsAction $action) {
+     *       // Modify: call Filament methods on the auto-generated component
+     *       $action->account
+     *           ->options(fn () => Account::active()->pluck('name', 'id'))
+     *           ->searchable()
+     *           ->preload();
+     *
+     *       // Replace: assign a new Filament component entirely
+     *       $action->name = Textarea::make('name')->rows(3);
+     *   })
+     */
+    public function configureFields(\Closure $fn): static
+    {
+        $this->fieldConfigFn = $fn;
 
         return $this;
     }
@@ -437,19 +465,45 @@ abstract class Action
      */
     protected function buildFilamentSchema(ActionDefinition $definition): array
     {
-        $components = [];
+        $componentMap = [];
 
         foreach ($definition->parameters as $param) {
             if ($param->isNestedRelationship && $param->nestedRelationship !== null) {
-                $components[] = $this->buildNestedFilamentComponent($param->nestedRelationship);
+                $componentMap[$param->name] = $this->buildNestedFilamentComponent($param->nestedRelationship);
             } elseif ($param->isModel && $param->modelClass !== null) {
-                $components[] = $this->buildBelongsToFilamentComponent($param);
+                $componentMap[$param->name] = $this->buildBelongsToFilamentComponent($param);
             } else {
-                $components[] = $this->buildScalarFilamentComponent($param);
+                $componentMap[$param->name] = $this->buildScalarFilamentComponent($param);
             }
         }
 
+        // Apply call-site field customizations
+        if ($this->fieldConfigFn !== null) {
+            $this->applyFieldConfiguration($componentMap);
+        }
+
+        // Collect in parameter order
+        $components = [];
+        foreach ($definition->parameters as $param) {
+            $components[] = $componentMap[$param->name];
+        }
+
         return $components;
+    }
+
+    /**
+     * Apply the configureFields closure using a FieldProxy.
+     *
+     * The proxy maps action parameter names to their auto-generated
+     * Filament components, allowing modification or full replacement.
+     *
+     * @param  array<string, mixed>  $componentMap
+     */
+    private function applyFieldConfiguration(array &$componentMap): void
+    {
+        $proxy = new FieldProxy($componentMap);
+
+        ($this->fieldConfigFn)($proxy);
     }
 
     /**
