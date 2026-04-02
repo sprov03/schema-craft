@@ -9494,11 +9494,11 @@
 
             var snippetViewRecord =
 'use ' + escapeHtml(registryImport) + ';\n\n' +
-'// ViewRecord or EditRecord page\n' +
+'// ViewRecord or EditRecord page — record resolved automatically via Filament DI\n' +
 'protected function getHeaderActions(): array\n' +
 '{\n' +
 '    return [\n' +
-'        ' + escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()->filamentAction($this->record),\n' +
+'        ' + escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()->filamentAction(),\n' +
 '    ];\n' +
 '}';
 
@@ -9512,37 +9512,41 @@
 '    ];\n' +
 '}';
 
-            var snippetWithDefaults =
+            var snippetConfigureFieldsDefaults =
 'use ' + escapeHtml(registryImport) + ';\n' +
-'use ' + escapeHtml(action ? (action.actionClass || action.class) : actionsNs + '\\' + actionShort) + ';\n\n' +
+'use Illuminate\\Database\\Eloquent\\Model;\n' +
+'use SchemaCraft\\FieldProxy;\n\n' +
 escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
-'    ->withDefaults(function (' + escapeHtml(actionShort) + ' $action) use ($parentRecord): void {\n' +
-'        // Set typed properties directly — these override record values and PHP defaults\n' +
-'        // $action->status = \'draft\';\n' +
-'        // $action->owner  = auth()->user();\n' +
+'    ->configureFields(function (FieldProxy $fields): void {\n' +
+'        // Set defaults via Filament\'s ->default() — wins over record and PHP defaults\n' +
+'        // Use closures with DI for record-dependent values\n' +
+'        $fields->account\n' +
+'            ->default(fn (?Model $record) => $record?->account_id)\n' +
+'            ->disabled();\n\n' +
+'        $fields->status->default(\'active\');\n' +
 '    })\n' +
-'    ->filamentAction($this->record);';
+'    ->filamentAction();';
 
-            var snippetFromRecord =
-'// Inside ' + escapeHtml(actionShort) + '.php\n' +
-'// Override to map fields that do not match column names 1:1\n' +
-'protected function fromRecord(\\Illuminate\\Database\\Eloquent\\Model $record): void\n' +
-'{\n' +
-'    // Default behaviour auto-maps matching column names — only override when needed\n' +
-'    // $this->city    = $record->mailing_city;\n' +
-'    // $this->country = $record->billing_country;\n' +
-'    // $this->email   = $record->owner->email;\n' +
-'}';
+            var snippetRecordDefaults =
+'// Record data is resolved automatically via ->default() closures.\n' +
+'// Each component gets a closure that reads from the record at mount time:\n' +
+'//   ->default(fn (?Model $record) => $record?->column_name)\n' +
+'//\n' +
+'// Override any field\'s default in configureFields():\n' +
+'->configureFields(function (FieldProxy $fields): void {\n' +
+'    $fields->city->default(fn (?Model $record) => $record?->mailing_city);\n' +
+'    $fields->email->default(fn (?Model $record) => $record?->owner->email);\n' +
+'})';
 
             var snippetPrecedence =
 '// Fill-data precedence (lowest → highest):\n' +
 '//\n' +
 '//  1. PHP property defaults     public ?string $status = \'draft\';\n' +
-'//  2. fromRecord($record)       class-level mapping from model columns\n' +
-'//  3. withDefaults(fn)          call-site override — always wins\n' +
+'//  2. Record data               ->default(fn($record) => $record->column)\n' +
+'//  3. configureFields()         ->default() overrides — always wins\n' +
 '//\n' +
-'// The base class converts these to the flat array Filament\'s fillForm() needs.\n' +
-'// Developers never touch the array directly.';
+'// All defaults use Filament\'s ->default() with closure DI.\n' +
+'// configureFields() runs last, so its ->default() calls win.';
 
             var httpUpper = httpMethod.toUpperCase();
             var snippetApi =
@@ -9576,7 +9580,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 '        // Modify labels, placeholders, or any Filament method\n' +
 '        $fields->status->label(\'Current Status\');\n' +
 '    })\n' +
-'    ->filamentAction($this->record);';
+'    ->filamentAction();';
 
             var snippetConfigureFieldsReplace =
 'use ' + escapeHtml(registryImport) + ';\n' +
@@ -9589,21 +9593,23 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 '            ->rows(3)\n' +
 '            ->placeholder(\'Enter a description...\');\n' +
 '    })\n' +
-'    ->filamentAction($this->record);';
+'    ->filamentAction();';
 
             var snippetConfigureFieldsCombined =
 'use ' + escapeHtml(registryImport) + ';\n' +
-'use ' + escapeHtml(action ? (action.actionClass || action.class) : actionsNs + '\\' + actionShort) + ';\n' +
+'use Illuminate\\Database\\Eloquent\\Model;\n' +
 'use SchemaCraft\\FieldProxy;\n\n' +
 escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
-'    ->withDefaults(function (' + escapeHtml(actionShort) + ' $action) use ($parentRecord): void {\n' +
-'        $action->account = $parentRecord->account;\n' +
-'    })\n' +
 '    ->configureFields(function (FieldProxy $fields): void {\n' +
-'        // Lock the account field since it\'s pre-filled from context\n' +
-'        $fields->account->disabled();\n' +
+'        // Pre-fill and lock the account field from the record\n' +
+'        $fields->account\n' +
+'            ->default(fn (?Model $record) => $record?->account_id)\n' +
+'            ->options(fn () => Account::pluck(\'name\', \'id\'))\n' +
+'            ->disabled();\n\n' +
+'        // Dynamic options based on record context\n' +
+'        $fields->status->label(\'Current Status\');\n' +
 '    })\n' +
-'    ->filamentAction($this->record);';
+'    ->filamentAction();';
 
             // ─ Section builder helpers ────────────────────────────────────
 
@@ -9636,10 +9642,10 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                         '<th style="text-align:left;padding:8px 10px;color:var(--text-muted);border-bottom:1px solid var(--border);">Notes</th>' +
                     '</tr></thead>' +
                     '<tbody>' +
-                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">ViewRecord header</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction($this->record)</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">Record pre-fills the form</td></tr>' +
-                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">EditRecord header</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction($this->record)</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">Record pre-fills the form</td></tr>' +
+                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">ViewRecord header</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction()</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">Record resolved via Filament DI</td></tr>' +
+                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">EditRecord header</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction()</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">Record resolved via Filament DI</td></tr>' +
                         '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">ListRecords header</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction()</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">No record — form starts from PHP defaults</td></tr>' +
-                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">Any Filament page</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction($record ?? null)</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">Record is optional</td></tr>' +
+                        '<tr><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">Table row action</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px;">->filamentAction()</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-muted);">Record injected per-row by Filament</td></tr>' +
                     '</tbody>' +
                 '</table>';
 
@@ -9653,7 +9659,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     'ViewRecord &amp; EditRecord — update existing',
                     'Header Action', 'params',
                     snippetViewRecord,
-                    'Use when the page already has a loaded record. The form pre-fills from the record via <code style="font-family:var(--font-mono);font-size:11px;">fromRecord()</code>.'
+                    'Use when the page already has a loaded record. Each component\'s <code style="font-family:var(--font-mono);font-size:11px;">->default()</code> closure resolves values from the record via Filament DI.'
                 ) +
                 docSection(
                     'ListRecords — create new',
@@ -9663,16 +9669,16 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 ) +
                 docDivider('Customising Fill Data') +
                 docSection(
-                    'withDefaults() — call-site override',
+                    'configureFields() — setting defaults',
                     'Highest Priority', 'body',
-                    snippetWithDefaults,
-                    'Override any field at the call site using typed properties. Wins over both PHP defaults and record values. Useful for injecting context from the page (current user, parent record, etc.).'
+                    snippetConfigureFieldsDefaults,
+                    'Set default values on fields using Filament\'s <code style="font-family:var(--font-mono);font-size:11px;">->default()</code>. Wins over both PHP defaults and record values. Use closures with Filament DI to access the record — works for both page actions and table row actions.'
                 ) +
                 docSection(
-                    'fromRecord() — class-level mapping',
-                    'Class Override', 'relations',
-                    snippetFromRecord,
-                    'Add this method to the action class when column names don\'t match property names, or when the value needs to be derived from a relationship rather than a direct attribute.'
+                    'Record data — auto-resolved defaults',
+                    'How It Works', 'relations',
+                    snippetRecordDefaults,
+                    'Each component gets a <code style="font-family:var(--font-mono);font-size:11px;">->default(fn($record) => ...)</code> closure that reads from the record at mount time via Filament DI. Override any field\'s default in <code style="font-family:var(--font-mono);font-size:11px;">configureFields()</code> when column names don\'t match or values come from relationships.'
                 ) +
                 docDivider('Customising Form Fields') +
                 docSection(
@@ -9688,10 +9694,10 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     'Assign a new Filament component to any property to completely replace the auto-generated one. The <code style="font-family:var(--font-mono);font-size:11px;">make()</code> name must match the original field name.'
                 ) +
                 docSection(
-                    'configureFields() + withDefaults() — combined',
+                    'configureFields() — defaults + presentation',
                     'Full Example', 'fields',
                     snippetConfigureFieldsCombined,
-                    'Use <code style="font-family:var(--font-mono);font-size:11px;">withDefaults()</code> to set values and <code style="font-family:var(--font-mono);font-size:11px;">configureFields()</code> to customise presentation. The Action is the data contract; field configuration is a call-site concern. Same action, different UI per page.'
+                    'Use <code style="font-family:var(--font-mono);font-size:11px;">configureFields()</code> to set defaults and customise presentation in one place. Use Filament closure DI (<code style="font-family:var(--font-mono);font-size:11px;">fn (?Model $record) =></code>) for record-dependent values — works for both page and table row actions.'
                 ) +
                 docDivider('Where filamentAction() Works') +
                 '<div style="margin-bottom:8px;">' + compatTable + '</div>';

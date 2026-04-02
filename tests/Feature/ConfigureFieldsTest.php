@@ -159,31 +159,32 @@ class ConfigureFieldsTest extends TestCase
         $this->assertSame('My Title', $action->title);
     }
 
-    // ─── Coexistence with withDefaults ───────────────────────────────
+    // ─── configureFields ->default() overwrites auto-generated ─────────
 
-    public function test_configure_fields_coexists_with_with_defaults(): void
+    public function test_configure_fields_default_overwrites_auto_generated(): void
     {
         $action = new CreatePostAction;
 
-        $action->withDefaults(function (CreatePostAction $a) {
-            $a->isFeature = true;
-            $a->title = 'Default Title';
-        });
-
         $action->configureFields(function (FieldProxy $fields) {
-            $fields->author->preload();
+            $fields->isFeature->default(true);
         });
 
-        // filamentAction builds the action; withDefaults is deferred to mount time
-        $filamentAction = $action->filamentAction();
+        $components = $this->getSchemaComponents($action);
 
-        $this->assertNotNull($filamentAction);
+        // Find the is_feature component
+        $isFeatureComponent = null;
+        foreach ($components as $component) {
+            if ($component->getName() === 'is_feature') {
+                $isFeatureComponent = $component;
+                break;
+            }
+        }
 
-        // withDefaults runs on a clone at mount time, not on $this.
-        // Verify via resolveFillData that the defaults are applied correctly.
-        $fillData = (new \ReflectionMethod($action, 'resolveFillData'))->invoke($action, null);
-        $this->assertTrue($fillData['is_feature']);
-        $this->assertSame('Default Title', $fillData['title']);
+        $this->assertNotNull($isFeatureComponent);
+
+        // configureFields ->default(true) should have overwritten the auto-generated false
+        $prop = new \ReflectionProperty($isFeatureComponent, 'defaultState');
+        $this->assertSame(true, $prop->getValue($isFeatureComponent));
     }
 
     // ─── Exception cleanup ───────────────────────────────────────────

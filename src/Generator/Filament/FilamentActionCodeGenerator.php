@@ -26,7 +26,7 @@ class FilamentActionCodeGenerator
         $label = $meta['label'] ?? Str::headline($definition->serviceMethod);
 
         $lines = [];
-        $lines[] = '    public function filamentAction(?Model $record = null): FilamentAction';
+        $lines[] = '    public function filamentAction(?\Closure $configureFields = null): FilamentAction';
         $lines[] = '    {';
 
         // Build the action chain
@@ -48,13 +48,8 @@ class FilamentActionCodeGenerator
             $lines[] = '            ])';
         }
 
-        // Fill form — delegates to the precedence chain (PHP defaults → fromRecord → withDefaults)
-        $lines[] = '            ->fillForm(fn () => $this->toFillArray())';
-
-        // Action closure
-        $lines[] = '            ->action(function (array $data) use ($record): void {';
-        $lines[] = '                $this->execute($record, $data);';
-        $lines[] = '            });';
+        // Action closure — $record resolved by Filament's DI at submit time
+        $lines[] = '            ->action(fn (array $data, ?\\Illuminate\\Database\\Eloquent\\Model $record = null) => $this->execute($record, $data));';
 
         $lines[] = '    }';
 

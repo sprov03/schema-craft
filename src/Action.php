@@ -45,19 +45,8 @@ abstract class Action
     /** @var array<class-string<Action>, ActionDefinition> */
     private static array $scanCache = [];
 
-    /** @var \Closure|null Call-site override applied last in the fill-data chain. */
-    private ?\Closure $defaultsFn = null;
-
     /** @var \Closure|null Call-site closure to customize auto-generated Filament field components. */
     private ?\Closure $fieldConfigFn = null;
-
-    /**
-     * Internal store for FK and nested fill values populated by fromRecord().
-     * Scalar values are stored directly on typed properties instead.
-     *
-     * @var array<string, mixed>
-     */
-    private array $formFillData = [];
 
     /**
      * Get the schema class this action operates on.
@@ -85,44 +74,25 @@ abstract class Action
     }
 
     /**
-     * Set call-site default property values, overriding both PHP defaults and record data.
-     *
-     * The closure receives the typed action instance and optionally the record:
-     *
-     *   ->withDefaults(function (CreateContactAction $action): void {
-     *       $action->status = 'draft';
-     *   })
-     *
-     *   ->withDefaults(function (CreateContactAction $action, ?Model $record): void {
-     *       $action->account = $record?->account;
-     *   })
-     *
-     * withDefaults() is the highest-priority layer in the fill-data chain.
-     */
-    public function withDefaults(\Closure $fn): static
-    {
-        $this->defaultsFn = $fn;
-
-        return $this;
-    }
-
-    /**
      * Customize auto-generated Filament form fields at the call site.
      *
-     * The closure receives the typed action instance. Inside the closure,
+     * The closure receives a FieldProxy. Inside the closure,
      * property access returns the auto-generated Filament component for
      * that field, allowing modification or full replacement:
      *
-     *   ->configureFields(function (CreateForAccountDogsAction $action) {
+     *   ->configureFields(function (FieldProxy $fields): void {
      *       // Modify: call Filament methods on the auto-generated component
-     *       $action->account
+     *       $fields->account
      *           ->options(fn () => Account::active()->pluck('name', 'id'))
-     *           ->searchable()
-     *           ->preload();
+     *           ->default(fn (?Model $record) => $record?->account_id)
+     *           ->disabled();
      *
      *       // Replace: assign a new Filament component entirely
-     *       $action->name = Textarea::make('name')->rows(3);
+     *       $fields->name = Textarea::make('name')->rows(3);
      *   })
+     *
+     * configureFields() runs after all component defaults are set, so any
+     * ->default() call here overwrites the auto-generated default.
      */
     public function configureFields(\Closure $fn): static
     {
@@ -295,15 +265,29 @@ abstract class Action
     /**
      * Build a Filament Action with auto-generated modal form from this action's definition.
      *
-     * Fill-data precedence (lowest → highest):
-     *   1. PHP property defaults defined on the action class
-     *   2. fromRecord($record) — maps record data onto typed properties
-     *   3. withDefaults(fn) — call-site overrides, always win
+     * All component defaults are set via Filament's ->default() with closure DI.
+     * configureFields() runs last and can override any default — last call wins.
+     * No fillForm() is used; Filament evaluates ->default() closures at mount time,
+     * resolving $record via DI (works for both page and table row actions).
      *
-     * Override this method in a specific Action to fully customize the Filament form.
+     * Fill-data precedence (lowest → highest):
+     *   1. PHP property defaults on the action class → component ->default()
+     *   2. Record data via ->default(fn($record) => ...) closures
+     *   3. configureFields() ->default() overrides — always wins
+     *
+     * Filament handles record injection automatically in all contexts:
+     * - Page actions: resolved via getDefaultActionRecord() on the Livewire component
+     * - Table row actions: set per-row by resolveTableAction() before mounting
+     *
+     * @param  \Closure|null  $configureFields  Optional closure to customize fields (receives FieldProxy)
      */
-    public function filamentAction(?Model $record = null): FilamentAction
+    public function filamentAction(?\Closure $configureFields = null): FilamentAction
     {
+        // configureFields can be set via the method parameter or via the chainable method
+        if ($configureFields !== null) {
+            $this->fieldConfigFn = $configureFields;
+        }
+
         $definition = static::definition();
         $meta = static::meta();
         $actionName = Str::camel($definition->serviceMethod);
@@ -315,21 +299,10 @@ abstract class Action
             $action->modalDescription($meta->description);
         }
 
-        // Set record on the Filament Action when available at definition time (page actions).
-        // For table row actions, Filament sets this automatically per-row before mounting.
-        if ($record !== null) {
-            $action->record($record);
-        }
-
-        // Schema building is definition-time work (components don't depend on the record).
+        // Build schema with ->default() closures on all components, then apply configureFields
         $schema = $this->buildFilamentSchema($definition);
         if (! empty($schema)) {
             $action->schema($schema);
-
-            // Deferred: Filament evaluates this closure at mount time via evaluate().
-            // $record is resolved by Filament's DI from getRecord() (by type-hint).
-            $schemaCraftAction = $this;
-            $action->fillForm(fn (?Model $record = null) => $schemaCraftAction->resolveFillData($record));
         }
 
         // Deferred: $record resolved by Filament's DI at submit time.
@@ -340,170 +313,11 @@ abstract class Action
     }
 
     /**
-     * Populate action properties from a model record.
-     *
-     * Default implementation maps scalar parameters from record attributes by column name,
-     * and stores FK/nested values internally for use by toFillArray().
-     *
-     * Override in an action class for non-trivial column-to-property mapping:
-     *
-     *   protected function fromRecord(Model $record): void
-     *   {
-     *       $this->recipientEmail = $record->owner->email;
-     *       $this->type = $record->origin_type;
-     *   }
-     */
-    protected function fromRecord(Model $record): void
-    {
-        $definition = static::definition();
-        $attributes = $record->getAttributes();
-
-        foreach ($definition->parameters as $param) {
-            if ($param->isNestedRelationship && $param->nestedRelationship !== null) {
-                $nested = $param->nestedRelationship;
-                $relation = $record->{$nested->name};
-
-                if ($nested->isCollection && $relation !== null) {
-                    $items = [];
-                    foreach ($relation as $related) {
-                        $item = [];
-                        foreach ($nested->fields as $field) {
-                            $item[$field->name] = $related->{$field->name};
-                        }
-                        foreach ($nested->pivotFields as $pivotField) {
-                            $item[$pivotField] = $related->pivot?->{$pivotField};
-                        }
-                        $items[] = $item;
-                    }
-                    $this->formFillData[$nested->name] = $items;
-                } elseif (! $nested->isCollection && $relation !== null) {
-                    $item = [];
-                    foreach ($nested->fields as $field) {
-                        $item[$field->name] = $relation->{$field->name};
-                    }
-                    $this->formFillData[$nested->name] = $item;
-                }
-            } elseif ($param->isModel) {
-                $fkColumn = $param->foreignKeyColumn ?? $param->name.'_id';
-                $this->formFillData[$fkColumn] = $record->{$fkColumn};
-            } else {
-                $columnName = $param->columnName ?? $param->name;
-                if (array_key_exists($columnName, $attributes)) {
-                    $this->{$param->name} = $record->{$columnName};
-                }
-            }
-        }
-    }
-
-    /**
-     * Resolve the fill-data array for a given record, applying the full precedence chain.
-     *
-     * Clones $this to avoid state pollution between multiple mount calls
-     * (e.g. table row actions where each row mounts independently).
-     *
-     * @return array<string, mixed>
-     */
-    protected function resolveFillData(?Model $record): array
-    {
-        $clone = clone $this;
-
-        if ($record !== null && $record->exists) {
-            $clone->fromRecord($record);
-        }
-
-        if ($clone->defaultsFn !== null) {
-            static::invokeDefaultsFn($clone->defaultsFn, $clone, $record);
-        }
-
-        return $clone->toFillArray();
-    }
-
-    /**
-     * Invoke the withDefaults closure, passing the record if the closure accepts it.
-     *
-     * Supports both legacy single-param `fn($action)` and new two-param
-     * `fn($action, $record)` signatures for backward compatibility.
-     */
-    protected static function invokeDefaultsFn(\Closure $fn, self $action, ?Model $record): void
-    {
-        $ref = new \ReflectionFunction($fn);
-
-        if ($ref->getNumberOfParameters() >= 2) {
-            $fn($action, $record);
-        } else {
-            $fn($action);
-        }
-    }
-
-    /**
-     * Convert the action's current property state to the flat array Filament's fillForm() expects.
-     *
-     * Reads scalar properties from $this (last-write-wins across the precedence chain)
-     * and FK/nested data from the internal store populated by fromRecord().
-     * A Model instance set on a FK property by withDefaults() takes precedence over the store.
-     *
-     * @return array<string, mixed>
-     */
-    protected function toFillArray(): array
-    {
-        $definition = static::definition();
-        $data = [];
-
-        foreach ($definition->parameters as $param) {
-            if ($param->isNestedRelationship && $param->nestedRelationship !== null) {
-                $nested = $param->nestedRelationship;
-
-                try {
-                    $propValue = $this->{$param->name};
-
-                    if ($propValue instanceof \Illuminate\Support\Collection) {
-                        $data[$nested->name] = $propValue->map(function ($item) use ($nested) {
-                            if ($item instanceof Model) {
-                                $result = [];
-                                foreach ($nested->fields as $field) {
-                                    $result[$field->name] = $item->{$field->name};
-                                }
-
-                                return $result;
-                            }
-
-                            return is_array($item) ? $item : (array) $item;
-                        })->toArray();
-                    } elseif (array_key_exists($nested->name, $this->formFillData)) {
-                        $data[$nested->name] = $this->formFillData[$nested->name];
-                    }
-                } catch (\Error) {
-                    if (array_key_exists($nested->name, $this->formFillData)) {
-                        $data[$nested->name] = $this->formFillData[$nested->name];
-                    }
-                }
-            } elseif ($param->isModel) {
-                $fkColumn = $param->foreignKeyColumn ?? $param->name.'_id';
-
-                try {
-                    $propValue = $this->{$param->name};
-                    $data[$fkColumn] = $propValue instanceof Model
-                        ? $propValue->getKey()
-                        : ($this->formFillData[$fkColumn] ?? null);
-                } catch (\Error) {
-                    $data[$fkColumn] = $this->formFillData[$fkColumn] ?? null;
-                }
-            } else {
-                $columnName = $param->columnName ?? $param->name;
-
-                try {
-                    $data[$columnName] = $this->{$param->name};
-                } catch (\Error) {
-                    $data[$columnName] = $param->hasDefault ? $param->default : null;
-                }
-            }
-        }
-
-        return $data;
-    }
-
-    /**
      * Build the Filament form schema from the action definition.
+     *
+     * Each component gets a ->default() closure that resolves values from the
+     * record via Filament's DI at mount time. configureFields() runs last
+     * and can override any default.
      *
      * @return array<\Filament\Forms\Components\Component|\Filament\Schemas\Components\Component>
      */
@@ -521,7 +335,7 @@ abstract class Action
             }
         }
 
-        // Apply call-site field customizations
+        // Apply call-site field customizations — runs last, so ->default() here wins
         if ($this->fieldConfigFn !== null) {
             $this->applyFieldConfiguration($componentMap);
         }
@@ -552,6 +366,8 @@ abstract class Action
 
     /**
      * Build a Filament form component for a scalar parameter.
+     *
+     * Sets ->default() from PHP property defaults and a record-aware closure.
      */
     protected function buildScalarFilamentComponent(ActionParameter $param): TextInput|Textarea|Checkbox
     {
@@ -561,9 +377,7 @@ abstract class Action
             $field = Checkbox::make($columnName)
                 ->label(Str::headline($param->name));
 
-            if ($param->hasDefault) {
-                $field->default($param->default);
-            }
+            $field->default($this->buildScalarDefaultClosure($param));
 
             return $field;
         }
@@ -577,9 +391,7 @@ abstract class Action
                 $field->required();
             }
 
-            if ($param->hasDefault) {
-                $field->default($param->default);
-            }
+            $field->default($this->buildScalarDefaultClosure($param));
 
             return $field;
         }
@@ -595,15 +407,37 @@ abstract class Action
             $field->required();
         }
 
-        if ($param->hasDefault) {
-            $field->default($param->default);
-        }
+        $field->default($this->buildScalarDefaultClosure($param));
 
         return $field;
     }
 
     /**
+     * Build a default closure for a scalar parameter.
+     *
+     * Returns the record's column value if available, otherwise the PHP property default.
+     */
+    private function buildScalarDefaultClosure(ActionParameter $param): \Closure
+    {
+        $columnName = $param->columnName ?? $param->name;
+        $phpDefault = $param->hasDefault ? $param->default : null;
+
+        return function (?Model $record = null) use ($columnName, $phpDefault) {
+            if ($record !== null && $record->exists) {
+                $attributes = $record->getAttributes();
+                if (array_key_exists($columnName, $attributes)) {
+                    return $record->{$columnName};
+                }
+            }
+
+            return $phpDefault;
+        };
+    }
+
+    /**
      * Build a Filament Select component for a BelongsTo model parameter.
+     *
+     * Sets ->default() from the record's FK column value.
      */
     protected function buildBelongsToFilamentComponent(ActionParameter $param): Select
     {
@@ -620,11 +454,21 @@ abstract class Action
             $field->required();
         }
 
+        $field->default(function (?Model $record = null) use ($fkColumn) {
+            if ($record !== null && $record->exists) {
+                return $record->{$fkColumn};
+            }
+
+            return null;
+        });
+
         return $field;
     }
 
     /**
      * Build a Filament component for a nested relationship parameter.
+     *
+     * Sets ->default() from the record's relationship data.
      */
     protected function buildNestedFilamentComponent(NestedRelationshipParameter $nested): Repeater|Fieldset|Select
     {
@@ -642,28 +486,80 @@ abstract class Action
 
             if ($hasIdField) {
                 $titleColumn = $this->guessTitleColumn($nested->relatedModel);
+                $relationName = $nested->name;
 
-                return Select::make($nested->name)
+                $field = Select::make($nested->name)
                     ->label($label)
                     ->multiple()
                     ->options(fn () => ($nested->relatedModel)::query()->pluck($titleColumn, 'id'))
                     ->searchable();
+
+                $field->default(function (?Model $record = null) use ($relationName) {
+                    if ($record !== null && $record->exists) {
+                        $relation = $record->{$relationName};
+
+                        return $relation?->pluck('id')->toArray() ?? [];
+                    }
+
+                    return [];
+                });
+
+                return $field;
             }
         }
 
         // Collection relationships → Repeater
         if ($nested->isCollection) {
-            return Repeater::make($nested->name)
+            $fields = $nested->fields;
+            $pivotFields = $nested->pivotFields;
+            $relationName = $nested->name;
+
+            $field = Repeater::make($nested->name)
                 ->label($label)
                 ->schema($this->buildNestedFieldsSchema($nested))
                 ->columns(2)
                 ->defaultItems(0);
+
+            $field->default(function (?Model $record = null) use ($relationName, $fields, $pivotFields) {
+                if ($record === null || ! $record->exists) {
+                    return [];
+                }
+
+                $relation = $record->{$relationName};
+                if ($relation === null) {
+                    return [];
+                }
+
+                $items = [];
+                foreach ($relation as $related) {
+                    $item = [];
+                    foreach ($fields as $f) {
+                        $item[$f->name] = $related->{$f->name};
+                    }
+                    foreach ($pivotFields as $pivotField) {
+                        $item[$pivotField] = $related->pivot?->{$pivotField};
+                    }
+                    $items[] = $item;
+                }
+
+                return $items;
+            });
+
+            return $field;
         }
 
         // Singular relationships (hasOne, morphOne) → Fieldset
-        return Fieldset::make($label)
+        $fields = $nested->fields;
+        $relationName = $nested->name;
+
+        $fieldset = Fieldset::make($label)
             ->statePath($nested->name)
             ->schema($this->buildNestedFieldsSchema($nested));
+
+        // Singular nested relationships set defaults on each child field
+        // via the nested field builder, not on the fieldset itself.
+
+        return $fieldset;
     }
 
     /**
@@ -673,28 +569,29 @@ abstract class Action
      */
     protected function buildNestedFieldsSchema(NestedRelationshipParameter $nested): array
     {
-        $schema = [];
+        $components = [];
 
         foreach ($nested->fields as $field) {
-            $schema[] = $this->buildNestedFieldComponent($field);
+            $components[] = $this->buildNestedFieldComponent($field);
         }
 
         foreach ($nested->pivotFields as $pivotField) {
-            $schema[] = TextInput::make($pivotField)
-                ->label(Str::headline($pivotField));
+            $components[] = TextInput::make($pivotField)
+                ->label(Str::headline($pivotField))
+                ->numeric();
         }
 
-        foreach ($nested->nestedRelationships as $subNested) {
-            $schema[] = $this->buildNestedFilamentComponent($subNested);
+        foreach ($nested->subNested as $subNested) {
+            $components[] = $this->buildNestedFilamentComponent($subNested);
         }
 
-        return $schema;
+        return $components;
     }
 
     /**
-     * Build a form component for a single nested field definition.
+     * Build a Filament form component for a single nested field.
      */
-    protected function buildNestedFieldComponent(NestedFieldDefinition $field): TextInput|Checkbox
+    protected function buildNestedFieldComponent(NestedFieldDefinition $field): TextInput|Textarea|Checkbox
     {
         if ($field->type === 'bool') {
             return Checkbox::make($field->name)
@@ -716,89 +613,120 @@ abstract class Action
     }
 
     /**
-     * Guess the title/display column for a model class.
+     * Guess the best "title" column for a model's Select options.
      *
-     * @param  class-string  $modelClass
+     * @param  class-string<Model>  $modelClass
      */
-    protected function guessTitleColumn(string $modelClass): string
+    private function guessTitleColumn(string $modelClass): string
     {
-        $candidates = ['name', 'title', 'label', 'email', 'display_name'];
+        $guesses = ['name', 'title', 'label', 'email', 'display_name'];
 
         try {
-            $instance = new $modelClass;
-            $table = $instance->getTable();
-            $columns = \Illuminate\Support\Facades\Schema::getColumnListing($table);
-
-            foreach ($candidates as $candidate) {
-                if (in_array($candidate, $columns)) {
-                    return $candidate;
+            $schema = SchemaScanner::resolveSchemaClass($modelClass);
+            if ($schema !== null) {
+                $table = (new SchemaScanner($schema))->scan();
+                foreach ($guesses as $guess) {
+                    foreach ($table->columns as $col) {
+                        if ($col->name === $guess) {
+                            return $guess;
+                        }
+                    }
                 }
             }
         } catch (\Throwable) {
             // Fall through to default
         }
 
-        return 'id';
+        return 'name';
     }
 
+    // ─── Endpoint Registration ────────────────────────────────────────────
+
     /**
-     * Register an API route for this action.
+     * Register this action as an API endpoint.
      *
-     * Registers a route that validates input, maps data, executes the action,
-     * and returns the result wrapped in the given Eloquent API Resource.
-     * The calling code handles prefix, middleware, and auth wrapping.
+     * Must be called inside a Route group context. Derives HTTP method, path,
+     * and response type from the action definition and meta attributes.
      *
-     * @param  class-string  $resourceClass  Eloquent API Resource class
+     * @param  class-string|null  $resourceClass  The API resource class to wrap the response
      */
-    public function endpoint(string $resourceClass): Route
+    public function endpoint(?string $resourceClass = null): Route
     {
         $definition = static::definition();
-        $httpMethod = strtolower($definition->httpMethod);
-        $routeSegment = Str::kebab($definition->serviceMethod);
-
-        // Resolve model class from schema
-        $schemaClass = static::$schema;
-        $modelName = Str::beforeLast(class_basename($schemaClass), 'Schema');
-        $schemaScanner = new SchemaScanner($schemaClass);
-        $table = $schemaScanner->scan();
-        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
-        $modelClass = $connectionConfig->modelClass($modelName);
+        $meta = static::meta();
+        $httpMethod = $meta?->method ?? 'post';
+        $segment = Str::kebab($definition->serviceMethod);
 
         $actionClass = static::class;
-        $routeParam = Str::snake($modelName).'_id';
 
-        if ($httpMethod === 'post') {
-            return RouteFacade::post($routeSegment, function (Request $request) use ($actionClass, $resourceClass, $modelClass) {
-                $action = new $actionClass;
-                $validated = $request->validate($action->rules());
-                $result = $action->execute(new $modelClass, $validated);
-
-                return new $resourceClass($result);
-            })->defaults('_schema_craft_action', $actionClass)->defaults('_schema_craft_schema', $schemaClass);
-        }
-
-        if ($httpMethod === 'delete') {
-            return RouteFacade::delete('{'.$routeParam.'}/'.$routeSegment, function (Request $request, int $id) use ($actionClass, $modelClass) {
-                $model = $modelClass::forAuthUser()->findOrFail($id);
-                $action = new $actionClass;
-                $action->execute($model, []);
-
-                return new JsonResponse(null, 204);
-            })->defaults('_schema_craft_action', $actionClass)->defaults('_schema_craft_schema', $schemaClass);
-        }
-
-        return RouteFacade::match([$httpMethod], '{'.$routeParam.'}/'.$routeSegment, function (Request $request, int $id) use ($actionClass, $resourceClass, $modelClass) {
-            $model = $modelClass::forAuthUser()->findOrFail($id);
+        return RouteFacade::{$httpMethod}($segment, function (Request $request) use ($actionClass, $definition, $httpMethod, $resourceClass) {
             $action = new $actionClass;
-            $validated = $request->validate($action->rules());
-            $result = $action->execute($model, $validated);
 
-            return new $resourceClass($result);
-        })->defaults('_schema_craft_action', $actionClass)->defaults('_schema_craft_schema', $schemaClass);
+            $request->validate($action->rules());
+            $data = $request->only($this->extractFieldNames($definition));
+
+            $record = $this->resolveEndpointRecord($request, $httpMethod);
+
+            $result = $action->execute($record, $data);
+
+            if ($httpMethod === 'delete') {
+                return new JsonResponse(null, 204);
+            }
+
+            if ($resourceClass !== null && $result instanceof Model) {
+                return new $resourceClass($result);
+            }
+
+            return new JsonResponse($result);
+        })->name($segment);
     }
 
     /**
-     * Clear the scan cache. Useful in tests.
+     * Extract field names from the action definition for request filtering.
+     *
+     * @return array<string>
+     */
+    private function extractFieldNames(ActionDefinition $definition): array
+    {
+        $names = [];
+
+        foreach ($definition->parameters as $param) {
+            if ($param->isNestedRelationship && $param->nestedRelationship !== null) {
+                $names[] = $param->nestedRelationship->name;
+            } elseif ($param->isModel) {
+                $names[] = $param->foreignKeyColumn ?? $param->name.'_id';
+            } else {
+                $names[] = $param->columnName ?? $param->name;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * Resolve the model record for an endpoint request.
+     */
+    private function resolveEndpointRecord(Request $request, string $httpMethod): Model
+    {
+        $schemaClass = static::$schema;
+
+        $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
+
+        $modelClass = $connectionConfig->modelNamespace.
+            '\\'.class_basename(str_replace('Schema', '', class_basename($schemaClass)));
+
+        if ($httpMethod === 'post') {
+            return new $modelClass;
+        }
+
+        // For PUT/PATCH/DELETE, resolve from route parameter
+        $paramName = Str::snake(class_basename($modelClass));
+
+        return $modelClass::forAuthUser()->findOrFail($request->route($paramName));
+    }
+
+    /**
+     * Clear the scan cache. Useful for testing.
      */
     public static function clearScanCache(): void
     {
