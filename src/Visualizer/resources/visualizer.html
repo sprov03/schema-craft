@@ -2191,7 +2191,7 @@
         /** Sync all connection dropdowns and filter tabs across tabs */
         function syncSharedFiltersToUI() {
             // Sync connection dropdowns
-            ['sc-db-connection', 'health-db-connection'].forEach(function(id) {
+            ['sc-db-connection', 'health-db-connection', 'act-db-connection'].forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) el.value = sharedFilterState.dbConnection || 'all';
             });
@@ -2209,6 +2209,7 @@
                 syncSharedFiltersToUI();
                 if (document.getElementById('sc-table-list')) renderTableList();
                 renderHealthContent();
+                if (document.getElementById('act-schema-list')) filterActionsSchemaList();
             });
         }
 
@@ -8544,8 +8545,10 @@
         function initActionsTab() {
             if (actionsInitialized) return;
             actionsInitialized = true;
-            loadActionsConfig(function() {
-                renderActionsMain();
+            loadSharedConnections(function() {
+                loadActionsConfig(function() {
+                    renderActionsMain();
+                });
             });
         }
 
@@ -8587,6 +8590,9 @@
                             '<span class="gen-sidebar-api-name">Actions</span>' +
                             '<button class="sc-btn sm" id="act-docs-btn">Docs</button>' +
                         '</div>' +
+                        '<div style="padding:8px 12px 0;">' +
+                            '<select class="sc-input" id="act-db-connection" style="width:100%;padding:4px 10px;font-size:12px;"><option>Loading...</option></select>' +
+                        '</div>' +
                         '<div class="gen-sidebar-section-title">Schemas</div>' +
                         '<div class="gen-sidebar-search">' +
                             '<input type="search" id="act-schema-search" placeholder="Search schemas...">' +
@@ -8597,6 +8603,12 @@
                         '<div class="gen-empty-state">Select a schema to view its actions</div>' +
                     '</div>' +
                 '</div>';
+
+            // Connection dropdown
+            renderSharedConnectionDropdown('act-db-connection');
+            document.getElementById('act-db-connection').addEventListener('change', function() {
+                onSharedConnectionChange(this.value);
+            });
 
             // Docs button
             document.getElementById('act-docs-btn').addEventListener('click', function() {
@@ -8622,10 +8634,40 @@
                 });
             });
 
+            // Apply connection filter on initial render
+            filterActionsSchemaList();
+
             // Restore from query params
             var params = new URLSearchParams(window.location.search);
             if (params.get('actSchema')) {
                 actSelectSchema(params.get('actSchema'));
+            }
+        }
+
+        function filterActionsSchemaList() {
+            var conn = sharedFilterState.dbConnection;
+            document.querySelectorAll('#act-schema-list .gen-stack-item[data-schema]').forEach(function(item) {
+                if (!conn || conn === 'all') {
+                    item.style.display = '';
+                    return;
+                }
+                var schemaClass = item.dataset.schema;
+                var schema = actionsConfig && actionsConfig.schemas
+                    ? actionsConfig.schemas.find(function(s) { return s.class === schemaClass; })
+                    : null;
+                var matches = schema && schema.connection === conn;
+                item.style.display = matches ? '' : 'none';
+            });
+
+            // If selected schema is now hidden, clear selection
+            if (actSelectedSchema) {
+                var selectedItem = document.querySelector('#act-schema-list .gen-stack-item[data-schema="' + actSelectedSchema + '"]');
+                if (selectedItem && selectedItem.style.display === 'none') {
+                    actSelectedSchema = null;
+                    actSelectedView = null;
+                    var content = document.getElementById('act-content');
+                    if (content) content.innerHTML = '<div class="gen-empty-state">Select a schema to view its actions</div>';
+                }
             }
         }
 
@@ -9428,6 +9470,11 @@
             var serviceMethod   = action ? action.serviceMethod : 'yourAction';
             var httpMethod      = action ? action.httpMethod.toLowerCase() : 'put';
 
+            // Derive actions namespace from schema's modelNamespace (connection-aware)
+            var actionsNs = schema && schema.modelNamespace
+                ? schema.modelNamespace + '\\Actions\\' + modelName
+                : 'App\\Models\\Actions\\' + modelName;
+
             // Derive registry import from action namespace
             var registryImport;
             if (action && (action.actionClass || action.class)) {
@@ -9436,7 +9483,7 @@
                 var ns      = lastSep > 0 ? fqcn.substring(0, lastSep) : '';
                 registryImport = ns ? ns + '\\' + registryShort : registryShort;
             } else {
-                registryImport = 'App\\Models\\Actions\\' + modelName + '\\' + registryShort;
+                registryImport = actionsNs + '\\' + registryShort;
             }
 
             // Route segment: kebab-case of serviceMethod
@@ -9467,7 +9514,7 @@
 
             var snippetWithDefaults =
 'use ' + escapeHtml(registryImport) + ';\n' +
-'use ' + escapeHtml(action ? (action.actionClass || action.class) : 'App\\Models\\Actions\\' + modelName + '\\' + actionShort) + ';\n\n' +
+'use ' + escapeHtml(action ? (action.actionClass || action.class) : actionsNs + '\\' + actionShort) + ';\n\n' +
 escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 '    ->withDefaults(function (' + escapeHtml(actionShort) + ' $action) use ($parentRecord): void {\n' +
 '        // Set typed properties directly — these override record values and PHP defaults\n' +
@@ -9499,7 +9546,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 
             var httpUpper = httpMethod.toUpperCase();
             var snippetApi =
-'use ' + escapeHtml(action ? (action.actionClass || action.class) : 'App\\Models\\Actions\\' + modelName + '\\' + actionShort) + ';\n' +
+'use ' + escapeHtml(action ? (action.actionClass || action.class) : actionsNs + '\\' + actionShort) + ';\n' +
 'use App\\Http\\Resources\\' + escapeHtml(modelName) + 'Resource;\n\n' +
 'Route::prefix(\'v1/' + escapeHtml(modelName.toLowerCase()) + 's/{' + escapeHtml(modelParam) + '}\')\n' +
 '    ->middleware([\'auth:sanctum\'])\n' +
@@ -9546,7 +9593,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 
             var snippetConfigureFieldsCombined =
 'use ' + escapeHtml(registryImport) + ';\n' +
-'use ' + escapeHtml(action ? (action.actionClass || action.class) : 'App\\Models\\Actions\\' + modelName + '\\' + actionShort) + ';\n' +
+'use ' + escapeHtml(action ? (action.actionClass || action.class) : actionsNs + '\\' + actionShort) + ';\n' +
 'use SchemaCraft\\FieldProxy;\n\n' +
 escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 '    ->withDefaults(function (' + escapeHtml(actionShort) + ' $action) use ($parentRecord): void {\n' +

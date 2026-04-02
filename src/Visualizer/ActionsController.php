@@ -62,6 +62,8 @@ class ActionsController
                 'actions' => $actions,
                 'columns' => $columns,
                 'hasRegistry' => $hasRegistry,
+                'connection' => $connectionConfig->connection,
+                'modelNamespace' => $connectionConfig->modelNamespace,
             ];
         }
 
