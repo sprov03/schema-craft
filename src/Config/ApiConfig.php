@@ -33,11 +33,45 @@ class ApiConfig
      *
      * @param  array<string, mixed>  $config
      */
+    /**
+     * Create an ApiConfig from a raw config array.
+     *
+     * Supports both the legacy format (with 'namespaces' and 'routes' keys)
+     * and the new simplified format (with 'resource_namespace' and 'route_file').
+     *
+     * @param  array<string, mixed>  $config
+     */
     public static function fromArray(string $name, array $config): self
     {
+        $sdk = $config['sdk'] ?? [];
+
+        // New simplified format: resource_namespace + route_file at top level
+        if (isset($config['resource_namespace']) || isset($config['route_file'])) {
+            $connectionDefaults = ConfigResolver::connectionDefaults();
+
+            return new self(
+                name: $name,
+                controllerNamespace: '',
+                serviceNamespace: $connectionDefaults->serviceNamespace ?? 'App\\Models\\Services',
+                requestNamespace: '',
+                resourceNamespace: $config['resource_namespace'] ?? 'App\\Resources',
+                schemaNamespace: $connectionDefaults->schemaNamespace ?? 'App\\Schemas',
+                modelNamespace: $connectionDefaults->modelNamespace ?? 'App\\Models',
+                routeFile: $config['route_file'] ?? 'routes/api.php',
+                routePrefix: '',
+                routeMiddleware: [],
+                schemas: $config['schemas'] ?? null,
+                sdkPath: $sdk['path'] ?? 'packages/sdk',
+                sdkName: $sdk['name'] ?? 'my-app/sdk',
+                sdkNamespace: $sdk['namespace'] ?? 'MyApp\\Sdk',
+                sdkClient: $sdk['client'] ?? 'MyAppClient',
+                sdkVersion: $sdk['version'] ?? '0.1.0',
+            );
+        }
+
+        // Legacy format: namespaces + routes blocks
         $namespaces = $config['namespaces'] ?? [];
         $routes = $config['routes'] ?? [];
-        $sdk = $config['sdk'] ?? [];
 
         return new self(
             name: $name,

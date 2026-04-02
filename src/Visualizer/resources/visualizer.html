@@ -1369,6 +1369,77 @@
         .gen-sdk-item:hover { background: var(--bg-tertiary); }
         .gen-sdk-item.active { background: var(--accent-dim); }
 
+        /* Import Actions view */
+        .gen-import { padding: 24px; max-width: 960px; }
+        .gen-import-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+        .gen-import-subtitle { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+        .gen-import-group {
+            border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .gen-import-group-header {
+            display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+            background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+            cursor: pointer; user-select: none;
+        }
+        .gen-import-group-header:hover { background: var(--bg-tertiary); }
+        .gen-import-group-toggle {
+            font-size: 12px; color: var(--text-muted); transition: transform 0.15s;
+        }
+        .gen-import-group-toggle.open { transform: rotate(90deg); }
+        .gen-import-group-name { font-size: 14px; font-weight: 600; }
+        .gen-import-group-count {
+            font-size: 11px; color: var(--text-muted); background: var(--bg-tertiary);
+            padding: 2px 8px; border-radius: 10px;
+        }
+        .gen-import-group-body { display: none; }
+        .gen-import-group-body.open { display: block; }
+        .gen-import-action-row {
+            display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+            border-bottom: 1px solid var(--border); font-size: 13px;
+        }
+        .gen-import-action-row:last-child { border-bottom: none; }
+        .gen-import-action-row.imported { opacity: 0.5; }
+        .gen-import-action-method {
+            font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+            padding: 2px 8px; border-radius: 4px; text-transform: uppercase; min-width: 48px; text-align: center;
+        }
+        .gen-import-action-method.get { color: #22c55e; background: rgba(34,197,94,0.1); }
+        .gen-import-action-method.post { color: #3b82f6; background: rgba(59,130,246,0.1); }
+        .gen-import-action-method.put { color: #f59e0b; background: rgba(245,158,11,0.1); }
+        .gen-import-action-method.delete { color: #ef4444; background: rgba(239,68,68,0.1); }
+        .gen-import-action-method.patch { color: #a855f7; background: rgba(168,85,247,0.1); }
+        .gen-import-action-name { font-weight: 500; flex: 1; }
+        .gen-import-action-label { color: var(--text-muted); font-size: 12px; }
+        .gen-import-action-imported-badge {
+            font-size: 10px; color: var(--text-muted); background: var(--bg-tertiary);
+            padding: 2px 8px; border-radius: 10px;
+        }
+        .gen-import-resource-section {
+            padding: 12px 16px; background: var(--bg-primary);
+            border-top: 1px solid var(--border);
+        }
+        .gen-import-resource-title {
+            font-size: 12px; font-weight: 600; text-transform: uppercase;
+            color: var(--text-muted); letter-spacing: 0.05em; margin-bottom: 8px;
+        }
+        .gen-import-field-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px;
+        }
+        .gen-import-field-item {
+            display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 0;
+        }
+        .gen-import-field-type {
+            font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
+        }
+        .gen-import-footer {
+            display: flex; align-items: center; gap: 12px; margin-top: 20px;
+            padding-top: 16px; border-top: 1px solid var(--border);
+        }
+        .gen-import-selected-count {
+            font-size: 13px; color: var(--text-muted); flex: 1;
+        }
+
         /* Content area */
         .gen-content { flex: 1; overflow-y: auto; padding: 0; }
         .gen-empty-state {
@@ -6661,10 +6732,7 @@
                             '<div class="sc-form-group">' +
                                 '<label class="sc-form-label">API Name</label>' +
                                 '<input type="text" class="sc-input" id="gen-newapi-name" placeholder="e.g. partner, admin, mobile">' +
-                            '</div>' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-form-label">URL Prefix</label>' +
-                                '<input type="text" class="sc-input" id="gen-newapi-prefix" placeholder="Auto-generated from name">' +
+                                '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;" id="gen-newapi-hint"></div>' +
                             '</div>' +
                         '</div>' +
                         '<div class="sc-panel-footer">' +
@@ -6676,8 +6744,12 @@
 
             document.getElementById('gen-newapi-name').addEventListener('input', function() {
                 var name = this.value.trim();
+                var hint = document.getElementById('gen-newapi-hint');
                 if (name) {
-                    document.getElementById('gen-newapi-prefix').value = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-api';
+                    var kebab = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+                    hint.textContent = 'Route file: routes/' + kebab + '-api.php  •  Prefix: ' + kebab + '-api';
+                } else {
+                    hint.textContent = '';
                 }
             });
 
@@ -6691,13 +6763,12 @@
 
         function doCreateNewApi() {
             var name = document.getElementById('gen-newapi-name').value.trim();
-            var prefix = document.getElementById('gen-newapi-prefix').value.trim();
             if (!name) { showToast('Enter an API name.', 'warning'); return; }
 
             fetch('/_schema-craft/api/create-api', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ name: name, prefix: prefix || undefined }),
+                body: JSON.stringify({ name: name }),
             })
             .then(handleResponse)
             .then(function(data) {
@@ -6764,7 +6835,11 @@
                         '</div>' +
                         '<ul class="gen-stack-list" id="gen-stack-list">' + stackListHtml + '</ul>' +
                         '<div class="gen-sidebar-sdk">' +
-                            '<div class="gen-sidebar-section-title">Client SDK</div>' +
+                            '<div class="gen-sidebar-section-title">Tools</div>' +
+                            '<div class="gen-sdk-item" id="gen-import-actions-nav">' +
+                                '<span>\u2B07\uFE0F</span>' +
+                                '<span>Import Actions</span>' +
+                            '</div>' +
                             '<div class="gen-sdk-item" id="gen-sdk-nav">' +
                                 '<span>\uD83D\uDCE6</span>' +
                                 '<span>SDK Management</span>' +
@@ -6779,6 +6854,7 @@
             // Bind events
             document.getElementById('gen-back').addEventListener('click', goBackToApiSelector);
             document.getElementById('gen-add-stack-btn').addEventListener('click', showNewStackForm);
+            document.getElementById('gen-import-actions-nav').addEventListener('click', showImportActionsView);
             document.getElementById('gen-sdk-nav').addEventListener('click', showSdkView);
 
             // Stack search filter
@@ -6803,6 +6879,8 @@
             // Restore selection if we had one
             if (genSelectedStack && genSelectedView === 'stack') {
                 selectStack(genSelectedStack);
+            } else if (genSelectedView === 'import') {
+                showImportActionsView();
             } else if (genSelectedView === 'sdk') {
                 showSdkView();
             }
@@ -6831,6 +6909,8 @@
             });
             var sdkNav = document.getElementById('gen-sdk-nav');
             if (sdkNav) sdkNav.classList.remove('active');
+            var importNav = document.getElementById('gen-import-actions-nav');
+            if (importNav) importNav.classList.remove('active');
 
             var content = document.getElementById('gen-content');
             content.innerHTML = '<div class="gen-empty-state">Loading...</div>';
@@ -7389,6 +7469,8 @@
             document.querySelectorAll('.gen-stack-item').forEach(function(i) { i.classList.remove('active'); });
             var sdkNav = document.getElementById('gen-sdk-nav');
             if (sdkNav) sdkNav.classList.remove('active');
+            var importNav = document.getElementById('gen-import-actions-nav');
+            if (importNav) importNav.classList.remove('active');
 
             // Build schema options (only schemas WITHOUT controllers)
             var schemaOptions = '';
@@ -7488,6 +7570,265 @@
             .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
         }
 
+        // ── Import Actions View ────────────────────────
+        var importActionsData = null;
+
+        function showImportActionsView() {
+            genSelectedStack = null;
+            genSelectedView = 'import';
+            updateQueryParams({ stack: null });
+
+            // Clear sidebar active states
+            document.querySelectorAll('.gen-stack-item').forEach(function(i) { i.classList.remove('active'); });
+            var sdkNav = document.getElementById('gen-sdk-nav');
+            if (sdkNav) sdkNav.classList.remove('active');
+            var importNav = document.getElementById('gen-import-actions-nav');
+            if (importNav) importNav.classList.add('active');
+
+            var content = document.getElementById('gen-content');
+            content.innerHTML = '<div class="gen-empty-state">Loading available actions...</div>';
+
+            fetch('/_schema-craft/api/available-actions?api=' + encodeURIComponent(genSelectedApi))
+                .then(handleResponse)
+                .then(function(data) {
+                    importActionsData = data;
+                    renderImportActionsView();
+                })
+                .catch(function(e) {
+                    content.innerHTML = '<div class="gen-empty-state">Failed to load actions: ' + escapeHtml(e.message) + '</div>';
+                });
+        }
+
+        function renderImportActionsView() {
+            var data = importActionsData;
+            var content = document.getElementById('gen-content');
+
+            if (!data.groups || data.groups.length === 0) {
+                content.innerHTML =
+                    '<div class="gen-import">' +
+                        '<div class="gen-import-title">Import Actions</div>' +
+                        '<div class="gen-import-subtitle">No Actions found. Create Actions first via the Actions tab.</div>' +
+                    '</div>';
+                return;
+            }
+
+            var groupsHtml = '';
+            data.groups.forEach(function(group, gIdx) {
+                var availableCount = group.actions.filter(function(a) { return !a.imported; }).length;
+                var importedCount = group.actions.length - availableCount;
+
+                var actionsHtml = '';
+                group.actions.forEach(function(action, aIdx) {
+                    var checkboxId = 'import-action-' + gIdx + '-' + aIdx;
+                    actionsHtml +=
+                        '<div class="gen-import-action-row' + (action.imported ? ' imported' : '') + '">' +
+                            '<input type="checkbox" id="' + checkboxId + '" ' +
+                                'data-group="' + gIdx + '" data-action-class="' + escapeAttr(action.class) + '" ' +
+                                'data-schema="' + escapeAttr(group.schema) + '" ' +
+                                (action.imported ? 'disabled checked' : '') + '>' +
+                            '<span class="gen-import-action-method ' + action.httpMethod.toLowerCase() + '">' +
+                                escapeHtml(action.httpMethod.toUpperCase()) + '</span>' +
+                            '<span class="gen-import-action-name">' + escapeHtml(action.shortName) + '</span>' +
+                            '<span class="gen-import-action-label">' + escapeHtml(action.label) + '</span>' +
+                            (action.imported ? '<span class="gen-import-action-imported-badge">Imported</span>' : '') +
+                        '</div>';
+                });
+
+                // Resource column selection
+                var columnsHtml = '';
+                if (group.columns && group.columns.length > 0) {
+                    columnsHtml += '<div class="gen-import-resource-section">' +
+                        '<div class="gen-import-resource-title">Resource Columns' +
+                            (group.hasResource ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">(Resource already exists — columns ignored)</span>' : '') +
+                        '</div>' +
+                        '<div class="gen-import-field-grid">';
+
+                    group.columns.forEach(function(col, cIdx) {
+                        var colId = 'import-col-' + gIdx + '-' + cIdx;
+                        var isSystem = ['id', 'created_at', 'updated_at', 'deleted_at'].indexOf(col.name) !== -1;
+                        columnsHtml +=
+                            '<label class="gen-import-field-item">' +
+                                '<input type="checkbox" id="' + colId + '" class="import-col-cb" ' +
+                                    'data-group="' + gIdx + '" data-col-name="' + escapeAttr(col.name) + '" ' +
+                                    (isSystem ? 'checked disabled' : 'checked') +
+                                    (group.hasResource ? ' disabled' : '') + '>' +
+                                '<span>' + escapeHtml(col.name) + '</span>' +
+                                '<span class="gen-import-field-type">' + escapeHtml(col.type) + '</span>' +
+                            '</label>';
+                    });
+
+                    columnsHtml += '</div></div>';
+                }
+
+                // Relationship selection
+                if (group.relationships && group.relationships.length > 0) {
+                    columnsHtml += '<div class="gen-import-resource-section">' +
+                        '<div class="gen-import-resource-title">Relationships' +
+                            (group.hasResource ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">(Resource already exists — relationships ignored)</span>' : '') +
+                        '</div>' +
+                        '<div class="gen-import-field-grid">';
+
+                    group.relationships.forEach(function(rel, rIdx) {
+                        var relId = 'import-rel-' + gIdx + '-' + rIdx;
+                        columnsHtml +=
+                            '<label class="gen-import-field-item">' +
+                                '<input type="checkbox" id="' + relId + '" class="import-rel-cb" ' +
+                                    'data-group="' + gIdx + '" data-rel-name="' + escapeAttr(rel.name) + '" ' +
+                                    (group.hasResource ? 'disabled' : '') + '>' +
+                                '<span>' + escapeHtml(rel.name) + '</span>' +
+                                '<span class="gen-import-field-type">' + escapeHtml(rel.type) + ' → ' + escapeHtml(rel.relatedModel) + '</span>' +
+                            '</label>';
+                    });
+
+                    columnsHtml += '</div></div>';
+                }
+
+                groupsHtml +=
+                    '<div class="gen-import-group" data-group-idx="' + gIdx + '">' +
+                        '<div class="gen-import-group-header" data-group-toggle="' + gIdx + '">' +
+                            '<span class="gen-import-group-toggle">&#9654;</span>' +
+                            '<span class="gen-import-group-name">' + escapeHtml(group.modelName) + '</span>' +
+                            '<span class="gen-import-group-count">' +
+                                group.actions.length + ' action' + (group.actions.length !== 1 ? 's' : '') +
+                                (importedCount > 0 ? ' (' + importedCount + ' imported)' : '') +
+                            '</span>' +
+                            (group.hasResource ? '<span class="gen-import-action-imported-badge">Resource exists</span>' : '') +
+                        '</div>' +
+                        '<div class="gen-import-group-body" data-group-body="' + gIdx + '">' +
+                            actionsHtml +
+                            columnsHtml +
+                        '</div>' +
+                    '</div>';
+            });
+
+            content.innerHTML =
+                '<div class="gen-import">' +
+                    '<div class="gen-import-title">Import Actions</div>' +
+                    '<div class="gen-import-subtitle">Select Actions to import into the <strong>' + escapeHtml(data.apiName) + '</strong> API. ' +
+                        'This generates a Resource and registers Action endpoints in <code>' + escapeHtml(data.routeFile) + '</code>.</div>' +
+                    groupsHtml +
+                    '<div class="gen-import-footer">' +
+                        '<span class="gen-import-selected-count" id="gen-import-count">0 actions selected</span>' +
+                        '<button class="sc-btn primary" id="gen-import-btn" disabled>Import Selected Actions</button>' +
+                    '</div>' +
+                '</div>';
+
+            // Toggle group expand/collapse
+            content.querySelectorAll('[data-group-toggle]').forEach(function(header) {
+                header.addEventListener('click', function() {
+                    var idx = header.dataset.groupToggle;
+                    var body = content.querySelector('[data-group-body="' + idx + '"]');
+                    var toggle = header.querySelector('.gen-import-group-toggle');
+                    body.classList.toggle('open');
+                    toggle.classList.toggle('open');
+                });
+            });
+
+            // Update selection count on checkbox change
+            content.querySelectorAll('input[data-action-class]').forEach(function(cb) {
+                cb.addEventListener('change', updateImportSelectionCount);
+            });
+
+            updateImportSelectionCount();
+
+            // Import button
+            document.getElementById('gen-import-btn').addEventListener('click', doImportActions);
+        }
+
+        function updateImportSelectionCount() {
+            var checkboxes = document.querySelectorAll('input[data-action-class]:not(:disabled):checked');
+            var count = checkboxes.length;
+            var countEl = document.getElementById('gen-import-count');
+            var btn = document.getElementById('gen-import-btn');
+            if (countEl) countEl.textContent = count + ' action' + (count !== 1 ? 's' : '') + ' selected';
+            if (btn) btn.disabled = count === 0;
+        }
+
+        function doImportActions() {
+            var btn = document.getElementById('gen-import-btn');
+            btn.disabled = true;
+            btn.textContent = 'Importing...';
+
+            // Group selected actions by schema
+            var schemaActions = {};
+            document.querySelectorAll('input[data-action-class]:not(:disabled):checked').forEach(function(cb) {
+                var schema = cb.dataset.schema;
+                if (!schemaActions[schema]) schemaActions[schema] = [];
+                schemaActions[schema].push(cb.dataset.actionClass);
+            });
+
+            var schemas = Object.keys(schemaActions);
+            if (schemas.length === 0) {
+                showToast('No actions selected.', 'warning');
+                btn.disabled = false;
+                btn.textContent = 'Import Selected Actions';
+                return;
+            }
+
+            var completed = 0;
+            var totalAdded = 0;
+            var errors = [];
+
+            schemas.forEach(function(schema) {
+                var groupIdx = null;
+                importActionsData.groups.forEach(function(g, idx) {
+                    if (g.schema === schema) groupIdx = idx;
+                });
+
+                // Gather selected columns/relationships for this group
+                var selectedColumns = [];
+                var selectedRelationships = [];
+
+                if (groupIdx !== null) {
+                    document.querySelectorAll('.import-col-cb[data-group="' + groupIdx + '"]:checked').forEach(function(cb) {
+                        selectedColumns.push(cb.dataset.colName);
+                    });
+                    document.querySelectorAll('.import-rel-cb[data-group="' + groupIdx + '"]:checked').forEach(function(cb) {
+                        selectedRelationships.push(cb.dataset.relName);
+                    });
+                }
+
+                var payload = {
+                    api: genSelectedApi,
+                    actions: schemaActions[schema],
+                    schema: schema,
+                    resource_columns: selectedColumns.length > 0 ? selectedColumns : undefined,
+                    resource_relationships: selectedRelationships.length > 0 ? selectedRelationships : undefined,
+                };
+
+                fetch('/_schema-craft/api/import-actions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(payload),
+                })
+                .then(handleResponse)
+                .then(function(data) {
+                    if (data.success) {
+                        totalAdded += (data.addedActions || []).length;
+                    } else {
+                        errors.push(data.message || 'Import failed for a group.');
+                    }
+                })
+                .catch(function(e) { errors.push(e.message); })
+                .finally(function() {
+                    completed++;
+                    if (completed === schemas.length) {
+                        if (errors.length > 0) {
+                            showToast('Import completed with errors: ' + errors.join('; '), 'warning');
+                        } else {
+                            showToast('Imported ' + totalAdded + ' action(s) successfully.', 'success');
+                        }
+                        // Refresh the view and the sidebar
+                        loadGenerateConfig(genSelectedApi, function() {
+                            renderGenerateMain();
+                            // Re-show import view after sidebar re-renders
+                            setTimeout(function() { showImportActionsView(); }, 50);
+                        });
+                    }
+                });
+            });
+        }
+
         // ── SDK View ───────────────────────────────────
         function showSdkView() {
             genSelectedStack = null;
@@ -7496,6 +7837,8 @@
 
             // Clear sidebar active states
             document.querySelectorAll('.gen-stack-item').forEach(function(i) { i.classList.remove('active'); });
+            var importNav = document.getElementById('gen-import-actions-nav');
+            if (importNav) importNav.classList.remove('active');
             var sdkNav = document.getElementById('gen-sdk-nav');
             if (sdkNav) sdkNav.classList.add('active');
 

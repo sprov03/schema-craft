@@ -1,11 +1,5 @@
 <?php
 
-/**
- * Template variables:
- *   {{ apiName }}  - API name in StudlyCase (e.g., "Partner")
- *   {{ prefix }}   - URL prefix (e.g., "partner-api")
- */
-
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -13,7 +7,14 @@ use Illuminate\Support\Facades\Route;
 | {{ apiName }} API Routes
 |--------------------------------------------------------------------------
 |
-| Routes registered here are loaded by the application and assigned
-| the "{{ prefix }}" URL prefix and the configured middleware.
+| Routes registered here are loaded by the application.
+| Import Actions via the SchemaCraft Visualizer or register them manually.
 |
 */
+
+Route::group([
+    'prefix' => '{{ prefix }}',
+    'middleware' => ['auth:sanctum'],
+], function () {
+    //
+});

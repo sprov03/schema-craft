@@ -579,7 +579,8 @@ class GenerateController
 
         $name = $request->input('name');
         $studlyName = Str::studly($name);
-        $prefix = $request->input('prefix', Str::kebab($name).'-api');
+        $kebabName = Str::kebab($name);
+        $prefix = $request->input('prefix', $kebabName.'-api');
 
         $existingApis = config('schema-craft.apis', []);
         if (isset($existingApis[$name])) {
@@ -588,8 +589,8 @@ class GenerateController
 
         $createdFiles = [];
 
-        // Create route file
-        $routeFile = "routes/{$name}-api.php";
+        // Create route file with scaffolded group (prefix + middleware live here)
+        $routeFile = "routes/{$kebabName}-api.php";
         $routeAbsolutePath = base_path($routeFile);
 
         if (! $fs->exists($routeAbsolutePath)) {
@@ -607,18 +608,11 @@ class GenerateController
             $createdFiles[] = $routeFile;
         }
 
-        // Create isolated directories
-        $directories = [
-            app_path("Http/Controllers/{$studlyName}Api"),
-            app_path("Http/Requests/{$studlyName}Api"),
-            app_path("Resources/{$studlyName}Api"),
-        ];
-
-        foreach ($directories as $dir) {
-            if (! is_dir($dir)) {
-                $fs->makeDirectory($dir, 0755, true);
-                $fs->put($dir.'/.gitkeep', '');
-            }
+        // Create resource directory only — no controllers or requests needed with Actions
+        $resourceDir = app_path($studlyName.'/Resources');
+        if (! is_dir($resourceDir)) {
+            $fs->makeDirectory($resourceDir, 0755, true);
+            $fs->put($resourceDir.'/.gitkeep', '');
         }
 
         // Add API entry to config file
@@ -635,6 +629,302 @@ class GenerateController
             'message' => "API [{$name}] created successfully.",
             'files' => $createdFiles,
         ]);
+    }
+
+    // ─── Action Import Endpoints ─────────────────────────────────────────
+
+    /**
+     * List all available Actions grouped by schema, with their current import status for an API.
+     */
+    public function availableActions(Request $request): JsonResponse
+    {
+        $apiConfig = ConfigResolver::resolve($request->query('api'));
+
+        // Discover all Action classes across all model namespaces
+        $directories = ConfigResolver::schemaDirectories();
+        $discovery = new SchemaDiscovery;
+        $schemaClasses = $discovery->discover($directories);
+
+        // Read the route file to find already-imported Actions
+        $importedActions = [];
+        $routeFilePath = base_path($apiConfig->routeFile);
+        if (file_exists($routeFilePath)) {
+            $routeContent = file_get_contents($routeFilePath);
+            // Match ::endpoint( patterns
+            preg_match_all('/(\w+)::endpoint\(/', $routeContent, $matches);
+            $importedActions = $matches[1] ?? [];
+        }
+
+        $groups = [];
+
+        foreach ($schemaClasses as $schemaClass) {
+            $modelName = $this->resolveModelName($schemaClass);
+
+            // Resolve connection config for namespace-aware discovery
+            try {
+                $scanner = new SchemaScanner($schemaClass);
+                $table = $scanner->scan();
+                $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            // Discover Action classes for this model
+            $actionsNs = $connectionConfig->modelNamespace.'\\Actions\\'.$modelName;
+            $actionsDir = base_path(str_replace('\\', '/', $actionsNs));
+            $actionsDir = str_replace('App/', 'app/', $actionsDir);
+
+            if (! is_dir($actionsDir)) {
+                continue;
+            }
+
+            $actions = [];
+            foreach (glob($actionsDir.'/*Action.php') as $file) {
+                $className = pathinfo($file, PATHINFO_FILENAME);
+                $fqcn = $actionsNs.'\\'.$className;
+
+                if (! class_exists($fqcn) || ! is_subclass_of($fqcn, \SchemaCraft\Action::class)) {
+                    continue;
+                }
+
+                $definition = (new \SchemaCraft\Scanner\ActionScanner($fqcn))->scan();
+                $meta = $fqcn::meta();
+
+                $actions[] = [
+                    'class' => $fqcn,
+                    'shortName' => $className,
+                    'serviceMethod' => $definition->serviceMethod,
+                    'httpMethod' => $meta?->method ?? 'post',
+                    'label' => $meta?->label ?? Str::headline($definition->serviceMethod),
+                    'description' => $definition->description,
+                    'imported' => in_array($className, $importedActions),
+                    'parameters' => array_map(fn ($p) => [
+                        'name' => $p->name,
+                        'type' => $p->type,
+                        'nullable' => $p->nullable,
+                        'isModel' => $p->isModel,
+                    ], $definition->parameters),
+                ];
+            }
+
+            if (! empty($actions)) {
+                // Scan schema columns for resource field selection
+                $columns = [];
+                $relationships = [];
+
+                try {
+                    foreach ($table->columns as $col) {
+                        $columns[] = [
+                            'name' => $col->name,
+                            'type' => $col->columnType,
+                            'nullable' => $col->nullable,
+                        ];
+                    }
+
+                    foreach ($table->relationships as $rel) {
+                        if ($rel->type === 'belongsTo') {
+                            continue;
+                        }
+
+                        $relationships[] = [
+                            'name' => $rel->name,
+                            'type' => $rel->type,
+                            'relatedModel' => class_basename($rel->relatedModel),
+                        ];
+                    }
+                } catch (\Throwable) {
+                    // Skip if schema scan fails
+                }
+
+                $groups[] = [
+                    'schema' => $schemaClass,
+                    'modelName' => $modelName,
+                    'actions' => $actions,
+                    'columns' => $columns,
+                    'relationships' => $relationships,
+                    'hasResource' => file_exists(
+                        base_path($this->namespaceToDirectory($apiConfig->resourceNamespace).'/'.$modelName.'Resource.php')
+                    ),
+                ];
+            }
+        }
+
+        return new JsonResponse([
+            'groups' => $groups,
+            'apiName' => $apiConfig->name,
+            'resourceNamespace' => $apiConfig->resourceNamespace,
+            'routeFile' => $apiConfig->routeFile,
+        ]);
+    }
+
+    /**
+     * Import selected Actions into an API — generates Resource and adds route registration.
+     */
+    public function importActions(Request $request, Filesystem $fs): JsonResponse
+    {
+        $request->validate([
+            'api' => ['required', 'string'],
+            'actions' => ['required', 'array'],
+            'actions.*' => ['string'],
+            'schema' => ['required', 'string'],
+            'resource_columns' => ['sometimes', 'array'],
+            'resource_relationships' => ['sometimes', 'array'],
+        ]);
+
+        $apiConfig = ConfigResolver::resolve($request->input('api'));
+        $schemaClass = $this->resolveSchemaClass($request->input('schema'));
+        $modelName = $this->resolveModelName($schemaClass);
+        $actionClasses = $request->input('actions');
+        $selectedColumns = $request->input('resource_columns');
+        $selectedRelationships = $request->input('resource_relationships');
+
+        $routeFilePath = base_path($apiConfig->routeFile);
+        if (! $fs->exists($routeFilePath)) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => "Route file [{$apiConfig->routeFile}] not found.",
+            ], 404);
+        }
+
+        $createdFiles = [];
+
+        // Generate Resource if it doesn't exist
+        $resourceDir = base_path($this->namespaceToDirectory($apiConfig->resourceNamespace));
+        $resourcePath = $resourceDir.'/'.$modelName.'Resource.php';
+
+        if (! $fs->exists($resourcePath)) {
+            $scanner = new SchemaScanner($schemaClass);
+            $table = $scanner->scan();
+
+            // Filter columns/relationships if the user selected specific ones
+            if ($selectedColumns !== null) {
+                $table = $this->filterTableColumns($table, $selectedColumns, $selectedRelationships ?? []);
+            }
+
+            $resourceGenerator = new ResourceGenerator;
+            $resourceContent = $resourceGenerator->generate(
+                table: $table,
+                resourceNamespace: $apiConfig->resourceNamespace,
+            );
+
+            $fs->ensureDirectoryExists($resourceDir);
+            $fs->put($resourcePath, $resourceContent);
+            $createdFiles[] = str_replace(base_path().'/', '', $resourcePath);
+        }
+
+        // Add route registrations for each Action
+        $routeContent = $fs->get($routeFilePath);
+        $addedActions = [];
+        $writer = new ApiFileWriter;
+
+        foreach ($actionClasses as $actionClass) {
+            if (! class_exists($actionClass) || ! is_subclass_of($actionClass, \SchemaCraft\Action::class)) {
+                continue;
+            }
+
+            $shortName = class_basename($actionClass);
+
+            // Skip if already imported
+            if (str_contains($routeContent, $shortName.'::endpoint(')) {
+                continue;
+            }
+
+            // Add use import
+            $routeContent = $writer->addImport($routeContent, $actionClass);
+
+            // Also import the Resource class
+            $resourceFqcn = $apiConfig->resourceNamespace.'\\'.$modelName.'Resource';
+            $routeContent = $writer->addImport($routeContent, $resourceFqcn);
+
+            // Add endpoint registration inside the Route::group closure
+            $endpointLine = "    {$shortName}::endpoint({$modelName}Resource::class);";
+            $routeContent = $this->insertIntoRouteGroup($routeContent, $endpointLine);
+
+            $addedActions[] = $shortName;
+        }
+
+        if (! empty($addedActions)) {
+            $fs->put($routeFilePath, $routeContent);
+        }
+
+        return new JsonResponse([
+            'success' => true,
+            'message' => 'Imported '.count($addedActions).' action(s) into '.$apiConfig->name.'.',
+            'createdFiles' => $createdFiles,
+            'addedActions' => $addedActions,
+        ]);
+    }
+
+    /**
+     * Insert a line inside the Route::group closure in a route file.
+     */
+    private function insertIntoRouteGroup(string $content, string $line): string
+    {
+        // Find the last closing }); in the file (the Route::group closure end)
+        $lastClose = strrpos($content, '});');
+
+        if ($lastClose === false) {
+            return $content;
+        }
+
+        // Insert the line before the closing });
+        return substr($content, 0, $lastClose).$line."\n".substr($content, $lastClose);
+    }
+
+    /**
+     * Filter a TableDefinition to only include selected columns and relationships.
+     */
+    private function filterTableColumns(
+        \SchemaCraft\Scanner\TableDefinition $table,
+        array $selectedColumns,
+        array $selectedRelationships,
+    ): \SchemaCraft\Scanner\TableDefinition {
+        $columnSet = array_flip($selectedColumns);
+        $relSet = array_flip($selectedRelationships);
+
+        // Always include id, timestamps, soft deletes
+        $alwaysInclude = ['id', 'created_at', 'updated_at', 'deleted_at'];
+        foreach ($alwaysInclude as $col) {
+            $columnSet[$col] = true;
+        }
+
+        $filteredColumns = array_filter(
+            $table->columns,
+            fn ($col) => isset($columnSet[$col->name])
+        );
+
+        $filteredRelationships = array_filter(
+            $table->relationships,
+            fn ($rel) => isset($relSet[$rel->name])
+        );
+
+        // Create a new TableDefinition with filtered data
+        return new \SchemaCraft\Scanner\TableDefinition(
+            schemaClass: $table->schemaClass,
+            tableName: $table->tableName,
+            connection: $table->connection,
+            columns: array_values($filteredColumns),
+            relationships: array_values($filteredRelationships),
+            indexes: $table->indexes,
+            foreignKeys: $table->foreignKeys,
+            hasTimestamps: $table->hasTimestamps,
+            hasSoftDeletes: $table->hasSoftDeletes,
+            hidden: $table->hidden,
+        );
+    }
+
+    /**
+     * Convert a namespace to a directory path (relative to base_path).
+     */
+    private function namespaceToDirectory(string $namespace): string
+    {
+        $path = str_replace('\\', '/', $namespace);
+
+        if (str_starts_with($path, 'App/')) {
+            $path = 'app/'.substr($path, 4);
+        }
+
+        return $path;
     }
 
     /**
@@ -1266,30 +1556,20 @@ class GenerateController
     ): void {
         $configContent = $fs->get($configPath);
 
-        $sdkName = config('app.name', 'my-app');
-        $sdkName = Str::kebab($sdkName).'/'.$name.'-sdk';
-        $sdkNamespace = Str::studly(config('app.name', 'MyApp')).'\\'.Str::studly($name).'Sdk';
+        $kebabName = Str::kebab($name);
+        $appName = Str::kebab(config('app.name', 'my-app'));
+        $sdkName = "{$appName}/{$kebabName}-sdk";
+        $sdkNamespace = Str::studly($name).'Sdk';
         $clientName = Str::studly($name).'Client';
 
         $entry = <<<PHP
 
         '{$name}' => [
-            'namespaces' => [
-                'controller' => 'App\\\\Http\\\\Controllers\\\\{$studlyName}Api',
-                'service'    => 'App\\\\Models\\\\Services',
-                'request'    => 'App\\\\Http\\\\Requests\\\\{$studlyName}Api',
-                'resource'   => 'App\\\\Resources\\\\{$studlyName}Api',
-                'schema'     => 'App\\\\Schemas',
-                'model'      => 'App\\\\Models',
-            ],
-            'routes' => [
-                'file'       => '{$routeFile}',
-                'prefix'     => '{$prefix}',
-                'middleware'  => ['auth:sanctum'],
-            ],
-            'schemas' => null,
+            'description' => '',
+            'resource_namespace' => 'App\\\\{$studlyName}\\\\Resources',
+            'route_file' => '{$routeFile}',
             'sdk' => [
-                'path'      => 'packages/{$name}-sdk',
+                'path'      => 'packages/{$kebabName}/{$kebabName}-sdk',
                 'name'      => '{$sdkName}',
                 'namespace' => '{$sdkNamespace}',
                 'client'    => '{$clientName}',
@@ -1329,18 +1609,15 @@ PHP;
             return;
         }
 
-        $routeRegistration = "\n            \\Illuminate\\Support\\Facades\\Route::middleware('auth:sanctum')\n"
-            ."                ->prefix('{$prefix}')\n"
-            ."                ->group(base_path('{$routeFile}'));\n";
+        // Route file owns its own prefix/middleware via Route::group() — bootstrap just loads it
+        $routeRegistration = "\n            require base_path('{$routeFile}');\n";
 
         if (preg_match('/then:\s*function\s*\(\)\s*\{/s', $content, $matches, \PREG_OFFSET_CAPTURE)) {
             $openBracePos = $matches[0][1] + strlen($matches[0][0]);
             $content = substr($content, 0, $openBracePos).$routeRegistration.substr($content, $openBracePos);
         } else {
             $thenClosure = "        then: function () {\n"
-                ."            \\Illuminate\\Support\\Facades\\Route::middleware('auth:sanctum')\n"
-                ."                ->prefix('{$prefix}')\n"
-                ."                ->group(base_path('{$routeFile}'));\n"
+                ."            require base_path('{$routeFile}');\n"
                 ."        },\n";
 
             if (preg_match("/(\s*health:\s*'[^']*',?\s*\n)/", $content, $matches, \PREG_OFFSET_CAPTURE)) {
