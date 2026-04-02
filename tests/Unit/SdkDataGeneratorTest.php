@@ -41,9 +41,11 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public readonly int $id', $output);
-        $this->assertStringContainsString('public readonly string $title', $output);
-        $this->assertStringContainsString('public readonly int $viewCount', $output);
+        $this->assertStringContainsString('/** @var int */', $output);
+        $this->assertStringContainsString('public $id;', $output);
+        $this->assertStringContainsString('/** @var string */', $output);
+        $this->assertStringContainsString('public $title;', $output);
+        $this->assertStringContainsString('public $viewCount;', $output);
     }
 
     public function test_nullable_column_becomes_nullable_property(): void
@@ -55,7 +57,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public readonly ?string $body', $output);
+        $this->assertStringContainsString('/** @var string|null */', $output);
+        $this->assertStringContainsString('public $body;', $output);
     }
 
     public function test_non_nullable_column_becomes_required_property(): void
@@ -67,8 +70,9 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public readonly string $title', $output);
-        $this->assertStringNotContainsString('?string $title', $output);
+        $this->assertStringContainsString('/** @var string */', $output);
+        $this->assertStringContainsString('public $title;', $output);
+        $this->assertStringNotContainsString('string|null $title', $output);
     }
 
     public function test_maps_integer_column_types(): void
@@ -83,10 +87,10 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Item');
 
-        $this->assertStringContainsString('public readonly int $count', $output);
-        $this->assertStringContainsString('public readonly int $big', $output);
-        $this->assertStringContainsString('public readonly int $small', $output);
-        $this->assertStringContainsString('public readonly int $tiny', $output);
+        $this->assertStringContainsString('public $count;', $output);
+        $this->assertStringContainsString('public $big;', $output);
+        $this->assertStringContainsString('public $small;', $output);
+        $this->assertStringContainsString('public $tiny;', $output);
     }
 
     public function test_maps_boolean_column_type(): void
@@ -98,7 +102,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'User');
 
-        $this->assertStringContainsString('public readonly bool $isActive', $output);
+        $this->assertStringContainsString('/** @var bool */', $output);
+        $this->assertStringContainsString('public $isActive;', $output);
     }
 
     public function test_maps_decimal_column_type(): void
@@ -110,7 +115,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Product');
 
-        $this->assertStringContainsString('public readonly float $price', $output);
+        $this->assertStringContainsString('/** @var float */', $output);
+        $this->assertStringContainsString('public $price;', $output);
     }
 
     public function test_maps_json_column_type(): void
@@ -122,7 +128,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'User');
 
-        $this->assertStringContainsString('public readonly array $settings', $output);
+        $this->assertStringContainsString('/** @var array */', $output);
+        $this->assertStringContainsString('public $settings;', $output);
     }
 
     public function test_maps_timestamp_column_type(): void
@@ -134,7 +141,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public readonly ?string $publishedAt', $output);
+        $this->assertStringContainsString('/** @var string|null */', $output);
+        $this->assertStringContainsString('public $publishedAt;', $output);
     }
 
     public function test_includes_timestamp_properties_when_has_timestamps(): void
@@ -153,8 +161,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public readonly ?string $createdAt', $output);
-        $this->assertStringContainsString('public readonly ?string $updatedAt', $output);
+        $this->assertStringContainsString('public $createdAt;', $output);
+        $this->assertStringContainsString('public $updatedAt;', $output);
     }
 
     public function test_does_not_duplicate_timestamp_columns(): void
@@ -173,9 +181,9 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        // Should only appear once (in the managed section, not in regular columns)
-        $this->assertSame(1, substr_count($output, '$createdAt'));
-        $this->assertSame(1, substr_count($output, '$updatedAt'));
+        // Property declaration should only appear once (in the managed section, not in regular columns)
+        $this->assertSame(1, substr_count($output, 'public $createdAt;'));
+        $this->assertSame(1, substr_count($output, 'public $updatedAt;'));
     }
 
     public function test_includes_soft_delete_property(): void
@@ -193,7 +201,7 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public readonly ?string $deletedAt', $output);
+        $this->assertStringContainsString('public $deletedAt;', $output);
     }
 
     public function test_excludes_hidden_columns(): void
@@ -252,8 +260,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('CommentData[]|null', $output);
-        $this->assertStringContainsString('public readonly ?array $comments', $output);
+        $this->assertStringContainsString('/** @var CommentData[]|null */', $output);
+        $this->assertStringContainsString('public $comments;', $output);
     }
 
     public function test_includes_belongs_to_many_relationship_as_nullable_array(): void
@@ -271,8 +279,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('TagData[]|null', $output);
-        $this->assertStringContainsString('public readonly ?array $tags', $output);
+        $this->assertStringContainsString('/** @var TagData[]|null */', $output);
+        $this->assertStringContainsString('public $tags;', $output);
     }
 
     public function test_includes_has_one_relationship_as_nullable_singular(): void
@@ -290,7 +298,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'User');
 
-        $this->assertStringContainsString('public readonly ?ProfileData $profile', $output);
+        $this->assertStringContainsString('/** @var ProfileData|null */', $output);
+        $this->assertStringContainsString('public $profile;', $output);
     }
 
     public function test_excludes_belongs_to_relationships(): void
@@ -346,9 +355,10 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public static function fromArray(array $data): self', $output);
-        $this->assertStringContainsString("title: \$data['title']", $output);
-        $this->assertStringContainsString("body: \$data['body'] ?? null", $output);
+        $this->assertStringContainsString('public static function fromArray(array $data)', $output);
+        $this->assertStringNotContainsString('fromArray(array $data): self', $output);
+        $this->assertStringContainsString("isset(\$data['title']) ? \$data['title'] : null", $output);
+        $this->assertStringContainsString("isset(\$data['body']) ? \$data['body']", $output);
     }
 
     public function test_from_array_maps_relationships_with_from_array(): void
@@ -367,8 +377,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        // HasMany maps with array_map
-        $this->assertStringContainsString('CommentData::fromArray($item)', $output);
+        // HasMany maps with array_map and anonymous function
+        $this->assertStringContainsString('function (array $item) { return CommentData::fromArray($item); }', $output);
         // HasOne maps directly
         $this->assertStringContainsString("ProfileData::fromArray(\$data['profile'])", $output);
     }
@@ -396,8 +406,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'User');
 
-        // Property is camelCase, but data key is original snake_case
-        $this->assertStringContainsString("firstName: \$data['first_name']", $output);
+        // Property is camelCase, but data key is original snake_case (positional)
+        $this->assertStringContainsString("isset(\$data['first_name']) ? \$data['first_name']", $output);
     }
 
     /**

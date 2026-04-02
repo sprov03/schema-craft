@@ -10,6 +10,7 @@ use SchemaCraft\Scanner\TableDefinition;
  * Generates a Resource class for the SDK that provides typed CRUD methods.
  *
  * Each resource maps to one API endpoint group (e.g., PostResource → /posts).
+ * Generated code is PHP 7.4 compatible.
  */
 class SdkResourceGenerator
 {
@@ -45,24 +46,38 @@ class SdkResourceGenerator
         $lines[] = '';
         $lines[] = "class {$resourceClassName}";
         $lines[] = '{';
-        $lines[] = '    public function __construct(private SdkConnector $connector)';
-        $lines[] = '    {}';
+        $lines[] = '    /** @var SdkConnector */';
+        $lines[] = '    private $connector;';
+        $lines[] = '';
+        $lines[] = '    /**';
+        $lines[] = '     * @param SdkConnector $connector';
+        $lines[] = '     */';
+        $lines[] = '    public function __construct($connector)';
+        $lines[] = '    {';
+        $lines[] = '        $this->connector = $connector;';
+        $lines[] = '    }';
 
         // list() method
         $lines[] = '';
         $lines[] = '    /**';
         $lines[] = "     * @return {$dataClassName}[]";
         $lines[] = '     */';
-        $lines[] = '    public function list(): array';
+        $lines[] = '    public function list()';
         $lines[] = '    {';
         $lines[] = "        \$response = \$this->connector->get('{$routePrefix}');";
         $lines[] = '';
-        $lines[] = "        return array_map(fn (array \$item) => {$dataClassName}::fromArray(\$item), \$response['data']);";
+        $lines[] = '        return array_map(function (array $item) {';
+        $lines[] = "            return {$dataClassName}::fromArray(\$item);";
+        $lines[] = '        }, $response[\'data\']);';
         $lines[] = '    }';
 
         // get() method
         $lines[] = '';
-        $lines[] = "    public function get(int|string \$id): {$dataClassName}";
+        $lines[] = '    /**';
+        $lines[] = '     * @param int|string $id';
+        $lines[] = "     * @return {$dataClassName}";
+        $lines[] = '     */';
+        $lines[] = '    public function get($id)';
         $lines[] = '    {';
         $lines[] = "        \$response = \$this->connector->get(\"{$routePrefix}/{\$id}\");";
         $lines[] = '';
@@ -79,7 +94,11 @@ class SdkResourceGenerator
 
         // delete() method
         $lines[] = '';
-        $lines[] = '    public function delete(int|string $id): void';
+        $lines[] = '    /**';
+        $lines[] = '     * @param int|string $id';
+        $lines[] = '     * @return void';
+        $lines[] = '     */';
+        $lines[] = '    public function delete($id)';
         $lines[] = '    {';
         $lines[] = "        \$this->connector->delete(\"{$routePrefix}/{\$id}\");";
         $lines[] = '    }';
@@ -88,7 +107,11 @@ class SdkResourceGenerator
         foreach ($customActions as $action) {
             $lines[] = '';
             $actionSlug = Str::snake($action, '-');
-            $lines[] = "    public function {$action}(int|string \$id): void";
+            $lines[] = '    /**';
+            $lines[] = '     * @param int|string $id';
+            $lines[] = '     * @return void';
+            $lines[] = '     */';
+            $lines[] = "    public function {$action}(\$id)";
             $lines[] = '    {';
             $lines[] = "        \$this->connector->put(\"{$routePrefix}/{\$id}/{$actionSlug}\", []);";
             $lines[] = '    }';
@@ -109,8 +132,15 @@ class SdkResourceGenerator
         $lines = [];
         $params = $this->buildMethodParams($columns);
         $dataArray = $this->buildDataArray($columns);
+        $phpdocParams = $this->buildPhpDocParams($columns);
 
-        $lines[] = "    public function create({$params}): {$dataClassName}";
+        $lines[] = '    /**';
+        foreach ($phpdocParams as $param) {
+            $lines[] = "     * @param {$param}";
+        }
+        $lines[] = "     * @return {$dataClassName}";
+        $lines[] = '     */';
+        $lines[] = "    public function create({$params})";
         $lines[] = '    {';
         $lines[] = '        $response = $this->connector->post(\''.$routePrefix.'\', [';
 
@@ -134,9 +164,18 @@ class SdkResourceGenerator
     {
         $lines = [];
         $params = $this->buildMethodParams($columns);
+        $idParam = empty($params) ? '$id' : '$id, '.$params;
         $dataArray = $this->buildDataArray($columns);
+        $phpdocParams = $this->buildPhpDocParams($columns);
 
-        $lines[] = "    public function update(int|string \$id, {$params}): {$dataClassName}";
+        $lines[] = '    /**';
+        $lines[] = '     * @param int|string $id';
+        foreach ($phpdocParams as $param) {
+            $lines[] = "     * @param {$param}";
+        }
+        $lines[] = "     * @return {$dataClassName}";
+        $lines[] = '     */';
+        $lines[] = "    public function update({$idParam})";
         $lines[] = '    {';
         $lines[] = "        \$response = \$this->connector->put(\"{$routePrefix}/{\$id}\", [";
 
@@ -153,7 +192,7 @@ class SdkResourceGenerator
     }
 
     /**
-     * Build PHP method parameter list from column definitions.
+     * Build PHP method parameter list from column definitions (no type hints for 7.4 compat).
      *
      * @param  ColumnDefinition[]  $columns
      */
@@ -162,13 +201,12 @@ class SdkResourceGenerator
         $params = [];
 
         foreach ($columns as $column) {
-            $type = $this->phpType($column);
             $paramName = Str::camel($column->name);
 
             if ($column->nullable) {
-                $params[] = "?{$type} \${$paramName} = null";
+                $params[] = "\${$paramName} = null";
             } else {
-                $params[] = "{$type} \${$paramName}";
+                $params[] = "\${$paramName}";
             }
         }
 
@@ -176,7 +214,27 @@ class SdkResourceGenerator
             return implode(', ', $params);
         }
 
-        return "\n        ".implode(",\n        ", $params).",\n    ";
+        return "\n        ".implode(",\n        ", $params)."\n    ";
+    }
+
+    /**
+     * Build PHPDoc @param lines for method parameters.
+     *
+     * @param  ColumnDefinition[]  $columns
+     * @return string[]
+     */
+    private function buildPhpDocParams(array $columns): array
+    {
+        $params = [];
+
+        foreach ($columns as $column) {
+            $type = $this->phpType($column);
+            $paramName = Str::camel($column->name);
+            $nullSuffix = $column->nullable ? '|null' : '';
+            $params[] = "{$type}{$nullSuffix} \${$paramName}";
+        }
+
+        return $params;
     }
 
     /**
@@ -240,14 +298,26 @@ class SdkResourceGenerator
      */
     private function phpType(ColumnDefinition $column): string
     {
-        return match ($column->columnType) {
-            'integer', 'bigInteger', 'smallInteger', 'tinyInteger',
-            'unsignedBigInteger', 'unsignedInteger', 'unsignedSmallInteger', 'unsignedTinyInteger' => 'int',
+        $typeMap = [
+            'integer' => 'int',
+            'bigInteger' => 'int',
+            'smallInteger' => 'int',
+            'tinyInteger' => 'int',
+            'unsignedBigInteger' => 'int',
+            'unsignedInteger' => 'int',
+            'unsignedSmallInteger' => 'int',
+            'unsignedTinyInteger' => 'int',
             'boolean' => 'bool',
-            'decimal', 'float', 'double' => 'float',
+            'decimal' => 'float',
+            'float' => 'float',
+            'double' => 'float',
             'json' => 'array',
-            'timestamp', 'dateTime', 'dateTimeTz', 'date' => 'string',
-            default => 'string',
-        };
+            'timestamp' => 'string',
+            'dateTime' => 'string',
+            'dateTimeTz' => 'string',
+            'date' => 'string',
+        ];
+
+        return $typeMap[$column->columnType] ?? 'string';
     }
 }

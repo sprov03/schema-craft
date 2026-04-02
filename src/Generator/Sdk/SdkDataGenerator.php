@@ -11,7 +11,8 @@ use SchemaCraft\Scanner\TableDefinition;
  * Generates a Data Transfer Object (DTO) class from a TableDefinition.
  *
  * The DTO represents the JSON response shape from the API resource,
- * with typed readonly properties and a static fromArray() factory.
+ * with typed properties and a static fromArray() factory.
+ * Generated code is PHP 7.4 compatible.
  */
 class SdkDataGenerator
 {
@@ -33,6 +34,8 @@ class SdkDataGenerator
     ): string {
         $dataClassName = $modelName.'Data';
         $properties = $this->buildProperties($table, $dataNamespace);
+        $constructorAssignments = $this->buildConstructorAssignments($table, $dataNamespace);
+        $constructorParams = $this->buildConstructorParams($table, $dataNamespace);
         $fromArrayAssignments = $this->buildFromArrayAssignments($table, $dataNamespace);
 
         $lines = [];
@@ -42,24 +45,45 @@ class SdkDataGenerator
         $lines[] = '';
         $lines[] = "class {$dataClassName}";
         $lines[] = '{';
-        $lines[] = '    public function __construct(';
 
-        foreach ($properties as $i => $prop) {
-            $comma = $i < count($properties) - 1 ? ',' : ',';
-            $lines[] = "        {$prop}{$comma}";
+        // Property declarations
+        foreach ($properties as $prop) {
+            $lines[] = "    {$prop}";
+            $lines[] = '';
         }
 
-        $lines[] = '    ) {}';
+        // Constructor
+        $lines[] = '    /**';
+        foreach ($constructorParams as $param) {
+            $lines[] = "     * @param {$param}";
+        }
+        $lines[] = '     */';
+        $lines[] = '    public function __construct(';
+
+        $paramNames = $this->buildConstructorParamNames($table, $dataNamespace);
+        foreach ($paramNames as $i => $paramLine) {
+            $comma = $i < count($paramNames) - 1 ? ',' : '';
+            $lines[] = "        {$paramLine}{$comma}";
+        }
+
+        $lines[] = '    ) {';
+        foreach ($constructorAssignments as $assignment) {
+            $lines[] = "        {$assignment}";
+        }
+        $lines[] = '    }';
+
+        // fromArray factory
         $lines[] = '';
         $lines[] = '    /**';
-        $lines[] = '     * @param  array<string, mixed>  $data';
+        $lines[] = '     * @param array $data';
+        $lines[] = '     * @return self';
         $lines[] = '     */';
-        $lines[] = '    public static function fromArray(array $data): self';
+        $lines[] = '    public static function fromArray(array $data)';
         $lines[] = '    {';
         $lines[] = '        return new self(';
 
         foreach ($fromArrayAssignments as $i => $assignment) {
-            $comma = $i < count($fromArrayAssignments) - 1 ? ',' : ',';
+            $comma = $i < count($fromArrayAssignments) - 1 ? ',' : '';
             $lines[] = "            {$assignment}{$comma}";
         }
 
@@ -72,7 +96,7 @@ class SdkDataGenerator
     }
 
     /**
-     * Build the constructor property declarations.
+     * Build the property declarations with PHPDoc types.
      *
      * @return string[]
      */
@@ -83,24 +107,28 @@ class SdkDataGenerator
         $managedColumns = $this->getManagedColumns($table);
         $managedSet = array_flip($managedColumns);
 
-        // Regular columns (excluding hidden and managed)
+        // Regular columns
         foreach ($table->columns as $column) {
-            if (isset($hiddenSet[$column->name])) {
+            if (isset($hiddenSet[$column->name]) || isset($managedSet[$column->name])) {
                 continue;
             }
 
-            if (isset($managedSet[$column->name])) {
-                continue;
-            }
+            $type = $this->phpType($column);
+            $propName = $this->propertyName($column->name);
 
-            $properties[] = $this->buildPropertyDeclaration($column);
+            if ($column->nullable) {
+                $properties[] = "/** @var {$type}|null */\n    public \${$propName};";
+            } else {
+                $properties[] = "/** @var {$type} */\n    public \${$propName};";
+            }
         }
 
         // Timestamp columns
         if ($table->hasTimestamps) {
             foreach (self::TIMESTAMP_COLUMNS as $col) {
                 if (! isset($hiddenSet[$col])) {
-                    $properties[] = "public readonly ?string \${$this->propertyName($col)}";
+                    $propName = $this->propertyName($col);
+                    $properties[] = "/** @var string|null */\n    public \${$propName};";
                 }
             }
         }
@@ -109,29 +137,187 @@ class SdkDataGenerator
         if ($table->hasSoftDeletes) {
             foreach (self::SOFT_DELETE_COLUMNS as $col) {
                 if (! isset($hiddenSet[$col])) {
-                    $properties[] = "public readonly ?string \${$this->propertyName($col)}";
+                    $propName = $this->propertyName($col);
+                    $properties[] = "/** @var string|null */\n    public \${$propName};";
                 }
             }
         }
 
         // Relationships (non-BelongsTo) — always nullable (whenLoaded)
         foreach ($table->relationships as $rel) {
-            if ($rel->type === 'belongsTo') {
+            if ($rel->type === 'belongsTo' || isset($hiddenSet[$rel->name])) {
                 continue;
             }
 
-            if (isset($hiddenSet[$rel->name])) {
-                continue;
-            }
-
-            $properties[] = $this->buildRelationshipProperty($rel, $dataNamespace);
+            $properties[] = $this->buildRelationshipPropertyDeclaration($rel);
         }
 
         return $properties;
     }
 
     /**
-     * Build the fromArray() assignment expressions.
+     * Build constructor parameter names (for the function signature).
+     *
+     * @return string[]
+     */
+    private function buildConstructorParamNames(TableDefinition $table, string $dataNamespace): array
+    {
+        $params = [];
+        $hiddenSet = array_flip($table->hidden);
+        $managedColumns = $this->getManagedColumns($table);
+        $managedSet = array_flip($managedColumns);
+
+        foreach ($table->columns as $column) {
+            if (isset($hiddenSet[$column->name]) || isset($managedSet[$column->name])) {
+                continue;
+            }
+
+            $propName = $this->propertyName($column->name);
+
+            if ($column->nullable) {
+                $params[] = "\${$propName} = null";
+            } else {
+                $params[] = "\${$propName}";
+            }
+        }
+
+        if ($table->hasTimestamps) {
+            foreach (self::TIMESTAMP_COLUMNS as $col) {
+                if (! isset($hiddenSet[$col])) {
+                    $params[] = '$'.$this->propertyName($col).' = null';
+                }
+            }
+        }
+
+        if ($table->hasSoftDeletes) {
+            foreach (self::SOFT_DELETE_COLUMNS as $col) {
+                if (! isset($hiddenSet[$col])) {
+                    $params[] = '$'.$this->propertyName($col).' = null';
+                }
+            }
+        }
+
+        foreach ($table->relationships as $rel) {
+            if ($rel->type === 'belongsTo' || isset($hiddenSet[$rel->name])) {
+                continue;
+            }
+
+            $params[] = '$'.$rel->name.' = null';
+        }
+
+        return $params;
+    }
+
+    /**
+     * Build constructor PHPDoc @param lines.
+     *
+     * @return string[]
+     */
+    private function buildConstructorParams(TableDefinition $table, string $dataNamespace): array
+    {
+        $params = [];
+        $hiddenSet = array_flip($table->hidden);
+        $managedColumns = $this->getManagedColumns($table);
+        $managedSet = array_flip($managedColumns);
+
+        foreach ($table->columns as $column) {
+            if (isset($hiddenSet[$column->name]) || isset($managedSet[$column->name])) {
+                continue;
+            }
+
+            $type = $this->phpType($column);
+            $propName = $this->propertyName($column->name);
+            $nullSuffix = $column->nullable ? '|null' : '';
+            $params[] = "{$type}{$nullSuffix} \${$propName}";
+        }
+
+        if ($table->hasTimestamps) {
+            foreach (self::TIMESTAMP_COLUMNS as $col) {
+                if (! isset($hiddenSet[$col])) {
+                    $params[] = 'string|null $'.$this->propertyName($col);
+                }
+            }
+        }
+
+        if ($table->hasSoftDeletes) {
+            foreach (self::SOFT_DELETE_COLUMNS as $col) {
+                if (! isset($hiddenSet[$col])) {
+                    $params[] = 'string|null $'.$this->propertyName($col);
+                }
+            }
+        }
+
+        foreach ($table->relationships as $rel) {
+            if ($rel->type === 'belongsTo' || isset($hiddenSet[$rel->name])) {
+                continue;
+            }
+
+            $relatedDataClass = class_basename($rel->relatedModel).'Data';
+
+            if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
+                $params[] = "{$relatedDataClass}[]|null \${$rel->name}";
+            } elseif (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
+                $params[] = "{$relatedDataClass}|null \${$rel->name}";
+            } else {
+                $params[] = "mixed \${$rel->name}";
+            }
+        }
+
+        return $params;
+    }
+
+    /**
+     * Build constructor body assignments ($this->x = $x).
+     *
+     * @return string[]
+     */
+    private function buildConstructorAssignments(TableDefinition $table, string $dataNamespace): array
+    {
+        $assignments = [];
+        $hiddenSet = array_flip($table->hidden);
+        $managedColumns = $this->getManagedColumns($table);
+        $managedSet = array_flip($managedColumns);
+
+        foreach ($table->columns as $column) {
+            if (isset($hiddenSet[$column->name]) || isset($managedSet[$column->name])) {
+                continue;
+            }
+
+            $propName = $this->propertyName($column->name);
+            $assignments[] = "\$this->{$propName} = \${$propName};";
+        }
+
+        if ($table->hasTimestamps) {
+            foreach (self::TIMESTAMP_COLUMNS as $col) {
+                if (! isset($hiddenSet[$col])) {
+                    $propName = $this->propertyName($col);
+                    $assignments[] = "\$this->{$propName} = \${$propName};";
+                }
+            }
+        }
+
+        if ($table->hasSoftDeletes) {
+            foreach (self::SOFT_DELETE_COLUMNS as $col) {
+                if (! isset($hiddenSet[$col])) {
+                    $propName = $this->propertyName($col);
+                    $assignments[] = "\$this->{$propName} = \${$propName};";
+                }
+            }
+        }
+
+        foreach ($table->relationships as $rel) {
+            if ($rel->type === 'belongsTo' || isset($hiddenSet[$rel->name])) {
+                continue;
+            }
+
+            $assignments[] = "\$this->{$rel->name} = \${$rel->name};";
+        }
+
+        return $assignments;
+    }
+
+    /**
+     * Build the fromArray() assignment expressions (positional, not named).
      *
      * @return string[]
      */
@@ -144,23 +330,19 @@ class SdkDataGenerator
 
         // Regular columns
         foreach ($table->columns as $column) {
-            if (isset($hiddenSet[$column->name])) {
+            if (isset($hiddenSet[$column->name]) || isset($managedSet[$column->name])) {
                 continue;
             }
 
-            if (isset($managedSet[$column->name])) {
-                continue;
-            }
-
-            $assignments[] = $this->buildFromArrayExpression($column);
+            $default = $column->nullable ? ' ?? null' : '';
+            $assignments[] = "isset(\$data['{$column->name}']) ? \$data['{$column->name}']{$default} : null";
         }
 
         // Timestamp columns
         if ($table->hasTimestamps) {
             foreach (self::TIMESTAMP_COLUMNS as $col) {
                 if (! isset($hiddenSet[$col])) {
-                    $prop = $this->propertyName($col);
-                    $assignments[] = "{$prop}: \$data['{$col}'] ?? null";
+                    $assignments[] = "isset(\$data['{$col}']) ? \$data['{$col}'] : null";
                 }
             }
         }
@@ -169,76 +351,53 @@ class SdkDataGenerator
         if ($table->hasSoftDeletes) {
             foreach (self::SOFT_DELETE_COLUMNS as $col) {
                 if (! isset($hiddenSet[$col])) {
-                    $prop = $this->propertyName($col);
-                    $assignments[] = "{$prop}: \$data['{$col}'] ?? null";
+                    $assignments[] = "isset(\$data['{$col}']) ? \$data['{$col}'] : null";
                 }
             }
         }
 
         // Relationships
         foreach ($table->relationships as $rel) {
-            if ($rel->type === 'belongsTo') {
+            if ($rel->type === 'belongsTo' || isset($hiddenSet[$rel->name])) {
                 continue;
             }
 
-            if (isset($hiddenSet[$rel->name])) {
-                continue;
-            }
-
-            $assignments[] = $this->buildRelationshipFromArray($rel, $dataNamespace);
+            $assignments[] = $this->buildRelationshipFromArray($rel);
         }
 
         return $assignments;
     }
 
-    private function buildPropertyDeclaration(ColumnDefinition $column): string
+    private function buildRelationshipPropertyDeclaration(RelationshipDefinition $rel): string
     {
-        $type = $this->phpType($column);
-        $nullablePrefix = $column->nullable ? '?' : '';
-        $propName = $this->propertyName($column->name);
-
-        return "public readonly {$nullablePrefix}{$type} \${$propName}";
-    }
-
-    private function buildFromArrayExpression(ColumnDefinition $column): string
-    {
-        $propName = $this->propertyName($column->name);
-        $default = $column->nullable ? ' ?? null' : '';
-
-        return "{$propName}: \$data['{$column->name}']{$default}";
-    }
-
-    private function buildRelationshipProperty(RelationshipDefinition $rel, string $dataNamespace): string
-    {
-        // Relationships from whenLoaded are always nullable (may not be present)
         if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
             $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
-            return "/** @var {$relatedDataClass}[]|null */ public readonly ?array \${$rel->name}";
+            return "/** @var {$relatedDataClass}[]|null */\n    public \${$rel->name};";
         }
 
         if (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
             $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
-            return "public readonly ?{$relatedDataClass} \${$rel->name}";
+            return "/** @var {$relatedDataClass}|null */\n    public \${$rel->name};";
         }
 
-        return "public readonly mixed \${$rel->name}";
+        return "/** @var mixed */\n    public \${$rel->name};";
     }
 
-    private function buildRelationshipFromArray(RelationshipDefinition $rel, string $dataNamespace): string
+    private function buildRelationshipFromArray(RelationshipDefinition $rel): string
     {
         $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
         if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
-            return "{$rel->name}: isset(\$data['{$rel->name}']) ? array_map(fn (array \$item) => {$relatedDataClass}::fromArray(\$item), \$data['{$rel->name}']) : null";
+            return "isset(\$data['{$rel->name}']) ? array_map(function (array \$item) { return {$relatedDataClass}::fromArray(\$item); }, \$data['{$rel->name}']) : null";
         }
 
         if (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
-            return "{$rel->name}: isset(\$data['{$rel->name}']) ? {$relatedDataClass}::fromArray(\$data['{$rel->name}']) : null";
+            return "isset(\$data['{$rel->name}']) ? {$relatedDataClass}::fromArray(\$data['{$rel->name}']) : null";
         }
 
-        return "{$rel->name}: \$data['{$rel->name}'] ?? null";
+        return "isset(\$data['{$rel->name}']) ? \$data['{$rel->name}'] : null";
     }
 
     /**
@@ -264,15 +423,27 @@ class SdkDataGenerator
      */
     private function phpType(ColumnDefinition $column): string
     {
-        return match ($column->columnType) {
-            'integer', 'bigInteger', 'smallInteger', 'tinyInteger',
-            'unsignedBigInteger', 'unsignedInteger', 'unsignedSmallInteger', 'unsignedTinyInteger' => 'int',
+        $typeMap = [
+            'integer' => 'int',
+            'bigInteger' => 'int',
+            'smallInteger' => 'int',
+            'tinyInteger' => 'int',
+            'unsignedBigInteger' => 'int',
+            'unsignedInteger' => 'int',
+            'unsignedSmallInteger' => 'int',
+            'unsignedTinyInteger' => 'int',
             'boolean' => 'bool',
-            'decimal', 'float', 'double' => 'float',
+            'decimal' => 'float',
+            'float' => 'float',
+            'double' => 'float',
             'json' => 'array',
-            'timestamp', 'dateTime', 'dateTimeTz', 'date' => 'string',
-            default => 'string',
-        };
+            'timestamp' => 'string',
+            'dateTime' => 'string',
+            'dateTimeTz' => 'string',
+            'date' => 'string',
+        ];
+
+        return $typeMap[$column->columnType] ?? 'string';
     }
 
     /**

@@ -42,7 +42,9 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public function __construct(private SdkConnector $connector)', $output);
+        $this->assertStringContainsString('private $connector;', $output);
+        $this->assertStringContainsString('public function __construct($connector)', $output);
+        $this->assertStringContainsString('$this->connector = $connector;', $output);
     }
 
     public function test_generates_list_method(): void
@@ -51,8 +53,10 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public function list(): array', $output);
-        $this->assertStringContainsString('PostData::fromArray($item)', $output);
+        $this->assertStringContainsString('public function list()', $output);
+        $this->assertStringNotContainsString('public function list(): array', $output);
+        $this->assertStringContainsString('function (array $item) {', $output);
+        $this->assertStringContainsString('return PostData::fromArray($item);', $output);
         $this->assertStringContainsString("\$this->connector->get('posts')", $output);
     }
 
@@ -62,7 +66,8 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public function get(int|string $id): PostData', $output);
+        $this->assertStringContainsString('public function get($id)', $output);
+        $this->assertStringNotContainsString('public function get(int|string $id): PostData', $output);
         $this->assertStringContainsString('PostData::fromArray($response[\'data\'])', $output);
     }
 
@@ -77,7 +82,7 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public function create(string $title, ?string $body = null, bool $isActive): PostData', $output);
+        $this->assertStringContainsString('public function create($title, $body = null, $isActive)', $output);
         $this->assertStringContainsString("'title' => \$title", $output);
         $this->assertStringContainsString("'body' => \$body", $output);
         $this->assertStringContainsString("'is_active' => \$isActive", $output);
@@ -94,7 +99,7 @@ class SdkResourceGeneratorTest extends TestCase
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
 
         // Update should have same param types as create (nullable matches column definition)
-        $this->assertStringContainsString('public function update(int|string $id, string $title, ?string $body = null): PostData', $output);
+        $this->assertStringContainsString('public function update($id, $title, $body = null)', $output);
     }
 
     public function test_non_nullable_params_are_required_in_both_create_and_update(): void
@@ -107,8 +112,8 @@ class SdkResourceGeneratorTest extends TestCase
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'User');
 
         // Both create and update have required 'name' param
-        $this->assertStringContainsString('public function create(string $name): UserData', $output);
-        $this->assertStringContainsString('public function update(int|string $id, string $name): UserData', $output);
+        $this->assertStringContainsString('public function create($name)', $output);
+        $this->assertStringContainsString('public function update($id, $name)', $output);
     }
 
     public function test_generates_delete_method(): void
@@ -117,7 +122,8 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public function delete(int|string $id): void', $output);
+        $this->assertStringContainsString('public function delete($id)', $output);
+        $this->assertStringNotContainsString('public function delete(int|string $id): void', $output);
         $this->assertStringContainsString('$this->connector->delete("posts/{$id}")', $output);
     }
 
@@ -160,10 +166,10 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post', ['cancel', 'publish']);
 
-        $this->assertStringContainsString('public function cancel(int|string $id): void', $output);
+        $this->assertStringContainsString('public function cancel($id)', $output);
         $this->assertStringContainsString('posts/{$id}/cancel', $output);
 
-        $this->assertStringContainsString('public function publish(int|string $id): void', $output);
+        $this->assertStringContainsString('public function publish($id)', $output);
         $this->assertStringContainsString('posts/{$id}/publish', $output);
     }
 
@@ -213,7 +219,7 @@ class SdkResourceGeneratorTest extends TestCase
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'User');
 
         // With 4 params, should be multiline
-        $this->assertStringContainsString("string \$firstName,\n", $output);
+        $this->assertStringContainsString("\$firstName,\n", $output);
     }
 
     public function test_maps_integer_param_types(): void
@@ -226,8 +232,11 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('int $userId', $output);
-        $this->assertStringContainsString('int $count', $output);
+        $this->assertStringContainsString('$userId', $output);
+        $this->assertStringContainsString('$count', $output);
+        // Types are in PHPDoc, not in the method signature
+        $this->assertStringContainsString('@param int $userId', $output);
+        $this->assertStringContainsString('@param int $count', $output);
     }
 
     public function test_maps_decimal_param_type(): void
@@ -239,7 +248,8 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Product');
 
-        $this->assertStringContainsString('float $price', $output);
+        $this->assertStringContainsString('$price', $output);
+        $this->assertStringContainsString('@param float $price', $output);
     }
 
     public function test_maps_boolean_param_type(): void
@@ -251,7 +261,8 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'User');
 
-        $this->assertStringContainsString('bool $isActive', $output);
+        $this->assertStringContainsString('$isActive', $output);
+        $this->assertStringContainsString('@param bool $isActive', $output);
     }
 
     public function test_data_array_uses_original_snake_case_keys(): void

@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
  * Generates the main SDK client class — the entry point for consumers.
  *
  * Provides resource accessor methods (e.g., $client->posts(), $client->comments()).
+ * Generated code is PHP 7.4 compatible.
  */
 class SdkClientGenerator
 {
@@ -37,9 +38,14 @@ class SdkClientGenerator
         $lines[] = '';
         $lines[] = "class {$clientClassName}";
         $lines[] = '{';
-        $lines[] = '    private SdkConnector $connector;';
+        $lines[] = '    /** @var SdkConnector */';
+        $lines[] = '    private $connector;';
         $lines[] = '';
-        $lines[] = '    public function __construct(string $baseUrl, string $token)';
+        $lines[] = '    /**';
+        $lines[] = '     * @param string $baseUrl';
+        $lines[] = '     * @param string $token';
+        $lines[] = '     */';
+        $lines[] = '    public function __construct($baseUrl, $token)';
         $lines[] = '    {';
         $lines[] = '        $this->connector = new SdkConnector($baseUrl, $token);';
         $lines[] = '    }';
@@ -49,7 +55,10 @@ class SdkClientGenerator
             $resourceClass = $modelName.'Resource';
             $methodName = Str::camel(Str::pluralStudly($modelName));
             $lines[] = '';
-            $lines[] = "    public function {$methodName}(): {$resourceClass}";
+            $lines[] = '    /**';
+            $lines[] = "     * @return {$resourceClass}";
+            $lines[] = '     */';
+            $lines[] = "    public function {$methodName}()";
             $lines[] = '    {';
             $lines[] = "        return new {$resourceClass}(\$this->connector);";
             $lines[] = '    }';

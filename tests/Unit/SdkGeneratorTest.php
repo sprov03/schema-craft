@@ -89,8 +89,8 @@ class SdkGeneratorTest extends TestCase
         $content = $files['client']->content;
         $this->assertStringContainsString('class AcmeClient', $content);
         $this->assertStringContainsString('namespace Acme\\Sdk;', $content);
-        $this->assertStringContainsString('public function posts(): PostResource', $content);
-        $this->assertStringContainsString('public function comments(): CommentResource', $content);
+        $this->assertStringContainsString('public function posts()', $content);
+        $this->assertStringContainsString('public function comments()', $content);
     }
 
     public function test_client_imports_all_resources(): void

@@ -213,7 +213,7 @@ class GenerateSdkCommandTest extends TestCase
         $content = $this->files->get($outputPath.'/src/AcmeClient.php');
 
         $this->assertStringContainsString('class AcmeClient', $content);
-        $this->assertStringContainsString('public function posts(): PostResource', $content);
+        $this->assertStringContainsString('public function posts()', $content);
     }
 
     // ─── --force flag ─────────────────────────────────────────────
@@ -375,7 +375,7 @@ class GenerateSdkCommandTest extends TestCase
         $clientContent = $this->files->get($outputPath.'/src/AcmeClient.php');
 
         // Primary schema should have a client accessor
-        $this->assertStringContainsString('public function posts(): PostResource', $clientContent);
+        $this->assertStringContainsString('public function posts()', $clientContent);
 
         // Dependency schemas should NOT have client accessors
         $this->assertStringNotContainsString('CommentResource', $clientContent);

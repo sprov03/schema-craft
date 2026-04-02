@@ -21,24 +21,35 @@ class SdkConnectorGenerator
 
         use GuzzleHttp\\Client;
         use GuzzleHttp\\ClientInterface;
-        use GuzzleHttp\\Exception\\GuzzleException;
 
         class SdkConnector
         {
-            private ClientInterface \$httpClient;
+            /** @var string */
+            private \$baseUrl;
 
-            public function __construct(
-                private string \$baseUrl,
-                private string \$token,
-                ?ClientInterface \$httpClient = null,
-            ) {
-                \$this->httpClient = \$httpClient ?? new Client();
+            /** @var string */
+            private \$token;
+
+            /** @var ClientInterface */
+            private \$httpClient;
+
+            /**
+             * @param string \$baseUrl
+             * @param string \$token
+             * @param ClientInterface|null \$httpClient
+             */
+            public function __construct(\$baseUrl, \$token, \$httpClient = null)
+            {
+                \$this->baseUrl = \$baseUrl;
+                \$this->token = \$token;
+                \$this->httpClient = \$httpClient ?: new Client();
             }
 
             /**
-             * @return array<string, mixed>
+             * @param string \$path
+             * @return array
              */
-            public function get(string \$path): array
+            public function get(\$path)
             {
                 \$response = \$this->httpClient->request('GET', \$this->url(\$path), [
                     'headers' => \$this->headers(),
@@ -48,10 +59,11 @@ class SdkConnectorGenerator
             }
 
             /**
-             * @param  array<string, mixed>  \$data
-             * @return array<string, mixed>
+             * @param string \$path
+             * @param array \$data
+             * @return array
              */
-            public function post(string \$path, array \$data): array
+            public function post(\$path, array \$data)
             {
                 \$response = \$this->httpClient->request('POST', \$this->url(\$path), [
                     'headers' => \$this->headers(),
@@ -62,10 +74,11 @@ class SdkConnectorGenerator
             }
 
             /**
-             * @param  array<string, mixed>  \$data
-             * @return array<string, mixed>
+             * @param string \$path
+             * @param array \$data
+             * @return array
              */
-            public function put(string \$path, array \$data): array
+            public function put(\$path, array \$data)
             {
                 \$response = \$this->httpClient->request('PUT', \$this->url(\$path), [
                     'headers' => \$this->headers(),
@@ -75,25 +88,47 @@ class SdkConnectorGenerator
                 return json_decode(\$response->getBody()->getContents(), true);
             }
 
-            public function delete(string \$path): void
+            /**
+             * @param string \$path
+             * @return array
+             */
+            public function patch(\$path, array \$data)
+            {
+                \$response = \$this->httpClient->request('PATCH', \$this->url(\$path), [
+                    'headers' => \$this->headers(),
+                    'json' => \$data,
+                ]);
+
+                return json_decode(\$response->getBody()->getContents(), true);
+            }
+
+            /**
+             * @param string \$path
+             * @return void
+             */
+            public function delete(\$path)
             {
                 \$this->httpClient->request('DELETE', \$this->url(\$path), [
                     'headers' => \$this->headers(),
                 ]);
             }
 
-            private function url(string \$path): string
+            /**
+             * @param string \$path
+             * @return string
+             */
+            private function url(\$path)
             {
-                return rtrim(\$this->baseUrl, '/').'/'.ltrim(\$path, '/');
+                return rtrim(\$this->baseUrl, '/') . '/' . ltrim(\$path, '/');
             }
 
             /**
-             * @return array<string, string>
+             * @return array
              */
-            private function headers(): array
+            private function headers()
             {
                 return [
-                    'Authorization' => 'Bearer '.\$this->token,
+                    'Authorization' => 'Bearer ' . \$this->token,
                     'Accept' => 'application/json',
                     'Content-Type' => 'application/json',
                 ];
