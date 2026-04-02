@@ -174,12 +174,16 @@ class ConfigureFieldsTest extends TestCase
             $fields->author->preload();
         });
 
-        // filamentAction triggers both withDefaults and configureFields
+        // filamentAction builds the action; withDefaults is deferred to mount time
         $filamentAction = $action->filamentAction();
 
         $this->assertNotNull($filamentAction);
-        $this->assertTrue($action->isFeature);
-        $this->assertSame('Default Title', $action->title);
+
+        // withDefaults runs on a clone at mount time, not on $this.
+        // Verify via resolveFillData that the defaults are applied correctly.
+        $fillData = (new \ReflectionMethod($action, 'resolveFillData'))->invoke($action, null);
+        $this->assertTrue($fillData['is_feature']);
+        $this->assertSame('Default Title', $fillData['title']);
     }
 
     // ─── Exception cleanup ───────────────────────────────────────────

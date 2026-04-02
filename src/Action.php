@@ -87,11 +87,14 @@ abstract class Action
     /**
      * Set call-site default property values, overriding both PHP defaults and record data.
      *
-     * The closure receives the typed action instance and should set properties directly:
+     * The closure receives the typed action instance and optionally the record:
      *
-     *   ->withDefaults(function (CreateContactAction $action) use ($record): void {
+     *   ->withDefaults(function (CreateContactAction $action): void {
      *       $action->status = 'draft';
-     *       $action->owner = auth()->user();
+     *   })
+     *
+     *   ->withDefaults(function (CreateContactAction $action, ?Model $record): void {
+     *       $action->account = $record?->account;
      *   })
      *
      * withDefaults() is the highest-priority layer in the fill-data chain.
@@ -301,16 +304,6 @@ abstract class Action
      */
     public function filamentAction(?Model $record = null): FilamentAction
     {
-        // Step 2: overlay record data onto typed properties (PHP defaults are already set)
-        if ($record !== null && $record->exists) {
-            $this->fromRecord($record);
-        }
-
-        // Step 3: call-site overrides win over everything
-        if ($this->defaultsFn !== null) {
-            ($this->defaultsFn)($this);
-        }
-
         $definition = static::definition();
         $meta = static::meta();
         $actionName = Str::camel($definition->serviceMethod);
@@ -322,16 +315,26 @@ abstract class Action
             $action->modalDescription($meta->description);
         }
 
+        // Set record on the Filament Action when available at definition time (page actions).
+        // For table row actions, Filament sets this automatically per-row before mounting.
+        if ($record !== null) {
+            $action->record($record);
+        }
+
+        // Schema building is definition-time work (components don't depend on the record).
         $schema = $this->buildFilamentSchema($definition);
         if (! empty($schema)) {
             $action->schema($schema);
-            $action->fillForm(fn () => $this->toFillArray());
+
+            // Deferred: Filament evaluates this closure at mount time via evaluate().
+            // $record is resolved by Filament's DI from getRecord() (by type-hint).
+            $schemaCraftAction = $this;
+            $action->fillForm(fn (?Model $record = null) => $schemaCraftAction->resolveFillData($record));
         }
 
-        $actionInstance = $this;
-        $action->action(function (array $data) use ($actionInstance, $record): void {
-            $actionInstance->execute($record, $data);
-        });
+        // Deferred: $record resolved by Filament's DI at submit time.
+        $schemaCraftAction = $this;
+        $action->action(fn (array $data, ?Model $record = null) => $schemaCraftAction->execute($record, $data));
 
         return $action;
     }
@@ -389,6 +392,46 @@ abstract class Action
                     $this->{$param->name} = $record->{$columnName};
                 }
             }
+        }
+    }
+
+    /**
+     * Resolve the fill-data array for a given record, applying the full precedence chain.
+     *
+     * Clones $this to avoid state pollution between multiple mount calls
+     * (e.g. table row actions where each row mounts independently).
+     *
+     * @return array<string, mixed>
+     */
+    protected function resolveFillData(?Model $record): array
+    {
+        $clone = clone $this;
+
+        if ($record !== null && $record->exists) {
+            $clone->fromRecord($record);
+        }
+
+        if ($clone->defaultsFn !== null) {
+            static::invokeDefaultsFn($clone->defaultsFn, $clone, $record);
+        }
+
+        return $clone->toFillArray();
+    }
+
+    /**
+     * Invoke the withDefaults closure, passing the record if the closure accepts it.
+     *
+     * Supports both legacy single-param `fn($action)` and new two-param
+     * `fn($action, $record)` signatures for backward compatibility.
+     */
+    protected static function invokeDefaultsFn(\Closure $fn, self $action, ?Model $record): void
+    {
+        $ref = new \ReflectionFunction($fn);
+
+        if ($ref->getNumberOfParameters() >= 2) {
+            $fn($action, $record);
+        } else {
+            $fn($action);
         }
     }
 

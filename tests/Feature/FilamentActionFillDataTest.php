@@ -227,4 +227,130 @@ class FilamentActionFillDataTest extends TestCase
         $this->assertSame('the-slug', $fill['slug']);          // record value preserved
         $this->assertSame(true, $fill['is_feature']);          // withDefaults wins over PHP default
     }
+
+    // ─── resolveFillData — deferred lifecycle ────────────────────────────
+
+    /** Call resolveFillData() on an action via reflection. */
+    private function getResolveFillData(object $action, ?Model $record): array
+    {
+        return (new \ReflectionMethod($action, 'resolveFillData'))->invoke($action, $record);
+    }
+
+    public function test_resolve_fill_data_with_no_record(): void
+    {
+        $action = new CreatePostAction;
+        $fill = $this->getResolveFillData($action, null);
+
+        $this->assertSame(false, $fill['is_feature']);
+        $this->assertNull($fill['title']);
+    }
+
+    public function test_resolve_fill_data_with_record(): void
+    {
+        $post = $this->makePost(['title' => 'Hello', 'slug' => 'hello']);
+        $action = new UpdatePostAction;
+        $fill = $this->getResolveFillData($action, $post);
+
+        $this->assertSame('Hello', $fill['title']);
+        $this->assertSame('hello', $fill['slug']);
+    }
+
+    public function test_resolve_fill_data_applies_with_defaults(): void
+    {
+        $action = new CreatePostAction;
+        $action->withDefaults(function (CreatePostAction $a): void {
+            $a->isFeature = true;
+            $a->title = 'Default Title';
+        });
+
+        $fill = $this->getResolveFillData($action, null);
+
+        $this->assertSame(true, $fill['is_feature']);
+        $this->assertSame('Default Title', $fill['title']);
+    }
+
+    public function test_resolve_fill_data_full_precedence(): void
+    {
+        $post = $this->makePost(['title' => 'From Record', 'slug' => 'the-slug']);
+        $action = new CreatePostAction;
+        $action->withDefaults(function (CreatePostAction $a): void {
+            $a->title = 'Final Title';
+            $a->isFeature = true;
+        });
+
+        $fill = $this->getResolveFillData($action, $post);
+
+        $this->assertSame('Final Title', $fill['title']);
+        $this->assertSame('the-slug', $fill['slug']);
+        $this->assertSame(true, $fill['is_feature']);
+    }
+
+    public function test_resolve_fill_data_does_not_mutate_original(): void
+    {
+        $post = $this->makePost(['title' => 'Record Title', 'slug' => 'slug']);
+        $action = new CreatePostAction;
+        $action->withDefaults(function (CreatePostAction $a): void {
+            $a->title = 'Override';
+        });
+
+        // Call resolveFillData — should clone internally
+        $this->getResolveFillData($action, $post);
+
+        // Original action's properties should be unchanged
+        $originalFill = $this->getFillArray($action);
+        $this->assertNull($originalFill['title']); // not mutated
+    }
+
+    public function test_resolve_fill_data_clone_isolation_between_calls(): void
+    {
+        $postA = $this->makePost(['title' => 'Post A', 'slug' => 'a']);
+        $postB = $this->makePost(['title' => 'Post B', 'slug' => 'b']);
+        $action = new UpdatePostAction;
+
+        $fillA = $this->getResolveFillData($action, $postA);
+        $fillB = $this->getResolveFillData($action, $postB);
+
+        $this->assertSame('Post A', $fillA['title']);
+        $this->assertSame('Post B', $fillB['title']);
+    }
+
+    // ─── withDefaults two-param arity ────────────────────────────────────
+
+    public function test_with_defaults_receives_record_as_second_param(): void
+    {
+        $post = $this->makePost(['title' => 'Original', 'slug' => 'slug']);
+        $action = new CreatePostAction;
+        $action->withDefaults(function (CreatePostAction $a, ?Model $record): void {
+            $a->title = 'From record: '.($record?->title ?? 'none');
+        });
+
+        $fill = $this->getResolveFillData($action, $post);
+
+        $this->assertSame('From record: Original', $fill['title']);
+    }
+
+    public function test_with_defaults_single_param_still_works(): void
+    {
+        $post = $this->makePost(['title' => 'Original', 'slug' => 'slug']);
+        $action = new CreatePostAction;
+        $action->withDefaults(function (CreatePostAction $a): void {
+            $a->title = 'Static Override';
+        });
+
+        $fill = $this->getResolveFillData($action, $post);
+
+        $this->assertSame('Static Override', $fill['title']);
+    }
+
+    public function test_with_defaults_two_param_receives_null_when_no_record(): void
+    {
+        $action = new CreatePostAction;
+        $action->withDefaults(function (CreatePostAction $a, ?Model $record): void {
+            $a->title = $record !== null ? 'Has Record' : 'No Record';
+        });
+
+        $fill = $this->getResolveFillData($action, null);
+
+        $this->assertSame('No Record', $fill['title']);
+    }
 }
