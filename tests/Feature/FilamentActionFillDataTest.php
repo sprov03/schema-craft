@@ -226,6 +226,58 @@ class FilamentActionFillDataTest extends TestCase
         $this->assertNotNull($filamentAction);
     }
 
+    public function test_configure_fields_closure_receives_record(): void
+    {
+        $post = $this->makePost(['title' => 'Hello', 'slug' => 'hello']);
+        $receivedRecord = null;
+
+        $action = new CreatePostAction;
+        $action->configureFields(function (FieldProxy $fields, ?Model $record = null) use (&$receivedRecord): void {
+            $receivedRecord = $record;
+        });
+
+        $definition = CreatePostAction::definition();
+        (new \ReflectionMethod($action, 'buildFilamentSchema'))->invoke($action, $definition, $post);
+
+        $this->assertSame($post, $receivedRecord);
+    }
+
+    public function test_configure_fields_closure_receives_null_without_record(): void
+    {
+        $receivedRecord = 'not-called';
+
+        $action = new CreatePostAction;
+        $action->configureFields(function (FieldProxy $fields, ?Model $record = null) use (&$receivedRecord): void {
+            $receivedRecord = $record;
+        });
+
+        $definition = CreatePostAction::definition();
+        (new \ReflectionMethod($action, 'buildFilamentSchema'))->invoke($action, $definition);
+
+        $this->assertNull($receivedRecord);
+    }
+
+    public function test_single_param_configure_fields_still_works(): void
+    {
+        $action = new CreatePostAction;
+        $action->configureFields(function (FieldProxy $fields): void {
+            $fields->title->label('Still Works');
+        });
+
+        $definition = CreatePostAction::definition();
+        $schema = (new \ReflectionMethod($action, 'buildFilamentSchema'))->invoke($action, $definition);
+
+        $titleComponent = null;
+        foreach ($schema as $component) {
+            if ($component->getName() === 'title') {
+                $titleComponent = $component;
+                break;
+            }
+        }
+
+        $this->assertSame('Still Works', $titleComponent->getLabel());
+    }
+
     // ─── Unsaved model returns PHP defaults ──────────────────────────────
 
     public function test_unsaved_record_falls_back_to_php_default(): void

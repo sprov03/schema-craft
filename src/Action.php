@@ -80,12 +80,17 @@ abstract class Action
      * property access returns the auto-generated Filament component for
      * that field, allowing modification or full replacement:
      *
-     *   ->configureFields(function (FieldProxy $fields): void {
+     *   ->configureFields(function (FieldProxy $fields, ?Model $record = null): void {
      *       // Modify: call Filament methods on the auto-generated component
      *       $fields->account
      *           ->options(fn () => Account::active()->pluck('name', 'id'))
      *           ->default(fn (?Model $record) => $record?->account_id)
      *           ->disabled();
+     *
+     *       // Conditional configuration based on record
+     *       if ($record) {
+     *           $fields->status->disabled();
+     *       }
      *
      *       // Replace: assign a new Filament component entirely
      *       $fields->name = Textarea::make('name')->rows(3);
@@ -299,11 +304,10 @@ abstract class Action
             $action->modalDescription($meta->description);
         }
 
-        // Build schema with ->default() closures on all components, then apply configureFields
-        $schema = $this->buildFilamentSchema($definition);
-        if (! empty($schema)) {
-            $action->schema($schema);
-        }
+        // Deferred: Filament evaluates this closure at mount time via evaluate().
+        // $record is resolved by Filament's DI, making it available to configureFields.
+        $schemaCraftAction = $this;
+        $action->schema(fn (?Model $record = null) => $schemaCraftAction->buildFilamentSchema($definition, $record));
 
         // Deferred: $record resolved by Filament's DI at submit time.
         $schemaCraftAction = $this;
@@ -321,7 +325,7 @@ abstract class Action
      *
      * @return array<\Filament\Forms\Components\Component|\Filament\Schemas\Components\Component>
      */
-    protected function buildFilamentSchema(ActionDefinition $definition): array
+    protected function buildFilamentSchema(ActionDefinition $definition, ?Model $record = null): array
     {
         $componentMap = [];
 
@@ -337,7 +341,7 @@ abstract class Action
 
         // Apply call-site field customizations — runs last, so ->default() here wins
         if ($this->fieldConfigFn !== null) {
-            $this->applyFieldConfiguration($componentMap);
+            $this->applyFieldConfiguration($componentMap, $record);
         }
 
         // Collect in parameter order
@@ -357,11 +361,16 @@ abstract class Action
      *
      * @param  array<string, mixed>  $componentMap
      */
-    private function applyFieldConfiguration(array &$componentMap): void
+    private function applyFieldConfiguration(array &$componentMap, ?Model $record = null): void
     {
         $proxy = new FieldProxy($componentMap);
 
-        ($this->fieldConfigFn)($proxy);
+        $ref = new \ReflectionFunction($this->fieldConfigFn);
+        if ($ref->getNumberOfParameters() >= 2) {
+            ($this->fieldConfigFn)($proxy, $record);
+        } else {
+            ($this->fieldConfigFn)($proxy);
+        }
     }
 
     /**
