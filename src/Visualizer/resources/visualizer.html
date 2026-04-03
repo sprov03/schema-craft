@@ -2348,8 +2348,7 @@
                     // Pre-set generate state before switchTab triggers initGenerateTab
                     generateInitialized = true;
                     genSelectedApi = initialApi;
-                    genSelectedStack = initialStack;
-                    genSelectedView = initialStack ? 'stack' : null;
+                    genSelectedView = null;
 
                     // switchTab will skip initGenerateTab since generateInitialized is true
                     switchTab(initialTab);
@@ -6643,9 +6642,7 @@
         var generateInitialized = false;
         var generateConfig = null;
         var genSelectedApi = null;
-        var genSelectedStack = null;
         var genSelectedView = null;
-        var genStackDetail = null;
         var genSdkConfig = null;
 
         function initGenerateTab() {
@@ -6671,7 +6668,6 @@
         // ── Level 1: API Selector ──────────────────────
         function renderGenerateApiSelector() {
             genSelectedApi = null;
-            genSelectedStack = null;
             genSelectedView = null;
 
             var container = document.getElementById('generate-tab');
@@ -6787,9 +6783,7 @@
         // ── Level 2: Main layout ───────────────────────
         function selectApi(apiName) {
             genSelectedApi = apiName;
-            genSelectedStack = null;
             genSelectedView = null;
-            genStackDetail = null;
 
             updateQueryParams({ api: apiName, stack: null });
 
@@ -6801,24 +6795,6 @@
         function renderGenerateMain() {
             var container = document.getElementById('generate-tab');
 
-            // Build stack list
-            var stacks = [];
-            if (generateConfig && generateConfig.schemas) {
-                stacks = generateConfig.schemas.filter(function(s) { return s.hasController || s.endpointCount > 0; });
-            }
-
-            var stackListHtml = '';
-            stacks.forEach(function(s) {
-                stackListHtml += '<li class="gen-stack-item" data-schema="' + escapeAttr(s.class) + '">' +
-                    '<span class="gen-stack-item-name">' + escapeHtml(s.modelName) + '</span>' +
-                    '<span class="gen-stack-item-badge">' + (s.endpointCount != null ? s.endpointCount : 0) + '</span>' +
-                '</li>';
-            });
-
-            if (!stackListHtml) {
-                stackListHtml = '<li style="padding:16px;color:var(--text-muted);font-size:12px;text-align:center;">No stacks generated yet</li>';
-            }
-
             container.innerHTML =
                 '<div class="gen-main">' +
                     '<div class="gen-sidebar">' +
@@ -6826,69 +6802,61 @@
                             '<button class="gen-back-btn" id="gen-back">\u2190 Back</button>' +
                             '<span class="gen-sidebar-api-name">' + escapeHtml(genSelectedApi) + '</span>' +
                         '</div>' +
-                        '<div class="gen-sidebar-section-title">' +
-                            'API Stacks' +
-                            '<button class="gen-add-stack-btn" id="gen-add-stack-btn">+ New</button>' +
+                        '<div class="gen-sidebar-section-title">Manage</div>' +
+                        '<div class="gen-sdk-item' + (genSelectedView === 'resources' || !genSelectedView ? ' active' : '') + '" id="gen-nav-resources">' +
+                            '<span>\uD83D\uDDC2\uFE0F</span>' +
+                            '<span>Resources</span>' +
                         '</div>' +
-                        '<div class="gen-sidebar-search">' +
-                            '<input type="search" id="gen-stack-search" placeholder="Search stacks...">' +
+                        '<div class="gen-sdk-item' + (genSelectedView === 'import' ? ' active' : '') + '" id="gen-nav-import">' +
+                            '<span>\u2B07\uFE0F</span>' +
+                            '<span>Import Actions</span>' +
                         '</div>' +
-                        '<ul class="gen-stack-list" id="gen-stack-list">' + stackListHtml + '</ul>' +
                         '<div class="gen-sidebar-sdk">' +
                             '<div class="gen-sidebar-section-title">Tools</div>' +
-                            '<div class="gen-sdk-item" id="gen-import-actions-nav">' +
-                                '<span>\u2B07\uFE0F</span>' +
-                                '<span>Import Actions</span>' +
-                            '</div>' +
-                            '<div class="gen-sdk-item" id="gen-sdk-nav">' +
+                            '<div class="gen-sdk-item' + (genSelectedView === 'sdk' ? ' active' : '') + '" id="gen-sdk-nav">' +
                                 '<span>\uD83D\uDCE6</span>' +
                                 '<span>SDK Management</span>' +
                             '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="gen-content" id="gen-content">' +
-                        '<div class="gen-empty-state">Select an API stack to view endpoints</div>' +
+                        '<div class="gen-empty-state">Loading...</div>' +
                     '</div>' +
                 '</div>';
 
-            // Bind events
+            // Bind sidebar nav
             document.getElementById('gen-back').addEventListener('click', goBackToApiSelector);
-            document.getElementById('gen-add-stack-btn').addEventListener('click', showNewStackForm);
-            document.getElementById('gen-import-actions-nav').addEventListener('click', showImportActionsView);
-            document.getElementById('gen-sdk-nav').addEventListener('click', showSdkView);
+            document.getElementById('gen-nav-resources').addEventListener('click', function() { switchGenView('resources'); });
+            document.getElementById('gen-nav-import').addEventListener('click', function() { switchGenView('import'); });
+            document.getElementById('gen-sdk-nav').addEventListener('click', function() { switchGenView('sdk'); });
 
-            // Stack search filter
-            document.getElementById('gen-stack-search').addEventListener('input', function(e) {
-                var query = e.target.value.toLowerCase();
-                document.querySelectorAll('.gen-stack-item[data-schema]').forEach(function(item) {
-                    var name = item.querySelector('.gen-stack-item-name');
-                    if (name) {
-                        var matches = !query || name.textContent.toLowerCase().indexOf(query) !== -1;
-                        item.style.display = matches ? '' : 'none';
-                    }
-                });
+            // Load initial view
+            var initialView = genSelectedView || 'resources';
+            switchGenView(initialView);
+        }
+
+        function switchGenView(view) {
+            genSelectedView = view;
+
+            // Update sidebar active states
+            document.querySelectorAll('.gen-sidebar .gen-sdk-item').forEach(function(item) {
+                item.classList.remove('active');
             });
+            var navMap = { resources: 'gen-nav-resources', import: 'gen-nav-import', sdk: 'gen-sdk-nav' };
+            var activeNav = document.getElementById(navMap[view]);
+            if (activeNav) activeNav.classList.add('active');
 
-            // Stack item clicks
-            document.querySelectorAll('.gen-stack-item[data-schema]').forEach(function(item) {
-                item.addEventListener('click', function() {
-                    selectStack(item.dataset.schema);
-                });
-            });
-
-            // Restore selection if we had one
-            if (genSelectedStack && genSelectedView === 'stack') {
-                selectStack(genSelectedStack);
-            } else if (genSelectedView === 'import') {
+            if (view === 'resources') {
+                showResourcesView();
+            } else if (view === 'import') {
                 showImportActionsView();
-            } else if (genSelectedView === 'sdk') {
+            } else if (view === 'sdk') {
                 showSdkView();
             }
         }
 
         function goBackToApiSelector() {
             genSelectedApi = null;
-            genSelectedStack = null;
             genSelectedView = null;
             updateQueryParams({ api: null, stack: null });
             loadGenerateConfig(null, function() {
@@ -6896,697 +6864,255 @@
             });
         }
 
-        // ── Level 3: Stack detail ──────────────────────
-        function selectStack(schemaClass) {
-            genSelectedStack = schemaClass;
-            genSelectedView = 'stack';
+        // ── Resources View ──────────────────────────────
+        var resourcesData = null;
 
-            updateQueryParams({ stack: schemaClass });
-
-            // Highlight in sidebar
-            document.querySelectorAll('.gen-stack-item').forEach(function(item) {
-                item.classList.toggle('active', item.dataset.schema === schemaClass);
-            });
-            var sdkNav = document.getElementById('gen-sdk-nav');
-            if (sdkNav) sdkNav.classList.remove('active');
-            var importNav = document.getElementById('gen-import-actions-nav');
-            if (importNav) importNav.classList.remove('active');
-
+        function showResourcesView() {
             var content = document.getElementById('gen-content');
-            content.innerHTML = '<div class="gen-empty-state">Loading...</div>';
+            content.innerHTML = '<div class="gen-empty-state">Loading resources...</div>';
 
-            fetch('/_schema-craft/api/generate/stack-detail?schema=' + encodeURIComponent(schemaClass) + '&api=' + encodeURIComponent(genSelectedApi))
+            fetch('/_schema-craft/api/available-actions?api=' + encodeURIComponent(genSelectedApi))
                 .then(handleResponse)
                 .then(function(data) {
-                    if (data.success === false) {
-                        content.innerHTML = '<div class="gen-empty-state">' + escapeHtml(data.message || 'Failed to load.') + '</div>';
-                        return;
-                    }
-                    genStackDetail = data;
-                    renderStackDetail();
+                    resourcesData = data;
+                    renderResourcesView();
                 })
                 .catch(function(e) {
-                    content.innerHTML = '<div class="gen-empty-state">Error: ' + escapeHtml(e.message) + '</div>';
+                    content.innerHTML = '<div class="gen-empty-state">Failed to load: ' + escapeHtml(e.message) + '</div>';
                 });
         }
 
-        function renderStackDetail() {
-            var d = genStackDetail;
+        function renderResourcesView() {
+            var data = resourcesData;
             var content = document.getElementById('gen-content');
 
-            var badgesHtml = '';
-            if (d.hasController) badgesHtml += '<span class="gen-stack-badge controller">Controller</span>';
-            if (d.hasService) {
-                badgesHtml += '<span class="gen-stack-badge service">Service</span>';
-            } else {
-                badgesHtml += '<span class="gen-stack-badge missing">Missing Service</span>' +
-                    '<button class="sc-btn primary sm" id="gen-create-service-btn">Create Service</button>';
-            }
-            if (d.hasTest) {
-                badgesHtml += '<span class="gen-stack-badge test">Test</span>';
-            } else {
-                badgesHtml += '<span class="gen-stack-badge missing">Missing Test</span>' +
-                    '<button class="sc-btn primary sm" id="gen-create-test-btn">Create Test</button>';
+            if (!data.groups || data.groups.length === 0) {
+                content.innerHTML =
+                    '<div class="gen-import">' +
+                        '<div class="gen-import-title">Resources</div>' +
+                        '<div class="gen-import-subtitle">No schemas with Actions found. Create Actions first via the Actions tab.</div>' +
+                    '</div>';
+                return;
             }
 
-            var endpointsHtml = '';
-            d.endpoints.forEach(function(ep, idx) {
-                endpointsHtml += '<div class="gen-endpoint-item" data-ep-idx="' + idx + '">' +
-                    '<span class="gen-endpoint-method ' + ep.method.toLowerCase() + '">' + ep.method + '</span>' +
-                    '<span class="gen-endpoint-path">' + escapeHtml(ep.path) + '</span>' +
-                    '<span class="gen-endpoint-action">' + escapeHtml(ep.action) + '</span>' +
-                    (ep.description ? '<span class="gen-endpoint-desc">' + escapeHtml(ep.description) + '</span>' : '') +
-                    '<span class="gen-endpoint-type ' + ep.type + '">' + ep.type + '</span>' +
-                '</div>';
+            var listHtml = '';
+            var needsGeneration = 0;
+
+            data.groups.forEach(function(group, idx) {
+                var actionCount = group.actions.length;
+                var importedCount = group.actions.filter(function(a) { return a.imported; }).length;
+
+                listHtml +=
+                    '<div class="gen-import-group" data-res-idx="' + idx + '">' +
+                        '<div class="gen-import-group-header" data-res-toggle="' + idx + '">' +
+                            '<input type="checkbox" class="res-schema-cb" data-res-idx="' + idx + '" ' +
+                                'data-schema="' + escapeAttr(group.schema) + '" ' +
+                                (group.hasResource ? 'disabled checked' : '') + ' ' +
+                                'onclick="event.stopPropagation();">' +
+                            '<span class="gen-import-group-toggle">&#9654;</span>' +
+                            '<span class="gen-import-group-name">' + escapeHtml(group.modelName) + '</span>' +
+                            (group.hasResource
+                                ? '<span class="gen-import-action-imported-badge" style="background:var(--success-dim);color:var(--success);">Resource exists</span>'
+                                : '<span class="gen-import-action-imported-badge" style="background:var(--warning-dim);color:var(--warning);">No resource</span>') +
+                            '<span class="gen-import-group-count">' + actionCount + ' action' + (actionCount !== 1 ? 's' : '') +
+                                (importedCount > 0 ? ' (' + importedCount + ' imported)' : '') + '</span>' +
+                        '</div>' +
+                        '<div class="gen-import-group-body" data-res-body="' + idx + '">' +
+                            buildResourceColumnsHtml(group, idx) +
+                        '</div>' +
+                    '</div>';
+
+                if (!group.hasResource) needsGeneration++;
             });
 
             content.innerHTML =
-                '<div class="gen-stack-detail">' +
-                    '<div class="gen-stack-header">' +
-                        '<span class="gen-stack-title">' + escapeHtml(d.modelName) + '</span>' +
-                        '<span class="gen-stack-route-prefix">/' + escapeHtml(d.routePrefix) + '</span>' +
-                        '<div class="gen-stack-badges">' + badgesHtml + '</div>' +
-                    '</div>' +
-                    '<div class="gen-endpoint-section-title">Endpoints (' + d.endpoints.length + ')</div>' +
-                    '<div class="gen-endpoint-list">' + endpointsHtml + '</div>' +
-                    '<div class="gen-add-action-section">' +
-                        '<div class="gen-add-action-title">Add Custom Action</div>' +
-                        '<div class="gen-add-action-row">' +
-                            '<select class="sc-select" id="gen-inline-action-method">' +
-                                '<option value="get">GET</option>' +
-                                '<option value="post">POST</option>' +
-                                '<option value="put" selected>PUT</option>' +
-                                '<option value="delete">DELETE</option>' +
-                            '</select>' +
-                            '<input type="text" class="sc-input" id="gen-inline-action-name" placeholder="e.g. publish, archive, cancel">' +
-                            '<input type="text" class="sc-input" id="gen-inline-action-desc" placeholder="Brief description (optional)">' +
-                            '<button class="sc-btn" id="gen-inline-action-preview">Preview</button>' +
-                            '<button class="sc-btn primary" id="gen-inline-action-submit">Add Action</button>' +
+                '<div class="gen-import">' +
+                    '<div class="gen-import-title">Resources</div>' +
+                    '<div class="gen-import-subtitle">Schemas with Actions for the <strong>' + escapeHtml(data.apiName) + '</strong> API. ' +
+                        'Generate resources before importing actions.</div>' +
+                    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">' +
+                        '<div class="gen-sidebar-search" style="padding:0;flex:1;">' +
+                            '<input type="search" id="gen-res-search" placeholder="Filter schemas..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;">' +
                         '</div>' +
+                        '<button class="sc-btn" id="gen-res-select-all" style="white-space:nowrap;">Select All Missing</button>' +
+                        '<button class="sc-btn" id="gen-res-deselect-all" style="white-space:nowrap;">Deselect All</button>' +
+                    '</div>' +
+                    listHtml +
+                    '<div class="gen-import-footer">' +
+                        '<span class="gen-import-selected-count" id="gen-res-count">' + needsGeneration + ' schema(s) without resources</span>' +
+                        '<button class="sc-btn primary" id="gen-res-generate-btn" ' + (needsGeneration === 0 ? 'disabled' : '') + '>Generate Resources</button>' +
                     '</div>' +
                 '</div>';
 
-            // Bind endpoint clicks to open modal
-            content.querySelectorAll('.gen-endpoint-item[data-ep-idx]').forEach(function(item) {
-                item.addEventListener('click', function() {
-                    var idx = parseInt(item.dataset.epIdx, 10);
-                    showEndpointDetailModal(d.endpoints[idx], d);
+            // Toggle group expand/collapse
+            content.querySelectorAll('[data-res-toggle]').forEach(function(header) {
+                header.addEventListener('click', function(e) {
+                    if (e.target.tagName === 'INPUT') return;
+                    var idx = header.dataset.resToggle;
+                    var body = content.querySelector('[data-res-body="' + idx + '"]');
+                    var toggle = header.querySelector('.gen-import-group-toggle');
+                    body.classList.toggle('open');
+                    toggle.classList.toggle('open');
                 });
             });
 
-            document.getElementById('gen-inline-action-preview').addEventListener('click', function() { doInlineAction(true); });
-            document.getElementById('gen-inline-action-submit').addEventListener('click', function() { doInlineAction(false); });
-
-            // Create Service button
-            var createServiceBtn = document.getElementById('gen-create-service-btn');
-            if (createServiceBtn) {
-                createServiceBtn.addEventListener('click', function() {
-                    createServiceBtn.disabled = true;
-                    createServiceBtn.textContent = 'Creating...';
-
-                    fetch('/_schema-craft/api/generate/service', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify({
-                            schema: genSelectedStack,
-                            api: genSelectedApi,
-                        }),
-                    })
-                    .then(handleResponse)
-                    .then(function(data) {
-                        if (data.success) {
-                            showToast(data.message, 'success');
-                            selectStack(genSelectedStack);
-                        } else {
-                            showToast(data.message || 'Failed to create service.', 'error');
-                            createServiceBtn.disabled = false;
-                            createServiceBtn.textContent = 'Create Service';
-                        }
-                    })
-                    .catch(function(e) {
-                        showToast('Error: ' + e.message, 'error');
-                        createServiceBtn.disabled = false;
-                        createServiceBtn.textContent = 'Create Service';
-                    });
-                });
-            }
-
-            // Create Test button
-            var createTestBtn = document.getElementById('gen-create-test-btn');
-            if (createTestBtn) {
-                createTestBtn.addEventListener('click', function() {
-                    createTestBtn.disabled = true;
-                    createTestBtn.textContent = 'Creating...';
-
-                    fetch('/_schema-craft/api/generate/test', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                        body: JSON.stringify({
-                            schema: genSelectedStack,
-                            api: genSelectedApi,
-                        }),
-                    })
-                    .then(handleResponse)
-                    .then(function(data) {
-                        if (data.success) {
-                            showToast(data.message, 'success');
-                            selectStack(genSelectedStack);
-                        } else {
-                            showToast(data.message || 'Failed to create test.', 'error');
-                            createTestBtn.disabled = false;
-                            createTestBtn.textContent = 'Create Test';
-                        }
-                    })
-                    .catch(function(e) {
-                        showToast('Error: ' + e.message, 'error');
-                        createTestBtn.disabled = false;
-                        createTestBtn.textContent = 'Create Test';
-                    });
-                });
-            }
-        }
-
-        // ── Endpoint detail modal ────────────────────────
-        var epModalCounter = 0;
-
-        function showEndpointDetailModal(ep, stackData) {
-            var modalId = ++epModalCounter;
-            var overlay = document.createElement('div');
-            overlay.className = 'ep-overlay';
-            overlay.style.zIndex = 9000 + modalId;
-            overlay.dataset.epModalId = modalId;
-
-            var bodyId = 'ep-body-' + modalId;
-            var requestContent = buildRequestTab(ep, stackData);
-            var responseContent = buildResponseTab(ep, stackData, [stackData.modelName]);
-
-            overlay.innerHTML =
-                '<div class="ep-modal">' +
-                    '<div class="ep-header">' +
-                        '<span class="ep-header-method ' + ep.method.toLowerCase() + '">' + ep.method + '</span>' +
-                        '<span class="ep-header-path">' + escapeHtml(ep.path) + '</span>' +
-                        (ep.description ? '<span class="ep-header-desc">' + escapeHtml(ep.description) + '</span>' : '') +
-                        '<button class="ep-header-close ep-close-btn">&times;</button>' +
-                    '</div>' +
-                    '<div class="ep-tabs">' +
-                        '<button class="ep-tab active" data-ep-tab="request">Request</button>' +
-                        '<button class="ep-tab" data-ep-tab="response">Response</button>' +
-                    '</div>' +
-                    '<div class="ep-body" id="' + bodyId + '">' + requestContent + '</div>' +
-                '</div>';
-
-            document.body.appendChild(overlay);
-            bindRelationshipLinks(overlay);
-
-            var tabContents = { request: requestContent, response: responseContent };
-
-            // Tab switching
-            overlay.querySelectorAll('.ep-tab').forEach(function(tab) {
-                tab.addEventListener('click', function() {
-                    overlay.querySelectorAll('.ep-tab').forEach(function(t) { t.classList.remove('active'); });
-                    tab.classList.add('active');
-                    var body = document.getElementById(bodyId);
-                    body.innerHTML = tabContents[tab.dataset.epTab];
-                    bindRelationshipLinks(overlay);
-                });
-            });
-
-            // Close — only this modal
-            function close() { overlay.remove(); }
-            overlay.querySelector('.ep-close-btn').addEventListener('click', close);
-            overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
-            document.addEventListener('keydown', function onEsc(e) {
-                if (e.key === 'Escape') {
-                    // Close the topmost modal
-                    var topOverlay = document.querySelector('.ep-overlay[data-ep-modal-id="' + modalId + '"]');
-                    if (topOverlay) { topOverlay.remove(); document.removeEventListener('keydown', onEsc); }
-                }
-            });
-        }
-
-        function showResourceDetailModal(schemaClass, breadcrumb) {
-            var modalId = ++epModalCounter;
-            var overlay = document.createElement('div');
-            overlay.className = 'ep-overlay';
-            overlay.style.zIndex = 9000 + modalId;
-            overlay.dataset.epModalId = modalId;
-
-            var bodyId = 'ep-body-' + modalId;
-
-            overlay.innerHTML =
-                '<div class="ep-modal">' +
-                    '<div class="ep-header">' +
-                        '<span class="ep-header-path" style="font-weight:700;">Loading...</span>' +
-                        '<button class="ep-header-close ep-close-btn">&times;</button>' +
-                    '</div>' +
-                    '<div class="ep-body" id="' + bodyId + '">' +
-                        '<div class="ep-no-body" style="text-align:center;padding:40px;">Loading resource...</div>' +
-                    '</div>' +
-                '</div>';
-
-            document.body.appendChild(overlay);
-
-            function close() { overlay.remove(); }
-            overlay.querySelector('.ep-close-btn').addEventListener('click', close);
-            overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
-            document.addEventListener('keydown', function onEsc(e) {
-                if (e.key === 'Escape') {
-                    var topOverlay = document.querySelector('.ep-overlay[data-ep-modal-id="' + modalId + '"]');
-                    if (topOverlay) { topOverlay.remove(); document.removeEventListener('keydown', onEsc); }
-                }
-            });
-
-            fetch('/_schema-craft/api/generate/resource-detail?schema=' + encodeURIComponent(schemaClass))
-                .then(handleResponse)
-                .then(function(data) {
-                    if (data.success === false) {
-                        document.getElementById(bodyId).innerHTML =
-                            '<div class="ep-no-body" style="text-align:center;padding:40px;">' + escapeHtml(data.message || 'Not found.') + '</div>';
-                        return;
+            // Search filter
+            document.getElementById('gen-res-search').addEventListener('input', function(e) {
+                var query = e.target.value.toLowerCase();
+                content.querySelectorAll('.gen-import-group[data-res-idx]').forEach(function(group) {
+                    var name = group.querySelector('.gen-import-group-name');
+                    if (name) {
+                        group.style.display = (!query || name.textContent.toLowerCase().indexOf(query) !== -1) ? '' : 'none';
                     }
-
-                    // Update header
-                    var headerPath = overlay.querySelector('.ep-header-path');
-                    headerPath.textContent = data.modelName + ' Resource';
-
-                    // Build breadcrumb
-                    var breadcrumbHtml = '';
-                    if (breadcrumb && breadcrumb.length > 0) {
-                        breadcrumbHtml = '<div class="ep-breadcrumb">';
-                        breadcrumb.forEach(function(b, i) {
-                            if (i > 0) breadcrumbHtml += '<span class="ep-breadcrumb-sep">\u203A</span>';
-                            breadcrumbHtml += '<span class="ep-breadcrumb-item">' + escapeHtml(b) + '</span>';
-                        });
-                        breadcrumbHtml += '<span class="ep-breadcrumb-sep">\u203A</span>';
-                        breadcrumbHtml += '<span class="ep-breadcrumb-item" style="color:var(--text-primary);font-weight:500;">' + escapeHtml(data.modelName) + '</span>';
-                        breadcrumbHtml += '</div>';
-                    }
-
-                    // Build content with fields + relationships
-                    var content = breadcrumbHtml;
-                    content += buildResponseFieldsHtml(data.fields, false);
-
-                    if (data.relationships && data.relationships.length) {
-                        content += buildRelationshipsHtml(data.relationships, breadcrumb.concat([data.modelName]));
-                    }
-
-                    document.getElementById(bodyId).innerHTML = content;
-                    bindRelationshipLinks(overlay);
-                })
-                .catch(function(e) {
-                    document.getElementById(bodyId).innerHTML =
-                        '<div class="ep-no-body" style="text-align:center;padding:40px;">Error: ' + escapeHtml(e.message) + '</div>';
-                });
-        }
-
-        function buildRelationshipsHtml(relationships, breadcrumb) {
-            if (!relationships || !relationships.length) return '';
-
-            var relRows = '';
-            relationships.forEach(function(r) {
-                var modelCell;
-                if (r.relatedSchema) {
-                    modelCell = '<a class="ep-rel-link" data-rel-schema="' + escapeAttr(r.relatedSchema) +
-                        '" data-rel-breadcrumb="' + escapeAttr(JSON.stringify(breadcrumb || [])) + '">' +
-                        escapeHtml(r.relatedModel) + '</a>';
-                } else {
-                    modelCell = '<span class="ep-field-type">' + escapeHtml(r.relatedModel) + '</span>';
-                }
-                relRows += '<tr>' +
-                    '<td><span class="ep-field-name">' + escapeHtml(r.name) + '</span></td>' +
-                    '<td>' + escapeHtml(r.type) + '</td>' +
-                    '<td>' + modelCell + '</td>' +
-                '</tr>';
-            });
-
-            return '<div class="ep-section">' +
-                '<div class="ep-section-title"><span class="ep-section-badge relations">Relationships</span></div>' +
-                '<table class="ep-field-table"><thead><tr><th>Name</th><th>Type</th><th>Related Model</th></tr></thead><tbody>' + relRows + '</tbody></table>' +
-            '</div>';
-        }
-
-        function bindRelationshipLinks(container) {
-            container.querySelectorAll('.ep-rel-link[data-rel-schema]').forEach(function(link) {
-                link.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    var schema = link.dataset.relSchema;
-                    var breadcrumb = [];
-                    try { breadcrumb = JSON.parse(link.dataset.relBreadcrumb); } catch (ex) {}
-                    showResourceDetailModal(schema, breadcrumb);
                 });
             });
+
+            // Select All Missing
+            document.getElementById('gen-res-select-all').addEventListener('click', function() {
+                content.querySelectorAll('.res-schema-cb:not(:disabled)').forEach(function(cb) { cb.checked = true; });
+                updateResCount();
+            });
+
+            // Deselect All
+            document.getElementById('gen-res-deselect-all').addEventListener('click', function() {
+                content.querySelectorAll('.res-schema-cb:not(:disabled)').forEach(function(cb) { cb.checked = false; });
+                updateResCount();
+            });
+
+            // Checkbox change updates count
+            content.querySelectorAll('.res-schema-cb').forEach(function(cb) {
+                cb.addEventListener('change', updateResCount);
+            });
+
+            // Generate button
+            document.getElementById('gen-res-generate-btn').addEventListener('click', doGenerateResources);
         }
 
-        function buildRequestTab(ep, stackData) {
+        function buildResourceColumnsHtml(group, gIdx) {
             var html = '';
 
-            // URL params
-            if (ep.path.indexOf('{') !== -1) {
-                html += '<div class="ep-section">' +
-                    '<div class="ep-section-title"><span class="ep-section-badge params">URL Parameters</span></div>' +
-                    '<table class="ep-field-table"><thead><tr><th>Parameter</th><th>Type</th></tr></thead><tbody>';
-                var paramMatches = ep.path.match(/\{(\w+)\}/g) || [];
-                paramMatches.forEach(function(p) {
-                    var paramName = p.replace(/[{}]/g, '');
-                    html += '<tr>' +
-                        '<td><span class="ep-field-name">' + escapeHtml(paramName) + '</span></td>' +
-                        '<td><span class="ep-field-type">integer | string</span></td>' +
-                    '</tr>';
+            // Columns
+            if (group.columns && group.columns.length > 0) {
+                html += '<div class="gen-import-resource-section">' +
+                    '<div class="gen-import-resource-title">Columns' +
+                        (group.hasResource ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">(Resource already exists)</span>' : '') +
+                    '</div>' +
+                    '<div class="gen-import-field-grid">';
+
+                group.columns.forEach(function(col, cIdx) {
+                    var isSystem = ['id', 'created_at', 'updated_at', 'deleted_at'].indexOf(col.name) !== -1;
+                    html +=
+                        '<label class="gen-import-field-item">' +
+                            '<input type="checkbox" class="res-col-cb" ' +
+                                'data-group="' + gIdx + '" data-col-name="' + escapeAttr(col.name) + '" ' +
+                                (isSystem || group.hasResource ? 'checked disabled' : 'checked') + '>' +
+                            '<span>' + escapeHtml(col.name) + '</span>' +
+                            '<span class="gen-import-field-type">' + escapeHtml(col.type) + '</span>' +
+                        '</label>';
                 });
-                html += '</tbody></table></div>';
+
+                html += '</div></div>';
             }
 
-            // Request body
-            if (ep.action === 'create' || ep.action === 'update') {
-                html += buildRequestBodyHtml(stackData.editableFields);
-            } else if (ep.rules && typeof ep.rules === 'object' && Object.keys(ep.rules).length > 0) {
-                // Build request body from endpoint rules (actions or FormRequest)
-                var rulesFields = [];
-                Object.keys(ep.rules).forEach(function(fieldName) {
-                    var fieldRules = ep.rules[fieldName];
-                    var rulesStr = Array.isArray(fieldRules) ? fieldRules.join('|') : String(fieldRules);
-                    var fieldType = 'string';
-                    if (Array.isArray(fieldRules)) {
-                        if (fieldRules.indexOf('integer') !== -1) fieldType = 'integer';
-                        else if (fieldRules.indexOf('numeric') !== -1) fieldType = 'numeric';
-                        else if (fieldRules.indexOf('boolean') !== -1) fieldType = 'boolean';
-                        else if (fieldRules.indexOf('array') !== -1) fieldType = 'array';
-                        else if (fieldRules.indexOf('date') !== -1) fieldType = 'date';
-                    }
-                    rulesFields.push({ name: fieldName, type: fieldType, rules: rulesStr });
-                });
-                html += buildRequestBodyHtml(rulesFields);
-            } else if (ep.method === 'PUT' || ep.method === 'POST' || ep.method === 'PATCH') {
-                html += '<div class="ep-section">' +
-                    '<div class="ep-section-title"><span class="ep-section-badge body">Request Body</span> application/json</div>' +
-                    '<div class="ep-no-body">No validation rules found — add rules to the action or request class.</div>' +
-                '</div>';
-            } else if (ep.action === 'getCollection') {
-                html += '<div class="ep-section">' +
-                    '<div class="ep-section-title"><span class="ep-section-badge params">Query Parameters</span></div>' +
-                    '<table class="ep-field-table"><thead><tr><th>Param</th><th>Type</th><th>Default</th></tr></thead><tbody>' +
-                    '<tr><td><span class="ep-field-name">page</span></td><td><span class="ep-field-type">integer</span></td><td>1</td></tr>' +
-                    '<tr><td><span class="ep-field-name">per_page</span></td><td><span class="ep-field-type">integer</span></td><td>15</td></tr>' +
-                    '</tbody></table></div>';
-            } else if (ep.action === 'get') {
-                html += '<div class="ep-section">' +
-                    '<div class="ep-no-body">No request body — resource identified by URL parameter.</div>' +
-                '</div>';
-            } else if (ep.action === 'delete') {
-                html += '<div class="ep-section">' +
-                    '<div class="ep-no-body">No request body — resource identified by URL parameter.</div>' +
-                '</div>';
-            }
+            // Relationships
+            if (group.relationships && group.relationships.length > 0) {
+                html += '<div class="gen-import-resource-section">' +
+                    '<div class="gen-import-resource-title">Relationships' +
+                        (group.hasResource ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">(Resource already exists)</span>' : '') +
+                    '</div>' +
+                    '<div class="gen-import-field-grid">';
 
-            if (!html) {
-                html = '<div class="ep-no-body">No request data for this endpoint.</div>';
+                group.relationships.forEach(function(rel, rIdx) {
+                    html +=
+                        '<label class="gen-import-field-item">' +
+                            '<input type="checkbox" class="res-rel-cb" ' +
+                                'data-group="' + gIdx + '" data-rel-name="' + escapeAttr(rel.name) + '" ' +
+                                (group.hasResource ? 'disabled' : '') + '>' +
+                            '<span>' + escapeHtml(rel.name) + '</span>' +
+                            '<span class="gen-import-field-type">' + escapeHtml(rel.type) + ' \u2192 ' + escapeHtml(rel.relatedModel) + '</span>' +
+                        '</label>';
+                });
+
+                html += '</div></div>';
             }
 
             return html;
         }
 
-        function buildResponseTab(ep, stackData, breadcrumb) {
-            var html = '';
-
-            if (ep.action === 'delete') {
-                html += '<div class="ep-section">' +
-                    '<div class="ep-section-title"><span class="ep-section-badge meta">204 No Content</span></div>' +
-                    '<div class="ep-no-body">Empty response body on successful deletion.</div>' +
-                '</div>';
-                return html;
-            }
-
-            var isPaginated = ep.action === 'getCollection';
-
-            // Response fields
-            html += buildResponseFieldsHtml(stackData.fields, isPaginated);
-
-            // Relationships (clickable)
-            html += buildRelationshipsHtml(stackData.relationships, breadcrumb || []);
-
-            return html;
+        function updateResCount() {
+            var checked = document.querySelectorAll('.res-schema-cb:not(:disabled):checked').length;
+            var countEl = document.getElementById('gen-res-count');
+            var btn = document.getElementById('gen-res-generate-btn');
+            if (countEl) countEl.textContent = checked + ' schema(s) selected for generation';
+            if (btn) btn.disabled = checked === 0;
         }
 
-        function buildRequestBodyHtml(editableFields) {
-            if (!editableFields || !editableFields.length) {
-                return '<div class="ep-section">' +
-                    '<div class="ep-section-title"><span class="ep-section-badge body">Request Body</span> application/json</div>' +
-                    '<div class="ep-no-body">No editable fields.</div>' +
-                '</div>';
-            }
+        function doGenerateResources() {
+            var btn = document.getElementById('gen-res-generate-btn');
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
 
-            var rows = '';
-            editableFields.forEach(function(f) {
-                var ruleTags = '';
-                if (f.rules) {
-                    f.rules.split('|').forEach(function(r) {
-                        var cls = 'ep-rule-tag';
-                        if (r === 'required') cls += ' required';
-                        if (r === 'nullable') cls += ' nullable';
-                        ruleTags += '<span class="' + cls + '">' + escapeHtml(r) + '</span>';
-                    });
-                }
-                rows += '<tr>' +
-                    '<td><span class="ep-field-name">' + escapeHtml(f.name) + '</span></td>' +
-                    '<td><span class="ep-field-type">' + escapeHtml(f.type) + '</span></td>' +
-                    '<td class="ep-field-rules">' + ruleTags + '</td>' +
-                '</tr>';
-            });
+            var schemas = [];
+            document.querySelectorAll('.res-schema-cb:not(:disabled):checked').forEach(function(cb) {
+                var idx = parseInt(cb.dataset.resIdx, 10);
+                var group = resourcesData.groups[idx];
 
-            return '<div class="ep-section">' +
-                '<div class="ep-section-title"><span class="ep-section-badge body">Request Body</span> application/json</div>' +
-                '<table class="ep-field-table"><thead><tr><th>Field</th><th>Type</th><th>Validation</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-            '</div>';
-        }
-
-        function buildResponseFieldsHtml(fields, isPaginated) {
-            if (!fields || !fields.length) {
-                return '<div class="ep-section">' +
-                    '<div class="ep-section-title"><span class="ep-section-badge fields">Response Fields</span></div>' +
-                    '<div class="ep-no-body">No fields found.</div>' +
-                '</div>';
-            }
-
-            var rows = '';
-            fields.forEach(function(f) {
-                var flags = '';
-                if (f.primary) flags += '<span class="ep-field-flag pk">PK</span>';
-                if (f.autoIncrement) flags += '<span class="ep-field-flag ai">AI</span>';
-                if (f.unique) flags += '<span class="ep-field-flag unique">unique</span>';
-                if (f.unsigned) flags += '<span class="ep-field-flag unsigned">unsigned</span>';
-
-                var typeStr = f.type;
-                if (f.length) typeStr += '(' + f.length + ')';
-                else if (f.precision) typeStr += '(' + f.precision + (f.scale !== undefined ? ',' + f.scale : '') + ')';
-
-                var nullStr = f.nullable ? '<span class="ep-field-nullable">nullable</span>' : '';
-
-                rows += '<tr>' +
-                    '<td><span class="ep-field-name">' + escapeHtml(f.name) + '</span></td>' +
-                    '<td><span class="ep-field-type">' + escapeHtml(typeStr) + '</span> ' + nullStr + '</td>' +
-                    '<td><div class="ep-field-flags">' + flags + '</div></td>' +
-                '</tr>';
-            });
-
-            var subtitle = isPaginated ? '200 OK — paginated' : '200 OK';
-
-            return '<div class="ep-section">' +
-                '<div class="ep-section-title"><span class="ep-section-badge fields">Response Fields</span> ' + subtitle + '</div>' +
-                '<table class="ep-field-table"><thead><tr><th>Field</th><th>Type</th><th>Flags</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-            '</div>';
-        }
-
-        function doInlineAction(previewOnly) {
-            var actionName = document.getElementById('gen-inline-action-name').value.trim();
-            if (!actionName) { showToast('Enter an action name.', 'warning'); return; }
-
-            var httpMethod = document.getElementById('gen-inline-action-method').value;
-            var description = document.getElementById('gen-inline-action-desc').value.trim();
-            var payload = { schema: genSelectedStack, api: genSelectedApi, action: actionName, method: httpMethod, description: description || null };
-
-            if (previewOnly) {
-                fetch('/_schema-craft/api/generate/action/preview', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body: JSON.stringify(payload),
-                })
-                .then(handleResponse)
-                .then(function(data) {
-                    if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
-                    showFilePreviewModal(data.files, 'Add Action', function() {
-                        doWriteAction(payload);
-                    });
-                })
-                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
-            } else {
-                doWriteAction(payload);
-            }
-        }
-
-        function doWriteAction(payload) {
-            fetch('/_schema-craft/api/generate/action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify(payload),
-            })
-            .then(handleResponse)
-            .then(function(data) {
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    document.getElementById('gen-inline-action-name').value = '';
-                    document.getElementById('gen-inline-action-desc').value = '';
-                    document.getElementById('gen-inline-action-method').value = 'put';
-                    // Refresh stack detail to show new endpoint
-                    selectStack(genSelectedStack);
-                    // Also refresh config to update endpoint count badge
-                    loadGenerateConfig(genSelectedApi, function() {
-                        refreshSidebarBadges();
-                    });
-                } else {
-                    showToast(data.message || 'Action creation failed.', 'error');
-                }
-            })
-            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
-        }
-
-        function refreshSidebarBadges() {
-            if (!generateConfig || !generateConfig.schemas) return;
-            document.querySelectorAll('.gen-stack-item[data-schema]').forEach(function(item) {
-                var schema = generateConfig.schemas.find(function(s) { return s.class === item.dataset.schema; });
-                if (schema) {
-                    var badge = item.querySelector('.gen-stack-item-badge');
-                    if (badge) badge.textContent = schema.endpointCount != null ? schema.endpointCount : 0;
-                }
-            });
-        }
-
-        // ── New Stack Form ─────────────────────────────
-        function showNewStackForm() {
-            genSelectedStack = null;
-            genSelectedView = 'new-stack';
-
-            // Clear sidebar active states
-            document.querySelectorAll('.gen-stack-item').forEach(function(i) { i.classList.remove('active'); });
-            var sdkNav = document.getElementById('gen-sdk-nav');
-            if (sdkNav) sdkNav.classList.remove('active');
-            var importNav = document.getElementById('gen-import-actions-nav');
-            if (importNav) importNav.classList.remove('active');
-
-            // Build schema options (only schemas WITHOUT controllers)
-            var schemaOptions = '';
-            if (generateConfig && generateConfig.schemas) {
-                generateConfig.schemas.filter(function(s) { return !s.hasController; }).forEach(function(s) {
-                    schemaOptions += '<option value="' + escapeAttr(s.class) + '">' + escapeHtml(s.modelName) + '</option>';
+                // Gather selected columns
+                var columns = [];
+                document.querySelectorAll('.res-col-cb[data-group="' + idx + '"]:checked').forEach(function(colCb) {
+                    columns.push(colCb.dataset.colName);
                 });
+
+                // Gather selected relationships
+                var relationships = [];
+                document.querySelectorAll('.res-rel-cb[data-group="' + idx + '"]:checked').forEach(function(relCb) {
+                    relationships.push(relCb.dataset.relName);
+                });
+
+                schemas.push({
+                    class: group.schema,
+                    columns: columns.length > 0 ? columns : undefined,
+                    relationships: relationships.length > 0 ? relationships : undefined,
+                });
+            });
+
+            if (schemas.length === 0) {
+                showToast('No schemas selected.', 'warning');
+                btn.disabled = false;
+                btn.textContent = 'Generate Resources';
+                return;
             }
 
-            if (!schemaOptions) {
-                schemaOptions = '<option value="">All schemas already have stacks</option>';
-            }
-
-            var content = document.getElementById('gen-content');
-            content.innerHTML =
-                '<div class="gen-new-stack-form">' +
-                    '<div class="sc-panel">' +
-                        '<div class="sc-panel-header">Generate New API Stack</div>' +
-                        '<div class="sc-panel-body">' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-form-label">Schema</label>' +
-                                '<select class="sc-select" id="gen-ns-schema">' + schemaOptions + '</select>' +
-                            '</div>' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="gen-ns-factory" checked> Generate factory</label>' +
-                            '</div>' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="gen-ns-tests" checked> Generate tests</label>' +
-                            '</div>' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-checkbox-label"><input type="checkbox" id="gen-ns-force"> Force overwrite existing files</label>' +
-                            '</div>' +
-                        '</div>' +
-                        '<div class="sc-panel-footer">' +
-                            '<button class="sc-btn" id="gen-ns-preview">Preview</button>' +
-                            '<button class="sc-btn primary" id="gen-ns-generate">Generate</button>' +
-                        '</div>' +
-                    '</div>' +
-                '</div>';
-
-            document.getElementById('gen-ns-preview').addEventListener('click', function() { doNewStackGenerate(true); });
-            document.getElementById('gen-ns-generate').addEventListener('click', function() { doNewStackGenerate(false); });
-        }
-
-        function doNewStackGenerate(previewOnly) {
-            var schema = document.getElementById('gen-ns-schema').value;
-            if (!schema) { showToast('Select a schema.', 'warning'); return; }
-
-            var payload = {
-                schema: schema,
-                api: genSelectedApi,
-                noFactory: !document.getElementById('gen-ns-factory').checked,
-                noTest: !document.getElementById('gen-ns-tests').checked,
-            };
-
-            if (previewOnly) {
-                fetch('/_schema-craft/api/generate/preview', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body: JSON.stringify(payload),
-                })
-                .then(handleResponse)
-                .then(function(data) {
-                    if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
-                    showFilePreviewModal(data.files, 'Generate Stack', function() {
-                        payload.force = document.getElementById('gen-ns-force').checked;
-                        doNewStackWrite(payload, schema);
-                    });
-                })
-                .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
-            } else {
-                payload.force = document.getElementById('gen-ns-force').checked;
-                doNewStackWrite(payload, schema);
-            }
-        }
-
-        function doNewStackWrite(payload, schemaClass) {
-            fetch('/_schema-craft/api/generate', {
+            fetch('/_schema-craft/api/generate-resources', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify(payload),
+                body: JSON.stringify({ api: genSelectedApi, schemas: schemas }),
             })
             .then(handleResponse)
             .then(function(data) {
                 if (data.success) {
                     showToast(data.message, 'success');
-                    // Refresh config and re-render main, then auto-select the new stack
-                    genSelectedStack = schemaClass;
-                    genSelectedView = 'stack';
-                    loadGenerateConfig(genSelectedApi, function() {
-                        renderGenerateMain();
-                    });
+                    // Refresh the resources view
+                    showResourcesView();
                 } else {
                     showToast(data.message || 'Generation failed.', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Generate Resources';
                 }
             })
-            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+            .catch(function(e) {
+                showToast('Error: ' + e.message, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Generate Resources';
+            });
         }
 
         // ── Import Actions View ────────────────────────
         var importActionsData = null;
 
         function showImportActionsView() {
-            genSelectedStack = null;
-            genSelectedView = 'import';
-            updateQueryParams({ stack: null });
-
-            // Clear sidebar active states
-            document.querySelectorAll('.gen-stack-item').forEach(function(i) { i.classList.remove('active'); });
-            var sdkNav = document.getElementById('gen-sdk-nav');
-            if (sdkNav) sdkNav.classList.remove('active');
-            var importNav = document.getElementById('gen-import-actions-nav');
-            if (importNav) importNav.classList.add('active');
-
             var content = document.getElementById('gen-content');
-            content.innerHTML = '<div class="gen-empty-state">Loading available actions...</div>';
+            content.innerHTML = '<div class="gen-empty-state">Loading actions...</div>';
 
             fetch('/_schema-craft/api/available-actions?api=' + encodeURIComponent(genSelectedApi))
                 .then(handleResponse)
@@ -7595,7 +7121,7 @@
                     renderImportActionsView();
                 })
                 .catch(function(e) {
-                    content.innerHTML = '<div class="gen-empty-state">Failed to load actions: ' + escapeHtml(e.message) + '</div>';
+                    content.innerHTML = '<div class="gen-empty-state">Failed to load: ' + escapeHtml(e.message) + '</div>';
                 });
         }
 
@@ -7603,145 +7129,203 @@
             var data = importActionsData;
             var content = document.getElementById('gen-content');
 
-            if (!data.groups || data.groups.length === 0) {
+            // Filter to only schemas that have a resource
+            var eligibleGroups = data.groups.filter(function(g) { return g.hasResource; });
+            var noResourceGroups = data.groups.filter(function(g) { return !g.hasResource; });
+
+            if (eligibleGroups.length === 0 && data.groups.length > 0) {
                 content.innerHTML =
                     '<div class="gen-import">' +
                         '<div class="gen-import-title">Import Actions</div>' +
-                        '<div class="gen-import-subtitle">No Actions found. Create Actions first via the Actions tab.</div>' +
+                        '<div class="gen-import-subtitle">' + data.groups.length + ' schema(s) have Actions but no Resources yet. ' +
+                            '<a href="#" id="gen-import-goto-res" style="color:var(--accent);text-decoration:underline;">Generate Resources first</a>.</div>' +
+                    '</div>';
+                document.getElementById('gen-import-goto-res').addEventListener('click', function(e) {
+                    e.preventDefault();
+                    switchGenView('resources');
+                });
+                return;
+            }
+
+            if (eligibleGroups.length === 0) {
+                content.innerHTML =
+                    '<div class="gen-import">' +
+                        '<div class="gen-import-title">Import Actions</div>' +
+                        '<div class="gen-import-subtitle">No schemas with Actions found. Create Actions first via the Actions tab.</div>' +
                     '</div>';
                 return;
             }
 
-            var groupsHtml = '';
-            data.groups.forEach(function(group, gIdx) {
-                var availableCount = group.actions.filter(function(a) { return !a.imported; }).length;
-                var importedCount = group.actions.length - availableCount;
+            // Build flat action list grouped by schema
+            var actionsHtml = '';
+            var totalAvailable = 0;
 
-                var actionsHtml = '';
+            eligibleGroups.forEach(function(group, gIdx) {
+                var unimported = group.actions.filter(function(a) { return !a.imported; });
+                var imported = group.actions.filter(function(a) { return a.imported; });
+
+                if (group.actions.length === 0) return;
+
+                actionsHtml += '<div class="gen-import-group" data-import-group="' + gIdx + '">' +
+                    '<div class="gen-import-group-header" data-import-toggle="' + gIdx + '">' +
+                        '<input type="checkbox" class="import-group-select-all" data-import-group-idx="' + gIdx + '" ' +
+                            (unimported.length === 0 ? 'disabled checked' : '') + ' ' +
+                            'onclick="event.stopPropagation();">' +
+                        '<span class="gen-import-group-toggle open">&#9654;</span>' +
+                        '<span class="gen-import-group-name">' + escapeHtml(group.modelName) + '</span>' +
+                        '<span class="gen-import-group-count">' +
+                            unimported.length + ' available' +
+                            (imported.length > 0 ? ', ' + imported.length + ' imported' : '') +
+                        '</span>' +
+                    '</div>' +
+                    '<div class="gen-import-group-body open" data-import-body="' + gIdx + '">';
+
                 group.actions.forEach(function(action, aIdx) {
-                    var checkboxId = 'import-action-' + gIdx + '-' + aIdx;
+                    var isImported = action.imported;
+                    if (!isImported) totalAvailable++;
+
+                    // Build relationship tags for this action
+                    var relTags = '';
+                    if (action.relationships && action.relationships.length > 0) {
+                        action.relationships.forEach(function(rel) {
+                            relTags += '<span class="gen-import-field-type" style="margin-left:4px;padding:1px 6px;background:var(--bg-tertiary);border-radius:3px;" title="' +
+                                escapeAttr(rel.type + ' → ' + rel.relatedModel) + '">' +
+                                escapeHtml(rel.name) + (rel.isCollection ? '[]' : '') +
+                            '</span>';
+                        });
+                    }
+
                     actionsHtml +=
-                        '<div class="gen-import-action-row' + (action.imported ? ' imported' : '') + '">' +
-                            '<input type="checkbox" id="' + checkboxId + '" ' +
-                                'data-group="' + gIdx + '" data-action-class="' + escapeAttr(action.class) + '" ' +
+                        '<div class="gen-import-action-row' + (isImported ? ' imported' : '') + '">' +
+                            '<input type="checkbox" class="import-action-cb" ' +
+                                'data-import-group-idx="' + gIdx + '" ' +
+                                'data-action-class="' + escapeAttr(action.class) + '" ' +
                                 'data-schema="' + escapeAttr(group.schema) + '" ' +
-                                (action.imported ? 'disabled checked' : '') + '>' +
+                                (isImported ? 'disabled checked' : '') + '>' +
                             '<span class="gen-import-action-method ' + action.httpMethod.toLowerCase() + '">' +
                                 escapeHtml(action.httpMethod.toUpperCase()) + '</span>' +
                             '<span class="gen-import-action-name">' + escapeHtml(action.shortName) + '</span>' +
+                            relTags +
                             '<span class="gen-import-action-label">' + escapeHtml(action.label) + '</span>' +
-                            (action.imported ? '<span class="gen-import-action-imported-badge">Imported</span>' : '') +
+                            (isImported ? '<span class="gen-import-action-imported-badge">Imported</span>' : '') +
                         '</div>';
                 });
 
-                // Resource column selection
-                var columnsHtml = '';
-                if (group.columns && group.columns.length > 0) {
-                    columnsHtml += '<div class="gen-import-resource-section">' +
-                        '<div class="gen-import-resource-title">Resource Columns' +
-                            (group.hasResource ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">(Resource already exists — columns ignored)</span>' : '') +
-                        '</div>' +
-                        '<div class="gen-import-field-grid">';
-
-                    group.columns.forEach(function(col, cIdx) {
-                        var colId = 'import-col-' + gIdx + '-' + cIdx;
-                        var isSystem = ['id', 'created_at', 'updated_at', 'deleted_at'].indexOf(col.name) !== -1;
-                        columnsHtml +=
-                            '<label class="gen-import-field-item">' +
-                                '<input type="checkbox" id="' + colId + '" class="import-col-cb" ' +
-                                    'data-group="' + gIdx + '" data-col-name="' + escapeAttr(col.name) + '" ' +
-                                    (isSystem ? 'checked disabled' : 'checked') +
-                                    (group.hasResource ? ' disabled' : '') + '>' +
-                                '<span>' + escapeHtml(col.name) + '</span>' +
-                                '<span class="gen-import-field-type">' + escapeHtml(col.type) + '</span>' +
-                            '</label>';
-                    });
-
-                    columnsHtml += '</div></div>';
-                }
-
-                // Relationship selection
-                if (group.relationships && group.relationships.length > 0) {
-                    columnsHtml += '<div class="gen-import-resource-section">' +
-                        '<div class="gen-import-resource-title">Relationships' +
-                            (group.hasResource ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">(Resource already exists — relationships ignored)</span>' : '') +
-                        '</div>' +
-                        '<div class="gen-import-field-grid">';
-
-                    group.relationships.forEach(function(rel, rIdx) {
-                        var relId = 'import-rel-' + gIdx + '-' + rIdx;
-                        columnsHtml +=
-                            '<label class="gen-import-field-item">' +
-                                '<input type="checkbox" id="' + relId + '" class="import-rel-cb" ' +
-                                    'data-group="' + gIdx + '" data-rel-name="' + escapeAttr(rel.name) + '" ' +
-                                    (group.hasResource ? 'disabled' : '') + '>' +
-                                '<span>' + escapeHtml(rel.name) + '</span>' +
-                                '<span class="gen-import-field-type">' + escapeHtml(rel.type) + ' → ' + escapeHtml(rel.relatedModel) + '</span>' +
-                            '</label>';
-                    });
-
-                    columnsHtml += '</div></div>';
-                }
-
-                groupsHtml +=
-                    '<div class="gen-import-group" data-group-idx="' + gIdx + '">' +
-                        '<div class="gen-import-group-header" data-group-toggle="' + gIdx + '">' +
-                            '<span class="gen-import-group-toggle">&#9654;</span>' +
-                            '<span class="gen-import-group-name">' + escapeHtml(group.modelName) + '</span>' +
-                            '<span class="gen-import-group-count">' +
-                                group.actions.length + ' action' + (group.actions.length !== 1 ? 's' : '') +
-                                (importedCount > 0 ? ' (' + importedCount + ' imported)' : '') +
-                            '</span>' +
-                            (group.hasResource ? '<span class="gen-import-action-imported-badge">Resource exists</span>' : '') +
-                        '</div>' +
-                        '<div class="gen-import-group-body" data-group-body="' + gIdx + '">' +
-                            actionsHtml +
-                            columnsHtml +
-                        '</div>' +
-                    '</div>';
+                actionsHtml += '</div></div>';
             });
+
+            // No-resource warning
+            var warningHtml = '';
+            if (noResourceGroups.length > 0) {
+                var names = noResourceGroups.map(function(g) { return g.modelName; }).join(', ');
+                warningHtml = '<div style="background:var(--warning-dim);color:var(--warning);padding:10px 16px;border-radius:6px;font-size:12px;margin-bottom:16px;">' +
+                    '<strong>' + noResourceGroups.length + ' schema(s) need Resources first:</strong> ' + escapeHtml(names) + '. ' +
+                    '<a href="#" id="gen-import-res-link" style="color:var(--warning);text-decoration:underline;">Generate Resources</a>' +
+                '</div>';
+            }
 
             content.innerHTML =
                 '<div class="gen-import">' +
                     '<div class="gen-import-title">Import Actions</div>' +
-                    '<div class="gen-import-subtitle">Select Actions to import into the <strong>' + escapeHtml(data.apiName) + '</strong> API. ' +
-                        'This generates a Resource and registers Action endpoints in <code>' + escapeHtml(data.routeFile) + '</code>.</div>' +
-                    groupsHtml +
+                    '<div class="gen-import-subtitle">Import Actions into the <strong>' + escapeHtml(data.apiName) + '</strong> API route file ' +
+                        '<code>' + escapeHtml(data.routeFile) + '</code>.</div>' +
+                    warningHtml +
+                    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">' +
+                        '<div style="flex:1;">' +
+                            '<input type="search" id="gen-import-search" placeholder="Filter actions..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;">' +
+                        '</div>' +
+                        '<button class="sc-btn" id="gen-import-select-all">Select All</button>' +
+                        '<button class="sc-btn" id="gen-import-deselect-all">Deselect All</button>' +
+                    '</div>' +
+                    actionsHtml +
                     '<div class="gen-import-footer">' +
                         '<span class="gen-import-selected-count" id="gen-import-count">0 actions selected</span>' +
                         '<button class="sc-btn primary" id="gen-import-btn" disabled>Import Selected Actions</button>' +
                     '</div>' +
                 '</div>';
 
+            // Link to resources view
+            var resLink = document.getElementById('gen-import-res-link');
+            if (resLink) {
+                resLink.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    switchGenView('resources');
+                });
+            }
+
             // Toggle group expand/collapse
-            content.querySelectorAll('[data-group-toggle]').forEach(function(header) {
-                header.addEventListener('click', function() {
-                    var idx = header.dataset.groupToggle;
-                    var body = content.querySelector('[data-group-body="' + idx + '"]');
+            content.querySelectorAll('[data-import-toggle]').forEach(function(header) {
+                header.addEventListener('click', function(e) {
+                    if (e.target.tagName === 'INPUT') return;
+                    var idx = header.dataset.importToggle;
+                    var body = content.querySelector('[data-import-body="' + idx + '"]');
                     var toggle = header.querySelector('.gen-import-group-toggle');
                     body.classList.toggle('open');
                     toggle.classList.toggle('open');
                 });
             });
 
-            // Update selection count on checkbox change
-            content.querySelectorAll('input[data-action-class]').forEach(function(cb) {
-                cb.addEventListener('change', updateImportSelectionCount);
+            // Search filter — filters both groups and individual actions
+            document.getElementById('gen-import-search').addEventListener('input', function(e) {
+                var query = e.target.value.toLowerCase();
+                content.querySelectorAll('.gen-import-group[data-import-group]').forEach(function(group) {
+                    var groupName = group.querySelector('.gen-import-group-name').textContent.toLowerCase();
+                    var groupMatch = !query || groupName.indexOf(query) !== -1;
+
+                    // Filter individual actions within the group
+                    var hasVisibleAction = false;
+                    group.querySelectorAll('.gen-import-action-row').forEach(function(row) {
+                        var actionName = row.querySelector('.gen-import-action-name').textContent.toLowerCase();
+                        var visible = groupMatch || actionName.indexOf(query) !== -1;
+                        row.style.display = visible ? '' : 'none';
+                        if (visible) hasVisibleAction = true;
+                    });
+
+                    group.style.display = hasVisibleAction ? '' : 'none';
+                });
             });
 
-            updateImportSelectionCount();
+            // Group-level select all checkbox
+            content.querySelectorAll('.import-group-select-all').forEach(function(groupCb) {
+                groupCb.addEventListener('change', function() {
+                    var idx = groupCb.dataset.importGroupIdx;
+                    var checked = groupCb.checked;
+                    content.querySelectorAll('.import-action-cb[data-import-group-idx="' + idx + '"]:not(:disabled)').forEach(function(cb) {
+                        cb.checked = checked;
+                    });
+                    updateImportCount();
+                });
+            });
+
+            // Global select/deselect all
+            document.getElementById('gen-import-select-all').addEventListener('click', function() {
+                content.querySelectorAll('.import-action-cb:not(:disabled)').forEach(function(cb) { cb.checked = true; });
+                content.querySelectorAll('.import-group-select-all:not(:disabled)').forEach(function(cb) { cb.checked = true; });
+                updateImportCount();
+            });
+            document.getElementById('gen-import-deselect-all').addEventListener('click', function() {
+                content.querySelectorAll('.import-action-cb:not(:disabled)').forEach(function(cb) { cb.checked = false; });
+                content.querySelectorAll('.import-group-select-all:not(:disabled)').forEach(function(cb) { cb.checked = false; });
+                updateImportCount();
+            });
+
+            // Individual checkbox change
+            content.querySelectorAll('.import-action-cb').forEach(function(cb) {
+                cb.addEventListener('change', updateImportCount);
+            });
+
+            updateImportCount();
 
             // Import button
             document.getElementById('gen-import-btn').addEventListener('click', doImportActions);
         }
 
-        function updateImportSelectionCount() {
-            var checkboxes = document.querySelectorAll('input[data-action-class]:not(:disabled):checked');
-            var count = checkboxes.length;
+        function updateImportCount() {
+            var checked = document.querySelectorAll('.import-action-cb:not(:disabled):checked').length;
             var countEl = document.getElementById('gen-import-count');
             var btn = document.getElementById('gen-import-btn');
-            if (countEl) countEl.textContent = count + ' action' + (count !== 1 ? 's' : '') + ' selected';
-            if (btn) btn.disabled = count === 0;
+            if (countEl) countEl.textContent = checked + ' action' + (checked !== 1 ? 's' : '') + ' selected';
+            if (btn) btn.disabled = checked === 0;
         }
 
         function doImportActions() {
@@ -7751,7 +7335,7 @@
 
             // Group selected actions by schema
             var schemaActions = {};
-            document.querySelectorAll('input[data-action-class]:not(:disabled):checked').forEach(function(cb) {
+            document.querySelectorAll('.import-action-cb:not(:disabled):checked').forEach(function(cb) {
                 var schema = cb.dataset.schema;
                 if (!schemaActions[schema]) schemaActions[schema] = [];
                 schemaActions[schema].push(cb.dataset.actionClass);
@@ -7770,30 +7354,10 @@
             var errors = [];
 
             schemas.forEach(function(schema) {
-                var groupIdx = null;
-                importActionsData.groups.forEach(function(g, idx) {
-                    if (g.schema === schema) groupIdx = idx;
-                });
-
-                // Gather selected columns/relationships for this group
-                var selectedColumns = [];
-                var selectedRelationships = [];
-
-                if (groupIdx !== null) {
-                    document.querySelectorAll('.import-col-cb[data-group="' + groupIdx + '"]:checked').forEach(function(cb) {
-                        selectedColumns.push(cb.dataset.colName);
-                    });
-                    document.querySelectorAll('.import-rel-cb[data-group="' + groupIdx + '"]:checked').forEach(function(cb) {
-                        selectedRelationships.push(cb.dataset.relName);
-                    });
-                }
-
                 var payload = {
                     api: genSelectedApi,
                     actions: schemaActions[schema],
                     schema: schema,
-                    resource_columns: selectedColumns.length > 0 ? selectedColumns : undefined,
-                    resource_relationships: selectedRelationships.length > 0 ? selectedRelationships : undefined,
                 };
 
                 fetch('/_schema-craft/api/import-actions', {
@@ -7818,12 +7382,8 @@
                         } else {
                             showToast('Imported ' + totalAdded + ' action(s) successfully.', 'success');
                         }
-                        // Refresh the view and the sidebar
-                        loadGenerateConfig(genSelectedApi, function() {
-                            renderGenerateMain();
-                            // Re-show import view after sidebar re-renders
-                            setTimeout(function() { showImportActionsView(); }, 50);
-                        });
+                        // Refresh the import view
+                        showImportActionsView();
                     }
                 });
             });
@@ -7831,17 +7391,6 @@
 
         // ── SDK View ───────────────────────────────────
         function showSdkView() {
-            genSelectedStack = null;
-            genSelectedView = 'sdk';
-            updateQueryParams({ stack: null });
-
-            // Clear sidebar active states
-            document.querySelectorAll('.gen-stack-item').forEach(function(i) { i.classList.remove('active'); });
-            var importNav = document.getElementById('gen-import-actions-nav');
-            if (importNav) importNav.classList.remove('active');
-            var sdkNav = document.getElementById('gen-sdk-nav');
-            if (sdkNav) sdkNav.classList.add('active');
-
             var content = document.getElementById('gen-content');
             content.innerHTML = '<div class="gen-empty-state">Loading SDK config...</div>';
 
@@ -7939,7 +7488,6 @@
         // ── Filament View ───────────────────────────────
         function showFilamentPage() {
             genSelectedApi = null;
-            genSelectedStack = null;
             genSelectedView = 'filament';
             updateQueryParams({ api: null, stack: null });
 

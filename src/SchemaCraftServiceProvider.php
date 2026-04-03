@@ -236,6 +236,8 @@ class SchemaCraftServiceProvider extends ServiceProvider
             Route::get('/api/available-actions', [GenerateController::class, 'availableActions']);
             Route::post('/api/import-actions', [GenerateController::class, 'importActions'])
                 ->withoutMiddleware($noCsrf);
+            Route::post('/api/generate-resources', [GenerateController::class, 'generateResources'])
+                ->withoutMiddleware($noCsrf);
             Route::get('/api/sdk/config', [GenerateController::class, 'sdkConfig']);
             Route::post('/api/sdk/preview', [GenerateController::class, 'sdkPreview'])
                 ->withoutMiddleware($noCsrf);

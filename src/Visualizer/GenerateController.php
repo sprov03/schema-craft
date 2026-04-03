@@ -690,6 +690,20 @@ class GenerateController
                 $definition = (new \SchemaCraft\Scanner\ActionScanner($fqcn))->scan();
                 $meta = $fqcn::meta();
 
+                // Extract relationships this action needs loaded
+                $actionRelationships = [];
+                foreach ($definition->nestedParameters() as $nested) {
+                    $nr = $nested->nestedRelationship;
+                    if ($nr) {
+                        $actionRelationships[] = [
+                            'name' => $nr->name,
+                            'type' => $nr->relationshipType,
+                            'relatedModel' => class_basename($nr->relatedModel),
+                            'isCollection' => $nr->isCollection,
+                        ];
+                    }
+                }
+
                 $actions[] = [
                     'class' => $fqcn,
                     'shortName' => $className,
@@ -698,6 +712,7 @@ class GenerateController
                     'label' => $meta?->label ?? Str::headline($definition->serviceMethod),
                     'description' => $definition->description,
                     'imported' => in_array($className, $importedActions),
+                    'relationships' => $actionRelationships,
                     'parameters' => array_map(fn ($p) => [
                         'name' => $p->name,
                         'type' => $p->type,
@@ -852,6 +867,69 @@ class GenerateController
             'message' => 'Imported '.count($addedActions).' action(s) into '.$apiConfig->name.'.',
             'createdFiles' => $createdFiles,
             'addedActions' => $addedActions,
+        ]);
+    }
+
+    /**
+     * Generate Resources for selected schemas (without importing actions).
+     */
+    public function generateResources(Request $request, Filesystem $fs): JsonResponse
+    {
+        $request->validate([
+            'api' => ['required', 'string'],
+            'schemas' => ['required', 'array'],
+            'schemas.*.class' => ['required', 'string'],
+            'schemas.*.columns' => ['sometimes', 'array'],
+            'schemas.*.relationships' => ['sometimes', 'array'],
+        ]);
+
+        $apiConfig = ConfigResolver::resolve($request->input('api'));
+        $resourceDir = base_path($this->namespaceToDirectory($apiConfig->resourceNamespace));
+        $createdFiles = [];
+        $skipped = [];
+
+        foreach ($request->input('schemas') as $schemaInput) {
+            $schemaClass = $this->resolveSchemaClass($schemaInput['class']);
+            $modelName = $this->resolveModelName($schemaClass);
+            $resourcePath = $resourceDir.'/'.$modelName.'Resource.php';
+
+            if ($fs->exists($resourcePath)) {
+                $skipped[] = $modelName;
+
+                continue;
+            }
+
+            $scanner = new SchemaScanner($schemaClass);
+            $table = $scanner->scan();
+
+            $selectedColumns = $schemaInput['columns'] ?? null;
+            $selectedRelationships = $schemaInput['relationships'] ?? null;
+
+            if ($selectedColumns !== null) {
+                $table = $this->filterTableColumns($table, $selectedColumns, $selectedRelationships ?? []);
+            }
+
+            $resourceGenerator = new ResourceGenerator;
+            $resourceContent = $resourceGenerator->generate(
+                table: $table,
+                resourceNamespace: $apiConfig->resourceNamespace,
+            );
+
+            $fs->ensureDirectoryExists($resourceDir);
+            $fs->put($resourcePath, $resourceContent);
+            $createdFiles[] = $modelName.'Resource.php';
+        }
+
+        $message = 'Generated '.count($createdFiles).' resource(s).';
+        if (! empty($skipped)) {
+            $message .= ' Skipped '.count($skipped).' (already exist).';
+        }
+
+        return new JsonResponse([
+            'success' => true,
+            'message' => $message,
+            'createdFiles' => $createdFiles,
+            'skipped' => $skipped,
         ]);
     }
 

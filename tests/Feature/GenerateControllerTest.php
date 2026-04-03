@@ -430,6 +430,62 @@ PHP);
         $response->assertJson(['success' => false]);
     }
 
+    // ─── POST /api/generate-resources ────────────────────
+
+    public function test_generate_resources_creates_resource_files(): void
+    {
+        $this->createSchemaFile('ResWidget', [
+            ['name' => 'title', 'phpType' => 'string'],
+            ['name' => 'count', 'phpType' => 'int'],
+        ]);
+
+        $this->app['config']->set('schema-craft.apis.default.resource_namespace', 'App\\Resources');
+        $this->app['config']->set('schema-craft.apis.default.route_file', 'routes/api.php');
+
+        $response = $this->postJson('/_schema-craft/api/generate-resources', [
+            'api' => 'default',
+            'schemas' => [
+                ['class' => 'App\\Schemas\\ResWidgetSchema'],
+            ],
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        $this->assertFileExists($this->tempDir.'/app/Resources/ResWidgetResource.php');
+    }
+
+    public function test_generate_resources_skips_existing(): void
+    {
+        $this->createSchemaFile('ResGadget', [
+            ['name' => 'name', 'phpType' => 'string'],
+        ]);
+
+        $this->app['config']->set('schema-craft.apis.default.resource_namespace', 'App\\Resources');
+        $this->app['config']->set('schema-craft.apis.default.route_file', 'routes/api.php');
+
+        // Pre-create the resource
+        $this->files->put($this->tempDir.'/app/Resources/ResGadgetResource.php', '<?php // existing');
+
+        $response = $this->postJson('/_schema-craft/api/generate-resources', [
+            'api' => 'default',
+            'schemas' => [
+                ['class' => 'App\\Schemas\\ResGadgetSchema'],
+            ],
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true, 'skipped' => ['ResGadget']]);
+        // Content should be unchanged
+        $this->assertStringContainsString('// existing', $this->files->get($this->tempDir.'/app/Resources/ResGadgetResource.php'));
+    }
+
+    public function test_generate_resources_requires_api_and_schemas(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/generate-resources', []);
+
+        $response->assertUnprocessable();
+    }
+
     // ─── GET /api/sdk/config ───────────────────────────
 
     public function test_sdk_config_returns_settings(): void
