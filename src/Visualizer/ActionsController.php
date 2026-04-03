@@ -44,7 +44,7 @@ class ActionsController
             try {
                 $scanner = new SchemaScanner($schemaClass);
                 $table = $scanner->scan();
-                $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+                $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
             } catch (\Throwable) {
                 $connectionConfig = ConfigResolver::connectionDefaults();
             }
@@ -102,7 +102,7 @@ class ActionsController
         try {
             $schemaScanner = new SchemaScanner($schemaClass);
             $table = $schemaScanner->scan();
-            $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+            $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
             $servicePath = $connectionConfig->servicePath($modelName);
 
             if (file_exists($servicePath)) {
@@ -535,7 +535,7 @@ class ActionsController
         // Scan schema to get the connection config for namespace resolution
         $scanner = new SchemaScanner($schemaClass);
         $table = $scanner->scan();
-        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+        $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
 
         $actionNamespace = $connectionConfig->modelNamespace.'\\Actions\\'.$modelName;
         $schemaNamespace = $connectionConfig->schemaNamespace;
@@ -1051,7 +1051,7 @@ class ActionsController
 
         $schemaScanner = new SchemaScanner($schemaClass);
         $table = $schemaScanner->scan();
-        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+        $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
         $prefixedModel = $connectionConfig->prefixedModelName($modelName);
         $servicePath = $connectionConfig->serviceDirectory().'/'.$prefixedModel.'Service.php';
 

@@ -482,7 +482,7 @@ class GenerateController
         $scanner = new SchemaScanner($schemaClass);
         $table = $scanner->scan();
 
-        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+        $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
 
         $stubsPath = StubResolver::basePath();
         $generator = new ApiCodeGenerator($stubsPath);
@@ -536,7 +536,7 @@ class GenerateController
         $scanner = new SchemaScanner($schemaClass);
         $table = $scanner->scan();
 
-        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+        $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
 
         $testGenerator = new ControllerTestGenerator;
         $content = $testGenerator->generate(
@@ -660,11 +660,9 @@ class GenerateController
         foreach ($schemaClasses as $schemaClass) {
             $modelName = $this->resolveModelName($schemaClass);
 
-            // Resolve connection config for namespace-aware discovery
+            // Resolve connection config by schema namespace (not by DB connection)
             try {
-                $scanner = new SchemaScanner($schemaClass);
-                $table = $scanner->scan();
-                $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+                $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
             } catch (\Throwable) {
                 continue;
             }
@@ -723,11 +721,14 @@ class GenerateController
             }
 
             if (! empty($actions)) {
-                // Scan schema columns for resource field selection
+                // Scan schema for columns and relationships (deferred until we know actions exist)
                 $columns = [];
                 $relationships = [];
 
                 try {
+                    $scanner = new SchemaScanner($schemaClass);
+                    $table = $scanner->scan();
+
                     foreach ($table->columns as $col) {
                         $columns[] = [
                             'name' => $col->name,
@@ -1216,7 +1217,7 @@ class GenerateController
         $table = $scanner->scan();
 
         // Resolve connection-specific namespaces from the schema's $connection
-        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+        $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
         $modelNamespace = $connectionConfig->modelNamespace;
         $serviceNamespace = $connectionConfig->serviceNamespace;
         $schemaNamespace = $connectionConfig->schemaNamespace;
@@ -1309,7 +1310,7 @@ class GenerateController
         // Scan schema for context
         $scanner = new SchemaScanner($schemaClass);
         $table = $scanner->scan();
-        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+        $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
 
         $fs = $fs ?? new Filesystem;
         $writer = new ApiFileWriter;

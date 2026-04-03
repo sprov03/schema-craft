@@ -65,7 +65,7 @@ class GenerateApiCommand extends Command
         $table = $scanner->scan();
 
         // Resolve connection-specific namespaces from the schema's $connection
-        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+        $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
         $modelNamespace = $connectionConfig->modelNamespace;
         $serviceNamespace = $connectionConfig->serviceNamespace;
         $schemaNamespace = $connectionConfig->schemaNamespace;
@@ -181,7 +181,7 @@ class GenerateApiCommand extends Command
         // Scan schema for context
         $scanner = new SchemaScanner($schemaClass);
         $table = $scanner->scan();
-        $connectionConfig = ConfigResolver::resolveByDatabaseConnection($table->connection);
+        $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
 
         $writer = new ApiFileWriter;
         $modelVariable = Str::camel($modelName);

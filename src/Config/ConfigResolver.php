@@ -67,6 +67,9 @@ class ConfigResolver
      *
      * Searches all configured db_connections for one whose `connection` value
      * matches the given database connection name. Returns defaults when not found.
+     *
+     * @deprecated Use resolveForSchema() instead — multiple connection configs can
+     *             share the same database connection, making this method unreliable.
      */
     public static function resolveByDatabaseConnection(?string $databaseConnection): ConnectionConfig
     {
@@ -174,6 +177,20 @@ class ConfigResolver
         }
 
         return 'default';
+    }
+
+    /**
+     * Resolve the ConnectionConfig for a given schema class.
+     *
+     * Uses the schema's namespace to find the correct connection config.
+     * This is the preferred method over resolveByDatabaseConnection() because
+     * multiple connection configs can share the same database connection.
+     */
+    public static function resolveForSchema(string $schemaClass): ConnectionConfig
+    {
+        $connectionName = self::resolveConnectionNameForSchema($schemaClass);
+
+        return self::resolveConnection($connectionName);
     }
 
     /**
