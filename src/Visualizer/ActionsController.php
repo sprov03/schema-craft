@@ -50,8 +50,8 @@ class ActionsController
             }
 
             // Discover action classes for this model
-            $actions = $this->discoverActions($modelName, $connectionConfig->modelNamespace);
-            $hasRegistry = $this->hasRegistry($modelName, $connectionConfig->modelNamespace);
+            $actions = $this->discoverActions($modelName, $connectionConfig);
+            $hasRegistry = $this->hasRegistry($modelName, $connectionConfig);
 
             // Scan schema columns for the field picker
             $columns = $this->scanSchemaColumns($schemaClass);
@@ -64,6 +64,7 @@ class ActionsController
                 'hasRegistry' => $hasRegistry,
                 'connection' => $connectionConfig->connection,
                 'modelNamespace' => $connectionConfig->modelNamespace,
+                'actionNamespace' => $connectionConfig->actionNamespace,
             ];
         }
 
@@ -537,7 +538,7 @@ class ActionsController
         $table = $scanner->scan();
         $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
 
-        $actionNamespace = $connectionConfig->modelNamespace.'\\Actions\\'.$modelName;
+        $actionNamespace = $connectionConfig->actionNamespaceForModel($modelName);
         $schemaNamespace = $connectionConfig->schemaNamespace;
 
         $stubsPath = StubResolver::basePath();
@@ -656,10 +657,10 @@ class ActionsController
      *
      * @return array<int, array{class: string, name: string, httpMethod: string, label: string|null}>
      */
-    private function discoverActions(string $modelName, string $modelNamespace): array
+    private function discoverActions(string $modelName, ConnectionConfig $connectionConfig): array
     {
         $actions = [];
-        $actionsNamespace = $modelNamespace.'\\Actions\\'.$modelName;
+        $actionsNamespace = $connectionConfig->actionNamespaceForModel($modelName);
         $actionsDir = base_path(ConnectionConfig::namespaceToDirectory($actionsNamespace));
 
         if (! is_dir($actionsDir)) {
@@ -701,9 +702,9 @@ class ActionsController
     /**
      * Check if an ActionRegistry exists for a model.
      */
-    private function hasRegistry(string $modelName, string $modelNamespace): bool
+    private function hasRegistry(string $modelName, ConnectionConfig $connectionConfig): bool
     {
-        $registryClass = "{$modelNamespace}\\Actions\\{$modelName}\\{$modelName}Actions";
+        $registryClass = $connectionConfig->actionNamespaceForModel($modelName).'\\'.$modelName.'Actions';
 
         return class_exists($registryClass);
     }

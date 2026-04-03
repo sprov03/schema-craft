@@ -6,7 +6,6 @@ use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use SchemaCraft\Action;
 use SchemaCraft\Config\ConfigResolver;
-use SchemaCraft\Config\ConnectionConfig;
 use SchemaCraft\Generator\Api\ApiFileWriter;
 use SchemaCraft\Generator\Filament\FilamentActionCodeGenerator;
 use SchemaCraft\Scanner\ActionScanner;
@@ -110,7 +109,7 @@ class PublishFilamentActionCommand extends Command
         // Search all configured model namespaces for the action
         foreach (ConfigResolver::allConnectionNames() as $name) {
             $config = ConfigResolver::resolveConnection($name);
-            $actionsDir = base_path(ConnectionConfig::namespaceToDirectory($config->modelNamespace.'\\Actions'));
+            $actionsDir = base_path($config->actionDirectory());
 
             if (! is_dir($actionsDir)) {
                 continue;
@@ -120,7 +119,7 @@ class PublishFilamentActionCommand extends Command
 
             foreach ($dirs as $dir) {
                 $modelName = basename($dir);
-                $fqcn = "{$config->modelNamespace}\\Actions\\{$modelName}\\{$input}";
+                $fqcn = $config->actionNamespaceForModel($modelName).'\\'.$input;
 
                 if (class_exists($fqcn)) {
                     return $fqcn;

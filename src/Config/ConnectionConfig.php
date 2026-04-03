@@ -15,6 +15,7 @@ class ConnectionConfig
         public string $serviceNamespace,
         public string $factoryNamespace,
         public string $testNamespace,
+        public string $actionNamespace,
         public string $schemaPrefix,
         public string $modelPrefix,
         public string $servicePrefix,
@@ -29,15 +30,17 @@ class ConnectionConfig
     {
         $prefixes = $config['prefixes'] ?? [];
         $namespaces = $config['namespaces'] ?? [];
+        $modelNamespace = $namespaces['model'] ?? 'App\\Models';
 
         return new self(
             name: $name,
             connection: $config['connection'] ?? $name,
             schemaNamespace: $namespaces['schema'] ?? 'App\\Schemas',
-            modelNamespace: $namespaces['model'] ?? 'App\\Models',
+            modelNamespace: $modelNamespace,
             serviceNamespace: $namespaces['service'] ?? 'App\\Models\\Services',
             factoryNamespace: $namespaces['factory'] ?? 'Database\\Factories',
             testNamespace: $namespaces['test'] ?? 'Tests\\Unit',
+            actionNamespace: $namespaces['actions'] ?? $modelNamespace.'\\Actions',
             schemaPrefix: $prefixes['schema'] ?? '',
             modelPrefix: $prefixes['model'] ?? '',
             servicePrefix: $prefixes['service'] ?? '',
@@ -98,6 +101,24 @@ class ConnectionConfig
     public function schemaDirectory(): string
     {
         return $this->namespaceToDirectory($this->schemaNamespace);
+    }
+
+    /**
+     * Get the action namespace for a specific model.
+     *
+     * e.g. 'App\PanaceaCore\Actions' + 'Dog' → 'App\PanaceaCore\Actions\Dog'
+     */
+    public function actionNamespaceForModel(string $modelName): string
+    {
+        return $this->actionNamespace.'\\'.$modelName;
+    }
+
+    /**
+     * Get the action directory path relative to base_path().
+     */
+    public function actionDirectory(): string
+    {
+        return $this->namespaceToDirectory($this->actionNamespace);
     }
 
     /**

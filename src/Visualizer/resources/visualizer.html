@@ -9361,9 +9361,9 @@
             var serviceMethod   = action ? action.serviceMethod : 'yourAction';
             var httpMethod      = action ? action.httpMethod.toLowerCase() : 'put';
 
-            // Derive actions namespace from schema's modelNamespace (connection-aware)
-            var actionsNs = schema && schema.modelNamespace
-                ? schema.modelNamespace + '\\Actions\\' + modelName
+            // Derive actions namespace from schema's actionNamespace (connection-aware)
+            var actionsNs = schema && schema.actionNamespace
+                ? schema.actionNamespace + '\\' + modelName
                 : 'App\\Models\\Actions\\' + modelName;
 
             // Derive registry import from action namespace

@@ -361,7 +361,7 @@ class GenerateApiCommand extends Command
         // Search all configured model namespaces for the action
         foreach (ConfigResolver::allConnectionNames() as $name) {
             $config = ConfigResolver::resolveConnection($name);
-            $candidate = "{$config->modelNamespace}\\Actions\\{$modelName}\\{$input}";
+            $candidate = $config->actionNamespaceForModel($modelName).'\\'.$input;
 
             if (class_exists($candidate)) {
                 return $candidate;

@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use SchemaCraft\Config\ApiConfig;
 use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\Config\ConnectionConfig;
 use SchemaCraft\Generator\Api\ApiCodeGenerator;
 use SchemaCraft\Generator\Api\ApiFileWriter;
 use SchemaCraft\Generator\Api\GeneratedFile;
@@ -668,9 +669,8 @@ class GenerateController
             }
 
             // Discover Action classes for this model
-            $actionsNs = $connectionConfig->modelNamespace.'\\Actions\\'.$modelName;
-            $actionsDir = base_path(str_replace('\\', '/', $actionsNs));
-            $actionsDir = str_replace('App/', 'app/', $actionsDir);
+            $actionsNs = $connectionConfig->actionNamespaceForModel($modelName);
+            $actionsDir = base_path(ConnectionConfig::namespaceToDirectory($actionsNs));
 
             if (! is_dir($actionsDir)) {
                 continue;

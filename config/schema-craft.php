@@ -103,6 +103,7 @@ return [
                 'service' => 'App\\Models\\Services',
                 'schema' => 'App\\Schemas',
                 'model' => 'App\\Models',
+                'actions' => 'App\\Models\\Actions',
                 'factory' => 'Database\\Factories',
                 'test' => 'Tests\\Unit',
             ],
