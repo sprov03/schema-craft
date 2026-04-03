@@ -984,11 +984,12 @@ class GenerateController
             connection: $table->connection,
             columns: array_values($filteredColumns),
             relationships: array_values($filteredRelationships),
-            indexes: $table->indexes,
-            foreignKeys: $table->foreignKeys,
+            compositeIndexes: $table->compositeIndexes,
             hasTimestamps: $table->hasTimestamps,
             hasSoftDeletes: $table->hasSoftDeletes,
+            fillable: $table->fillable,
             hidden: $table->hidden,
+            with: $table->with,
         );
     }
 
