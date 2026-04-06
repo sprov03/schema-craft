@@ -5644,7 +5644,7 @@
 
             // Populate connection dropdown
             var connSelect = document.getElementById('cs-connection');
-            fetch('/_schema-craft/api/schema/connections')
+            fetch('/_schema-craft/api/connections')
                 .then(handleResponse)
                 .then(function(data) {
                     var current = schemasDbConnection || data.default || 'default';
