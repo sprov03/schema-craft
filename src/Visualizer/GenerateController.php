@@ -828,6 +828,7 @@ class GenerateController
         );
 
         $groups = [];
+        $responseFieldsCache = [];
 
         foreach ($result['schemas'] as $schemaClass => $endpoints) {
             $modelName = class_basename(str_replace('Schema', '', $schemaClass));
@@ -836,10 +837,14 @@ class GenerateController
                 return $this->enrichEndpoint($ep);
             }, $endpoints);
 
+            // Scan schema once per group for response field documentation
+            $responseFields = $this->buildResponseFields($schemaClass, $modelName);
+
             $groups[] = [
                 'schema' => $schemaClass,
                 'modelName' => $modelName,
                 'endpoints' => array_values($enrichedEndpoints),
+                'responseFields' => $responseFields,
             ];
         }
 
@@ -915,6 +920,129 @@ class GenerateController
         $endpoint['relationships'] = $relationships;
 
         return $endpoint;
+    }
+
+    /**
+     * Build response field documentation from a schema class.
+     *
+     * Scans the schema to extract all columns and relationships that would
+     * appear in a Resource's toArray() output, matching ResourceGenerator's logic.
+     *
+     * @return array{columns: array, relationships: array}
+     */
+    private function buildResponseFields(string $schemaClass, string $modelName): array
+    {
+        $columns = [];
+        $relationships = [];
+
+        try {
+            $scanner = new SchemaScanner($schemaClass);
+            $table = $scanner->scan();
+
+            $hiddenSet = array_flip($table->hidden);
+            $managedColumns = [];
+
+            if ($table->hasTimestamps) {
+                $managedColumns[] = 'created_at';
+                $managedColumns[] = 'updated_at';
+            }
+
+            if ($table->hasSoftDeletes) {
+                $managedColumns[] = 'deleted_at';
+            }
+
+            $managedSet = array_flip($managedColumns);
+
+            // Regular columns (excluding hidden and managed)
+            foreach ($table->columns as $col) {
+                if (isset($hiddenSet[$col->name]) || isset($managedSet[$col->name])) {
+                    continue;
+                }
+
+                $field = [
+                    'name' => $col->name,
+                    'type' => $col->columnType,
+                    'nullable' => $col->nullable,
+                ];
+
+                if ($col->primary) {
+                    $field['primary'] = true;
+                }
+                if ($col->autoIncrement) {
+                    $field['autoIncrement'] = true;
+                }
+                if ($col->unsigned) {
+                    $field['unsigned'] = true;
+                }
+                if ($col->length !== null) {
+                    $field['length'] = $col->length;
+                }
+                if ($col->unique) {
+                    $field['unique'] = true;
+                }
+                if ($col->castType !== null) {
+                    $field['cast'] = class_basename($col->castType);
+                }
+                if ($col->hasDefault) {
+                    $field['default'] = $col->default;
+                }
+
+                $columns[] = $field;
+            }
+
+            // Timestamp columns
+            if ($table->hasTimestamps) {
+                foreach (['created_at', 'updated_at'] as $tsCol) {
+                    if (! isset($hiddenSet[$tsCol])) {
+                        $columns[] = [
+                            'name' => $tsCol,
+                            'type' => 'timestamp',
+                            'nullable' => true,
+                            'managed' => true,
+                        ];
+                    }
+                }
+            }
+
+            if ($table->hasSoftDeletes && ! isset($hiddenSet['deleted_at'])) {
+                $columns[] = [
+                    'name' => 'deleted_at',
+                    'type' => 'timestamp',
+                    'nullable' => true,
+                    'managed' => true,
+                ];
+            }
+
+            // Relationships (excluding belongsTo — same as ResourceGenerator)
+            foreach ($table->relationships as $rel) {
+                if ($rel->type === 'belongsTo') {
+                    continue;
+                }
+
+                $isCollection = in_array($rel->type, ['hasMany', 'belongsToMany', 'morphMany', 'morphToMany', 'hasManyThrough'], true);
+
+                $relData = [
+                    'name' => $rel->name,
+                    'type' => $rel->type,
+                    'relatedModel' => class_basename($rel->relatedModel),
+                    'isCollection' => $isCollection,
+                    'conditional' => true, // Always wrapped in whenLoaded()
+                ];
+
+                if ($rel->pivotColumns !== null && ! empty($rel->pivotColumns)) {
+                    $relData['pivotColumns'] = array_keys($rel->pivotColumns);
+                }
+
+                $relationships[] = $relData;
+            }
+        } catch (\Throwable) {
+            // Skip if schema scan fails
+        }
+
+        return [
+            'columns' => $columns,
+            'relationships' => $relationships,
+        ];
     }
 
     /**
