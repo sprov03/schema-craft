@@ -39,12 +39,13 @@ class RuntimeRouteScanner
         string $controllerNamespace,
         string $schemaNamespace,
         string $apiMiddleware = 'api',
+        ?string $routePrefix = null,
     ): array {
         $grouped = [];
         $unassigned = [];
 
         foreach (RouteFacade::getRoutes() as $route) {
-            if (! $this->hasMiddleware($route, $apiMiddleware)) {
+            if (! $this->matchesFilters($route, $apiMiddleware, $routePrefix)) {
                 continue;
             }
 
@@ -78,11 +79,12 @@ class RuntimeRouteScanner
         string $controllerNamespace,
         string $schemaNamespace,
         string $apiMiddleware = 'api',
+        ?string $routePrefix = null,
     ): array {
         $endpoints = [];
 
         foreach (RouteFacade::getRoutes() as $route) {
-            if (! $this->hasMiddleware($route, $apiMiddleware)) {
+            if (! $this->matchesFilters($route, $apiMiddleware, $routePrefix)) {
                 continue;
             }
 
@@ -109,11 +111,12 @@ class RuntimeRouteScanner
         string $controllerNamespace,
         string $schemaNamespace,
         string $apiMiddleware = 'api',
+        ?string $routePrefix = null,
     ): array {
         $counts = [];
 
         foreach (RouteFacade::getRoutes() as $route) {
-            if (! $this->hasMiddleware($route, $apiMiddleware)) {
+            if (! $this->matchesFilters($route, $apiMiddleware, $routePrefix)) {
                 continue;
             }
 
@@ -213,11 +216,26 @@ class RuntimeRouteScanner
     }
 
     /**
-     * Check if a route has a specific middleware.
+     * Check if a route matches the configured filters (middleware and/or prefix).
+     *
+     * When a route prefix is provided, it is used as the primary filter.
+     * When only middleware is provided, it filters by middleware alone.
      */
-    private function hasMiddleware(Route $route, string $middleware): bool
+    private function matchesFilters(Route $route, string $middleware, ?string $routePrefix): bool
     {
-        return in_array($middleware, $route->gatherMiddleware(), true);
+        // When prefix is provided, use it as the primary filter
+        if ($routePrefix !== null && $routePrefix !== '') {
+            $normalizedPrefix = ltrim($routePrefix, '/');
+
+            return str_starts_with($route->uri(), $normalizedPrefix);
+        }
+
+        // Fall back to middleware filtering
+        if ($middleware !== '') {
+            return in_array($middleware, $route->gatherMiddleware(), true);
+        }
+
+        return true;
     }
 
     /**

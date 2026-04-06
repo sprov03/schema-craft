@@ -687,7 +687,9 @@ abstract class Action
             }
 
             return new JsonResponse($result);
-        })->name($segment);
+        })->name($segment)
+            ->defaults('_schema_craft_action', $actionClass)
+            ->defaults('_schema_craft_schema', static::$schema);
     }
 
     /**

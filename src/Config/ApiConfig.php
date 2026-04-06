@@ -58,7 +58,7 @@ class ApiConfig
                 schemaNamespace: $connectionDefaults->schemaNamespace ?? 'App\\Schemas',
                 modelNamespace: $connectionDefaults->modelNamespace ?? 'App\\Models',
                 routeFile: $config['route_file'] ?? 'routes/api.php',
-                routePrefix: '',
+                routePrefix: $config['route_prefix'] ?? '',
                 routeMiddleware: [],
                 schemas: $config['schemas'] ?? null,
                 sdkPath: $sdk['path'] ?? 'packages/sdk',

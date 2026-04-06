@@ -646,14 +646,27 @@ class GenerateController
         $discovery = new SchemaDiscovery;
         $schemaClasses = $discovery->discover($directories);
 
-        // Read the route file to find already-imported Actions
+        // Detect imported actions via runtime route introspection
         $importedActions = [];
-        $routeFilePath = base_path($apiConfig->routeFile);
-        if (file_exists($routeFilePath)) {
-            $routeContent = file_get_contents($routeFilePath);
-            // Match ::endpoint( patterns
-            preg_match_all('/(\w+)::endpoint\(/', $routeContent, $matches);
-            $importedActions = $matches[1] ?? [];
+        $routeScanner = new RuntimeRouteScanner;
+        $registeredRoutes = $routeScanner->scanAll(
+            controllerNamespace: $apiConfig->controllerNamespace,
+            schemaNamespace: $apiConfig->schemaNamespace,
+            routePrefix: $apiConfig->routePrefix,
+        );
+
+        foreach ($registeredRoutes['schemas'] as $schemaEndpoints) {
+            foreach ($schemaEndpoints as $ep) {
+                if ($ep['source'] === 'action' && $ep['actionClass'] !== null) {
+                    $importedActions[] = class_basename($ep['actionClass']);
+                }
+            }
+        }
+
+        foreach ($registeredRoutes['unassigned'] as $ep) {
+            if ($ep['source'] === 'action' && $ep['actionClass'] !== null) {
+                $importedActions[] = class_basename($ep['actionClass']);
+            }
         }
 
         $groups = [];
@@ -795,6 +808,113 @@ class GenerateController
             'routeFile' => $apiConfig->routeFile,
             'routePrefix' => $apiConfig->routePrefix,
         ]);
+    }
+
+    /**
+     * Get all registered API routes for documentation, using runtime route introspection.
+     *
+     * Returns routes grouped by schema, with full metadata for action-based,
+     * controller-based, and closure-based routes.
+     */
+    public function apiRoutes(Request $request): JsonResponse
+    {
+        $apiConfig = ConfigResolver::resolve($request->query('api'));
+
+        $scanner = new RuntimeRouteScanner;
+        $result = $scanner->scanAll(
+            controllerNamespace: $apiConfig->controllerNamespace,
+            schemaNamespace: $apiConfig->schemaNamespace,
+            routePrefix: $apiConfig->routePrefix,
+        );
+
+        $groups = [];
+
+        foreach ($result['schemas'] as $schemaClass => $endpoints) {
+            $modelName = class_basename(str_replace('Schema', '', $schemaClass));
+
+            $enrichedEndpoints = array_map(function ($ep) {
+                return $this->enrichEndpoint($ep);
+            }, $endpoints);
+
+            $groups[] = [
+                'schema' => $schemaClass,
+                'modelName' => $modelName,
+                'endpoints' => array_values($enrichedEndpoints),
+            ];
+        }
+
+        // Sort groups by model name
+        usort($groups, fn ($a, $b) => strcmp($a['modelName'], $b['modelName']));
+
+        // Enrich unassigned routes too
+        $unassigned = array_map(function ($ep) {
+            return $this->enrichEndpoint($ep);
+        }, $result['unassigned']);
+
+        return new JsonResponse([
+            'groups' => $groups,
+            'unassigned' => array_values($unassigned),
+            'apiName' => $apiConfig->name,
+            'routeFile' => $apiConfig->routeFile,
+            'routePrefix' => $apiConfig->routePrefix,
+        ]);
+    }
+
+    /**
+     * Enrich an endpoint from RuntimeRouteScanner with additional action metadata.
+     *
+     * @param  array<string, mixed>  $endpoint
+     * @return array<string, mixed>
+     */
+    private function enrichEndpoint(array $endpoint): array
+    {
+        $parameters = [];
+        $relationships = [];
+
+        // For action-based endpoints, extract detailed parameter and relationship info
+        if ($endpoint['source'] === 'action' && $endpoint['actionClass'] !== null && class_exists($endpoint['actionClass'])) {
+            try {
+                $definition = (new \SchemaCraft\Scanner\ActionScanner($endpoint['actionClass']))->scan();
+                $meta = $endpoint['actionClass']::meta();
+
+                $endpoint['label'] = $meta?->label ?? Str::headline($definition->serviceMethod);
+                $endpoint['serviceMethod'] = $definition->serviceMethod;
+
+                // Detailed parameters
+                $parameters = array_map(fn ($p) => [
+                    'name' => $p->name,
+                    'type' => $p->type,
+                    'nullable' => $p->nullable,
+                    'isModel' => $p->isModel,
+                    'hasDefault' => $p->hasDefault,
+                    'default' => $p->default,
+                    'columnName' => $p->columnName,
+                    'columnType' => $p->columnType,
+                    'foreignKeyColumn' => $p->foreignKeyColumn,
+                    'isNestedRelationship' => $p->isNestedRelationship,
+                ], $definition->parameters);
+
+                // Extract relationships this action needs loaded
+                foreach ($definition->nestedParameters() as $nested) {
+                    $nr = $nested->nestedRelationship;
+                    if ($nr) {
+                        $relationships[] = [
+                            'name' => $nr->name,
+                            'type' => $nr->relationshipType,
+                            'relatedModel' => class_basename($nr->relatedModel),
+                            'isCollection' => $nr->isCollection,
+                        ];
+                    }
+                }
+            } catch (\Throwable) {
+                // Skip enrichment if scan fails
+            }
+        }
+
+        $endpoint['parameters'] = $parameters;
+        $endpoint['relationships'] = $relationships;
+
+        return $endpoint;
     }
 
     /**
