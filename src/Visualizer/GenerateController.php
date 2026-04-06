@@ -702,21 +702,44 @@ class GenerateController
                     }
                 }
 
+                // Build validation rules for docs
+                $actionRules = [];
+                try {
+                    $actionInstance = new $fqcn;
+                    $actionRules = $actionInstance->rules();
+                } catch (\Throwable) {
+                    // Skip if rules fail
+                }
+
+                // Build detailed parameter info for docs
+                $detailedParams = array_map(fn ($p) => [
+                    'name' => $p->name,
+                    'type' => $p->type,
+                    'nullable' => $p->nullable,
+                    'isModel' => $p->isModel,
+                    'hasDefault' => $p->hasDefault,
+                    'default' => $p->default,
+                    'columnName' => $p->columnName,
+                    'columnType' => $p->columnType,
+                    'foreignKeyColumn' => $p->foreignKeyColumn,
+                    'isNestedRelationship' => $p->isNestedRelationship,
+                ], $definition->parameters);
+
+                $httpMethod = $meta?->method ?? 'post';
+                $routeSegment = Str::kebab($definition->serviceMethod);
+
                 $actions[] = [
                     'class' => $fqcn,
                     'shortName' => $className,
                     'serviceMethod' => $definition->serviceMethod,
-                    'httpMethod' => $meta?->method ?? 'post',
+                    'httpMethod' => $httpMethod,
                     'label' => $meta?->label ?? Str::headline($definition->serviceMethod),
                     'description' => $definition->description,
                     'imported' => in_array($className, $importedActions),
                     'relationships' => $actionRelationships,
-                    'parameters' => array_map(fn ($p) => [
-                        'name' => $p->name,
-                        'type' => $p->type,
-                        'nullable' => $p->nullable,
-                        'isModel' => $p->isModel,
-                    ], $definition->parameters),
+                    'routeSegment' => $routeSegment,
+                    'rules' => $actionRules,
+                    'parameters' => $detailedParams,
                 ];
             }
 
@@ -770,6 +793,7 @@ class GenerateController
             'apiName' => $apiConfig->name,
             'resourceNamespace' => $apiConfig->resourceNamespace,
             'routeFile' => $apiConfig->routeFile,
+            'routePrefix' => $apiConfig->routePrefix,
         ]);
     }
 

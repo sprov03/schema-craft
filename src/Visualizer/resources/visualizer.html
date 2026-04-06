@@ -1440,6 +1440,29 @@
             font-size: 13px; color: var(--text-muted); flex: 1;
         }
 
+        /* API Docs view */
+        .docs-endpoint-row {
+            display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: var(--radius); cursor: pointer; transition: all 0.15s;
+            margin-bottom: 4px;
+        }
+        .docs-endpoint-row:hover { background: var(--bg-tertiary); border-color: var(--accent); }
+        .docs-endpoint-path {
+            font-family: var(--font-mono); font-size: 12px; color: var(--text-primary);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .docs-endpoint-label {
+            font-size: 12px; color: var(--text-muted); flex: 1;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .docs-endpoint-badge {
+            padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600;
+            white-space: nowrap; flex-shrink: 0;
+        }
+        .docs-endpoint-badge.params { background: var(--info-dim); color: var(--info); }
+        .docs-endpoint-badge.rels { background: var(--accent-dim); color: var(--accent); }
+
         /* Content area */
         .gen-content { flex: 1; overflow-y: auto; padding: 0; }
         .gen-empty-state {
@@ -6803,6 +6826,10 @@
                             '<span class="gen-sidebar-api-name">' + escapeHtml(genSelectedApi) + '</span>' +
                         '</div>' +
                         '<div class="gen-sidebar-section-title">Manage</div>' +
+                        '<div class="gen-sdk-item' + (genSelectedView === 'docs' ? ' active' : '') + '" id="gen-nav-docs">' +
+                            '<span>\uD83D\uDCD6</span>' +
+                            '<span>API Docs</span>' +
+                        '</div>' +
                         '<div class="gen-sdk-item' + (genSelectedView === 'resources' || !genSelectedView ? ' active' : '') + '" id="gen-nav-resources">' +
                             '<span>\uD83D\uDDC2\uFE0F</span>' +
                             '<span>Resources</span>' +
@@ -6826,6 +6853,7 @@
 
             // Bind sidebar nav
             document.getElementById('gen-back').addEventListener('click', goBackToApiSelector);
+            document.getElementById('gen-nav-docs').addEventListener('click', function() { switchGenView('docs'); });
             document.getElementById('gen-nav-resources').addEventListener('click', function() { switchGenView('resources'); });
             document.getElementById('gen-nav-import').addEventListener('click', function() { switchGenView('import'); });
             document.getElementById('gen-sdk-nav').addEventListener('click', function() { switchGenView('sdk'); });
@@ -6842,11 +6870,13 @@
             document.querySelectorAll('.gen-sidebar .gen-sdk-item').forEach(function(item) {
                 item.classList.remove('active');
             });
-            var navMap = { resources: 'gen-nav-resources', import: 'gen-nav-import', sdk: 'gen-sdk-nav' };
+            var navMap = { docs: 'gen-nav-docs', resources: 'gen-nav-resources', import: 'gen-nav-import', sdk: 'gen-sdk-nav' };
             var activeNav = document.getElementById(navMap[view]);
             if (activeNav) activeNav.classList.add('active');
 
-            if (view === 'resources') {
+            if (view === 'docs') {
+                showDocsView();
+            } else if (view === 'resources') {
                 showResourcesView();
             } else if (view === 'import') {
                 showImportActionsView();
@@ -6861,6 +6891,336 @@
             updateQueryParams({ api: null, stack: null });
             loadGenerateConfig(null, function() {
                 renderGenerateApiSelector();
+            });
+        }
+
+        // ── API Docs View ───────────────────────────────
+        var docsData = null;
+
+        function showDocsView() {
+            var content = document.getElementById('gen-content');
+            content.innerHTML = '<div class="gen-empty-state">Loading API docs...</div>';
+
+            fetch('/_schema-craft/api/available-actions?api=' + encodeURIComponent(genSelectedApi))
+                .then(handleResponse)
+                .then(function(data) {
+                    docsData = data;
+                    renderDocsView();
+                })
+                .catch(function(e) {
+                    content.innerHTML = '<div class="gen-empty-state">Failed to load: ' + escapeHtml(e.message) + '</div>';
+                });
+        }
+
+        function renderDocsView() {
+            var data = docsData;
+            var content = document.getElementById('gen-content');
+
+            // Filter to only schemas with imported actions
+            var docsGroups = data.groups.filter(function(g) {
+                return g.actions.some(function(a) { return a.imported; });
+            });
+
+            if (docsGroups.length === 0) {
+                content.innerHTML =
+                    '<div class="gen-import">' +
+                        '<div class="gen-import-title">API Documentation</div>' +
+                        '<div class="gen-import-subtitle">No imported endpoints found. <a href="#" id="docs-goto-import" style="color:var(--accent);text-decoration:underline;">Import Actions</a> to see documentation here.</div>' +
+                    '</div>';
+                var gotoLink = document.getElementById('docs-goto-import');
+                if (gotoLink) {
+                    gotoLink.addEventListener('click', function(e) { e.preventDefault(); switchGenView('import'); });
+                }
+                return;
+            }
+
+            var routePrefix = data.routePrefix ? data.routePrefix.replace(/\/$/, '') : '';
+
+            var groupsHtml = '';
+            var totalEndpoints = 0;
+
+            docsGroups.forEach(function(group, gIdx) {
+                var importedActions = group.actions.filter(function(a) { return a.imported; });
+                totalEndpoints += importedActions.length;
+
+                var actionsHtml = '';
+                importedActions.forEach(function(action) {
+                    var method = action.httpMethod.toUpperCase();
+                    var modelSlug = group.modelName.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+                    var modelSlugPlural = modelSlug + 's';
+                    var routePath = '/' + (routePrefix ? routePrefix + '/' : '') + modelSlugPlural + '/' + action.routeSegment;
+
+                    // For non-static (instance) methods, add {id} param
+                    if (method !== 'POST') {
+                        routePath = '/' + (routePrefix ? routePrefix + '/' : '') + modelSlugPlural + '/{' + group.modelName.charAt(0).toLowerCase() + group.modelName.slice(1) + '}/' + action.routeSegment;
+                    }
+
+                    var relCount = action.relationships ? action.relationships.length : 0;
+                    var paramCount = action.parameters ? action.parameters.length : 0;
+
+                    actionsHtml +=
+                        '<div class="docs-endpoint-row" data-docs-action=\'' + escapeAttr(JSON.stringify(action)) + '\' ' +
+                            'data-docs-model="' + escapeAttr(group.modelName) + '" ' +
+                            'data-docs-route="' + escapeAttr(routePath) + '" ' +
+                            'data-docs-prefix="' + escapeAttr(routePrefix) + '">' +
+                            '<span class="gen-import-action-method ' + action.httpMethod.toLowerCase() + '">' + method + '</span>' +
+                            '<span class="docs-endpoint-path">' + escapeHtml(routePath) + '</span>' +
+                            '<span class="docs-endpoint-label">' + escapeHtml(action.label) + '</span>' +
+                            (paramCount > 0 ? '<span class="docs-endpoint-badge params">' + paramCount + ' param' + (paramCount !== 1 ? 's' : '') + '</span>' : '') +
+                            (relCount > 0 ? '<span class="docs-endpoint-badge rels">' + relCount + ' rel' + (relCount !== 1 ? 's' : '') + '</span>' : '') +
+                        '</div>';
+                });
+
+                groupsHtml +=
+                    '<div class="gen-import-group docs-group" data-docs-group="' + gIdx + '">' +
+                        '<div class="gen-import-group-header" data-docs-toggle="' + gIdx + '">' +
+                            '<span class="gen-import-group-toggle open">&#9654;</span>' +
+                            '<span class="gen-import-group-name">' + escapeHtml(group.modelName) + '</span>' +
+                            '<span class="gen-import-group-count">' + importedActions.length + ' endpoint' + (importedActions.length !== 1 ? 's' : '') + '</span>' +
+                        '</div>' +
+                        '<div class="gen-import-group-body open" data-docs-body="' + gIdx + '">' +
+                            actionsHtml +
+                        '</div>' +
+                    '</div>';
+            });
+
+            content.innerHTML =
+                '<div class="gen-import">' +
+                    '<div class="gen-import-title">API Documentation</div>' +
+                    '<div class="gen-import-subtitle">' + totalEndpoints + ' endpoint' + (totalEndpoints !== 1 ? 's' : '') + ' across ' +
+                        docsGroups.length + ' resource' + (docsGroups.length !== 1 ? 's' : '') + ' in the <strong>' + escapeHtml(data.apiName) + '</strong> API.' +
+                        (data.routeFile ? ' Route file: <code>' + escapeHtml(data.routeFile) + '</code>' : '') + '</div>' +
+                    '<div style="margin-bottom:16px;">' +
+                        '<input type="search" id="docs-search" placeholder="Search endpoints..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;">' +
+                    '</div>' +
+                    groupsHtml +
+                '</div>';
+
+            // Toggle group expand/collapse
+            content.querySelectorAll('[data-docs-toggle]').forEach(function(header) {
+                header.addEventListener('click', function() {
+                    var idx = header.dataset.docsToggle;
+                    var body = content.querySelector('[data-docs-body="' + idx + '"]');
+                    var toggle = header.querySelector('.gen-import-group-toggle');
+                    body.classList.toggle('open');
+                    toggle.classList.toggle('open');
+                });
+            });
+
+            // Search filter
+            document.getElementById('docs-search').addEventListener('input', function(e) {
+                var query = e.target.value.toLowerCase();
+                content.querySelectorAll('.docs-group').forEach(function(group) {
+                    var groupName = group.querySelector('.gen-import-group-name').textContent.toLowerCase();
+                    var groupMatch = !query || groupName.indexOf(query) !== -1;
+
+                    var hasVisible = false;
+                    group.querySelectorAll('.docs-endpoint-row').forEach(function(row) {
+                        var path = row.querySelector('.docs-endpoint-path').textContent.toLowerCase();
+                        var label = row.querySelector('.docs-endpoint-label').textContent.toLowerCase();
+                        var method = row.querySelector('.gen-import-action-method').textContent.toLowerCase();
+                        var visible = groupMatch || path.indexOf(query) !== -1 || label.indexOf(query) !== -1 || method.indexOf(query) !== -1;
+                        row.style.display = visible ? '' : 'none';
+                        if (visible) hasVisible = true;
+                    });
+
+                    group.style.display = hasVisible ? '' : 'none';
+                });
+            });
+
+            // Click endpoint to open detail modal
+            content.querySelectorAll('.docs-endpoint-row').forEach(function(row) {
+                row.addEventListener('click', function() {
+                    var action = JSON.parse(row.dataset.docsAction);
+                    var modelName = row.dataset.docsModel;
+                    var routePath = row.dataset.docsRoute;
+                    showEndpointDetailModal(action, modelName, routePath);
+                });
+            });
+        }
+
+        function showEndpointDetailModal(action, modelName, routePath) {
+            var method = action.httpMethod.toUpperCase();
+
+            // Build request parameters section
+            var requestHtml = '';
+            var flatParams = (action.parameters || []).filter(function(p) { return !p.isNestedRelationship; });
+            var nestedParams = (action.parameters || []).filter(function(p) { return p.isNestedRelationship; });
+
+            if (flatParams.length > 0) {
+                requestHtml += '<div class="ep-section">' +
+                    '<div class="ep-section-title">Request Body <span class="ep-section-badge body">' + flatParams.length + ' field' + (flatParams.length !== 1 ? 's' : '') + '</span></div>' +
+                    '<table class="ep-field-table"><thead><tr><th>Field</th><th>Type</th><th>Rules</th></tr></thead><tbody>';
+
+                flatParams.forEach(function(param) {
+                    var fieldName = param.foreignKeyColumn || param.columnName || param.name;
+                    var rules = action.rules && action.rules[fieldName] ? action.rules[fieldName] : '';
+                    var rulesArr = typeof rules === 'string' ? rules.split('|') : (Array.isArray(rules) ? rules : []);
+
+                    var rulesHtml = '';
+                    rulesArr.forEach(function(rule) {
+                        var ruleStr = typeof rule === 'string' ? rule : (rule.toString ? rule.toString() : '');
+                        if (!ruleStr) return;
+                        var cssClass = 'ep-rule-tag';
+                        if (ruleStr === 'required') cssClass += ' required';
+                        if (ruleStr === 'nullable') cssClass += ' nullable';
+                        rulesHtml += '<span class="' + cssClass + '">' + escapeHtml(ruleStr) + '</span>';
+                    });
+
+                    var typeDisplay = param.columnType || param.type;
+                    if (param.isModel) {
+                        typeDisplay = 'FK → ' + param.type;
+                    }
+
+                    requestHtml += '<tr>' +
+                        '<td class="ep-field-name">' + escapeHtml(fieldName) + '</td>' +
+                        '<td class="ep-field-type">' + escapeHtml(typeDisplay) + '</td>' +
+                        '<td class="ep-field-rules">' + (rulesHtml || '<span style="color:var(--text-muted);font-style:italic;">—</span>') + '</td>' +
+                    '</tr>';
+                });
+
+                requestHtml += '</tbody></table></div>';
+            }
+
+            // Nested relationship parameters
+            if (nestedParams.length > 0) {
+                nestedParams.forEach(function(param) {
+                    var relName = param.name;
+                    requestHtml += '<div class="ep-section">' +
+                        '<div class="ep-section-title">Nested: ' + escapeHtml(relName) + ' <span class="ep-section-badge relations">relationship</span></div>';
+
+                    // Find nested rules from action.rules (they are like "addresses.*" or "addresses.*.city")
+                    var nestedRules = {};
+                    if (action.rules) {
+                        Object.keys(action.rules).forEach(function(key) {
+                            if (key.indexOf(relName + '.') === 0 || key.indexOf(relName + '.*') === 0) {
+                                nestedRules[key] = action.rules[key];
+                            }
+                        });
+                    }
+
+                    if (Object.keys(nestedRules).length > 0) {
+                        requestHtml += '<table class="ep-field-table"><thead><tr><th>Field</th><th>Rules</th></tr></thead><tbody>';
+                        Object.keys(nestedRules).forEach(function(key) {
+                            var rules = nestedRules[key];
+                            var rulesArr = typeof rules === 'string' ? rules.split('|') : (Array.isArray(rules) ? rules : []);
+                            var rulesHtml = '';
+                            rulesArr.forEach(function(rule) {
+                                var ruleStr = typeof rule === 'string' ? rule : '';
+                                if (!ruleStr) return;
+                                var cssClass = 'ep-rule-tag';
+                                if (ruleStr === 'required') cssClass += ' required';
+                                if (ruleStr === 'nullable') cssClass += ' nullable';
+                                rulesHtml += '<span class="' + cssClass + '">' + escapeHtml(ruleStr) + '</span>';
+                            });
+                            requestHtml += '<tr>' +
+                                '<td class="ep-field-name">' + escapeHtml(key) + '</td>' +
+                                '<td class="ep-field-rules">' + rulesHtml + '</td>' +
+                            '</tr>';
+                        });
+                        requestHtml += '</tbody></table>';
+                    } else {
+                        requestHtml += '<div class="ep-no-body">No nested rules defined.</div>';
+                    }
+                    requestHtml += '</div>';
+                });
+            }
+
+            if (!requestHtml) {
+                requestHtml = '<div class="ep-section"><div class="ep-no-body">No request body required.</div></div>';
+            }
+
+            // Build relationships section
+            var relsHtml = '';
+            if (action.relationships && action.relationships.length > 0) {
+                relsHtml = '<div class="ep-section">' +
+                    '<div class="ep-section-title">Eager-Loaded Relationships <span class="ep-section-badge relations">' + action.relationships.length + '</span></div>' +
+                    '<table class="ep-field-table"><thead><tr><th>Relationship</th><th>Type</th><th>Related Model</th></tr></thead><tbody>';
+
+                action.relationships.forEach(function(rel) {
+                    relsHtml += '<tr>' +
+                        '<td class="ep-field-name">' + escapeHtml(rel.name) + (rel.isCollection ? '[]' : '') + '</td>' +
+                        '<td class="ep-field-type">' + escapeHtml(rel.type) + '</td>' +
+                        '<td>' + escapeHtml(rel.relatedModel) + '</td>' +
+                    '</tr>';
+                });
+
+                relsHtml += '</tbody></table></div>';
+            }
+
+            // Build response section (summary of what gets returned)
+            var responseHtml = '<div class="ep-section">' +
+                '<div class="ep-section-title">Response <span class="ep-section-badge meta">info</span></div>';
+
+            if (method === 'DELETE') {
+                responseHtml += '<div style="font-size:12px;color:var(--text-secondary);"><code>204 No Content</code> — Empty response on success.</div>';
+            } else {
+                responseHtml += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">Returns the ' + escapeHtml(modelName) + ' model';
+                responseHtml += ' wrapped in a <code>' + escapeHtml(modelName) + 'Resource</code>.';
+                if (action.relationships && action.relationships.length > 0) {
+                    responseHtml += ' Includes eager-loaded relationships: ';
+                    responseHtml += action.relationships.map(function(r) { return '<code>' + escapeHtml(r.name) + '</code>'; }).join(', ') + '.';
+                }
+                responseHtml += '</div>';
+            }
+            responseHtml += '</div>';
+
+            // Build meta section
+            var metaHtml = '<div class="ep-section">' +
+                '<div class="ep-section-title">Details <span class="ep-section-badge meta">meta</span></div>' +
+                '<table class="ep-field-table"><tbody>' +
+                    '<tr><td class="ep-field-name">Action Class</td><td style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);word-break:break-all;">' + escapeHtml(action.class) + '</td></tr>' +
+                    '<tr><td class="ep-field-name">Service Method</td><td style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);">' + escapeHtml(action.serviceMethod) + '</td></tr>' +
+                    '<tr><td class="ep-field-name">Route Name</td><td style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);">' + escapeHtml(action.routeSegment) + '</td></tr>' +
+                '</tbody></table></div>';
+
+            // Tab state
+            var activeTab = 'request';
+
+            function renderTabContent(tab) {
+                if (tab === 'request') return requestHtml;
+                if (tab === 'response') return responseHtml + relsHtml;
+                if (tab === 'details') return metaHtml;
+                return '';
+            }
+
+            // Build and insert modal
+            var overlay = document.createElement('div');
+            overlay.className = 'ep-overlay';
+            overlay.innerHTML =
+                '<div class="ep-modal" style="max-width:760px;">' +
+                    '<div class="ep-header">' +
+                        '<span class="ep-header-method ' + action.httpMethod.toLowerCase() + '">' + method + '</span>' +
+                        '<span class="ep-header-path">' + escapeHtml(routePath) + '</span>' +
+                        '<button class="ep-header-close" id="ep-close">&times;</button>' +
+                    '</div>' +
+                    (action.description ? '<div style="padding:8px 20px 0;font-size:12px;color:var(--text-secondary);font-style:italic;">' + escapeHtml(action.description) + '</div>' : '') +
+                    '<div class="ep-tabs">' +
+                        '<button class="ep-tab active" data-ep-tab="request">Request</button>' +
+                        '<button class="ep-tab" data-ep-tab="response">Response</button>' +
+                        '<button class="ep-tab" data-ep-tab="details">Details</button>' +
+                    '</div>' +
+                    '<div class="ep-body" id="ep-tab-content">' + renderTabContent('request') + '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            // Tab switching
+            overlay.querySelectorAll('.ep-tab').forEach(function(tab) {
+                tab.addEventListener('click', function() {
+                    overlay.querySelectorAll('.ep-tab').forEach(function(t) { t.classList.remove('active'); });
+                    tab.classList.add('active');
+                    activeTab = tab.dataset.epTab;
+                    overlay.querySelector('#ep-tab-content').innerHTML = renderTabContent(activeTab);
+                });
+            });
+
+            // Close modal
+            overlay.querySelector('#ep-close').addEventListener('click', function() {
+                overlay.remove();
+            });
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) overlay.remove();
             });
         }
 
