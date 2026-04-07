@@ -146,13 +146,18 @@ class ActionScanner
                 continue;
             }
 
-            $parameters[] = $this->buildParameter($prop, $type);
+            $result = $this->buildParameter($prop, $type);
+            if (is_array($result)) {
+                array_push($parameters, ...$result);
+            } else {
+                $parameters[] = $result;
+            }
         }
 
         return $parameters;
     }
 
-    private function buildParameter(ReflectionProperty $prop, ReflectionNamedType $type): ActionParameter
+    private function buildParameter(ReflectionProperty $prop, ReflectionNamedType $type): ActionParameter|array
     {
         $typeName = $type->getName();
         $nullable = $type->allowsNull();
@@ -764,27 +769,43 @@ class ActionScanner
         );
     }
 
+    /**
+     * Build two ActionParameter objects for a MorphTo property: one for _type, one for _id.
+     *
+     * @return ActionParameter[]
+     */
     private function buildMorphToParameter(
         ReflectionProperty $prop,
         MorphTo $morphTo,
         bool $nullable,
         bool $hasDefault,
         mixed $default,
-    ): ActionParameter {
+    ): array {
         $propName = $prop->getName();
         $morphName = $morphTo->morphName ?? $propName;
 
-        return new ActionParameter(
-            name: $propName,
-            type: 'Model',
-            nullable: $nullable,
-            hasDefault: $hasDefault,
-            default: $default,
-            isModel: true,
-            modelClass: null,
-            foreignKeyColumn: $morphName.'_id',
-            relationship: $morphName,
-        );
+        return [
+            new ActionParameter(
+                name: $propName,
+                type: 'string',
+                nullable: $nullable,
+                hasDefault: false,
+                default: null,
+                columnName: $morphName.'_type',
+                morphPairName: $morphName,
+                isMorphType: true,
+            ),
+            new ActionParameter(
+                name: $propName,
+                type: 'integer',
+                nullable: $nullable,
+                hasDefault: false,
+                default: null,
+                columnName: $morphName.'_id',
+                morphPairName: $morphName,
+                isMorphType: false,
+            ),
+        ];
     }
 
     private function buildModelParameter(

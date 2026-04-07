@@ -4,6 +4,8 @@ namespace SchemaCraft\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use SchemaCraft\Scanner\ActionScanner;
+use SchemaCraft\Tests\Fixtures\Actions\Comment\CreateCommentAction;
+use SchemaCraft\Tests\Fixtures\Actions\Comment\CreateNullableCommentAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\CreatePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\DeletePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostAction;
@@ -277,6 +279,106 @@ class ActionScannerTest extends TestCase
 
         // title, author, comments (nested), tags (nested) = 4
         $this->assertCount(4, $definition->parameters);
+    }
+
+    // --- MorphTo Scanning Tests ---
+
+    public function test_morph_to_produces_two_parameters(): void
+    {
+        $scanner = new ActionScanner(CreateCommentAction::class);
+        $definition = $scanner->scan();
+
+        $morphParams = $this->findMorphParams($definition->parameters, 'commentable');
+
+        $this->assertCount(2, $morphParams);
+    }
+
+    public function test_morph_to_type_parameter(): void
+    {
+        $scanner = new ActionScanner(CreateCommentAction::class);
+        $definition = $scanner->scan();
+
+        $morphParams = $this->findMorphParams($definition->parameters, 'commentable');
+        $typeParam = $this->findMorphTypeParam($morphParams);
+
+        $this->assertNotNull($typeParam);
+        $this->assertSame('string', $typeParam->type);
+        $this->assertSame('commentable_type', $typeParam->columnName);
+        $this->assertTrue($typeParam->isMorphType);
+        $this->assertSame('commentable', $typeParam->morphPairName);
+        $this->assertFalse($typeParam->isModel);
+        $this->assertFalse($typeParam->nullable);
+    }
+
+    public function test_morph_to_id_parameter(): void
+    {
+        $scanner = new ActionScanner(CreateCommentAction::class);
+        $definition = $scanner->scan();
+
+        $morphParams = $this->findMorphParams($definition->parameters, 'commentable');
+        $idParam = $this->findMorphIdParam($morphParams);
+
+        $this->assertNotNull($idParam);
+        $this->assertSame('integer', $idParam->type);
+        $this->assertSame('commentable_id', $idParam->columnName);
+        $this->assertFalse($idParam->isMorphType);
+        $this->assertSame('commentable', $idParam->morphPairName);
+        $this->assertFalse($idParam->isModel);
+        $this->assertFalse($idParam->nullable);
+    }
+
+    public function test_nullable_morph_to_propagates_nullable_to_both_params(): void
+    {
+        $scanner = new ActionScanner(CreateNullableCommentAction::class);
+        $definition = $scanner->scan();
+
+        $morphParams = $this->findMorphParams($definition->parameters, 'commentable');
+
+        $this->assertCount(2, $morphParams);
+        $this->assertTrue($morphParams[0]->nullable);
+        $this->assertTrue($morphParams[1]->nullable);
+    }
+
+    public function test_morph_to_total_parameter_count(): void
+    {
+        $scanner = new ActionScanner(CreateCommentAction::class);
+        $definition = $scanner->scan();
+
+        // body (scalar) + user (BelongsTo) + commentable_type + commentable_id = 4
+        $this->assertCount(4, $definition->parameters);
+    }
+
+    /**
+     * @return \SchemaCraft\Scanner\ActionParameter[]
+     */
+    private function findMorphParams(array $parameters, string $morphPairName): array
+    {
+        return array_values(array_filter(
+            $parameters,
+            fn ($p) => $p->morphPairName === $morphPairName,
+        ));
+    }
+
+    private function findMorphTypeParam(array $morphParams): ?\SchemaCraft\Scanner\ActionParameter
+    {
+        foreach ($morphParams as $p) {
+            if ($p->isMorphType) {
+                return $p;
+            }
+        }
+
+        return null;
+    }
+
+    private function findMorphIdParam(array $morphParams): ?\SchemaCraft\Scanner\ActionParameter
+    {
+        foreach ($morphParams as $p) {
+            if (! $p->isMorphType) {
+                return $p;
+            }
+        }
+
+        return null;
     }
 
     private function findParam(array $parameters, string $name): ?\SchemaCraft\Scanner\ActionParameter

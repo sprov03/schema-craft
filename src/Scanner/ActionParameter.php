@@ -34,5 +34,9 @@ class ActionParameter
         public bool $isNestedRelationship = false,
         /** The nested relationship definition when isNestedRelationship is true. */
         public ?NestedRelationshipParameter $nestedRelationship = null,
+        /** The morph relationship name when this param is part of a morph pair (e.g. 'commentable'). */
+        public ?string $morphPairName = null,
+        /** Whether this is the _type parameter of a morph pair (false = _id parameter). */
+        public bool $isMorphType = false,
     ) {}
 }

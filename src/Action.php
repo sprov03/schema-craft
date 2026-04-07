@@ -10,6 +10,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Fieldset;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
@@ -220,7 +221,23 @@ abstract class Action
         $definition = static::definition();
         $mapped = [];
 
+        // Pre-scan for morph pairs so we can resolve them after the main loop
+        $morphPairs = [];
         foreach ($definition->parameters as $param) {
+            if ($param->morphPairName !== null && ! isset($morphPairs[$param->morphPairName])) {
+                $morphPairs[$param->morphPairName] = [
+                    'propertyName' => $param->name,
+                    'nullable' => $param->nullable,
+                ];
+            }
+        }
+
+        foreach ($definition->parameters as $param) {
+            // Skip morph params — resolved after the loop
+            if ($param->morphPairName !== null) {
+                continue;
+            }
+
             if ($param->isNestedRelationship) {
                 $nested = $param->nestedRelationship;
                 $default = ($nested !== null && $nested->isCollection) ? [] : null;
@@ -240,6 +257,21 @@ abstract class Action
             } else {
                 $columnName = $param->columnName ?? $param->name;
                 $mapped[$param->name] = $data[$columnName] ?? $param->default;
+            }
+        }
+
+        // Resolve morph pairs: need both _type and _id to find the model
+        foreach ($morphPairs as $morphName => $info) {
+            $typeValue = $data[$morphName.'_type'] ?? null;
+            $idValue = $data[$morphName.'_id'] ?? null;
+
+            if ($typeValue !== null && $idValue !== null) {
+                $modelClass = Relation::getMorphedModel($typeValue) ?? $typeValue;
+                $mapped[$info['propertyName']] = $info['nullable']
+                    ? $modelClass::forAuthUser()->find($idValue)
+                    : $modelClass::forAuthUser()->findOrFail($idValue);
+            } else {
+                $mapped[$info['propertyName']] = null;
             }
         }
 
@@ -330,12 +362,16 @@ abstract class Action
         $componentMap = [];
 
         foreach ($definition->parameters as $param) {
+            $key = ($param->morphPairName !== null) ? $param->columnName : $param->name;
+
             if ($param->isNestedRelationship && $param->nestedRelationship !== null) {
-                $componentMap[$param->name] = $this->buildNestedFilamentComponent($param->nestedRelationship);
+                $componentMap[$key] = $this->buildNestedFilamentComponent($param->nestedRelationship);
             } elseif ($param->isModel && $param->modelClass !== null) {
-                $componentMap[$param->name] = $this->buildBelongsToFilamentComponent($param);
+                $componentMap[$key] = $this->buildBelongsToFilamentComponent($param);
+            } elseif ($param->morphPairName !== null && $param->isMorphType) {
+                $componentMap[$key] = $this->buildMorphTypeFilamentComponent($param);
             } else {
-                $componentMap[$param->name] = $this->buildScalarFilamentComponent($param);
+                $componentMap[$key] = $this->buildScalarFilamentComponent($param);
             }
         }
 
@@ -347,7 +383,8 @@ abstract class Action
         // Collect in parameter order
         $components = [];
         foreach ($definition->parameters as $param) {
-            $components[] = $componentMap[$param->name];
+            $key = ($param->morphPairName !== null) ? $param->columnName : $param->name;
+            $components[] = $componentMap[$key];
         }
 
         return $components;
@@ -470,6 +507,45 @@ abstract class Action
 
             return null;
         });
+
+        return $field;
+    }
+
+    /**
+     * Build a Filament Select component for the _type column of a MorphTo pair.
+     *
+     * Uses Laravel's morph map to provide options. Falls back to a plain TextInput
+     * if no morph map is configured.
+     */
+    protected function buildMorphTypeFilamentComponent(ActionParameter $param): Select|TextInput
+    {
+        $columnName = $param->columnName;
+        $morphMap = Relation::morphMap();
+
+        if (empty($morphMap)) {
+            $field = TextInput::make($columnName)
+                ->label(Str::headline(str_replace('_', ' ', $columnName)));
+
+            if (! $param->nullable) {
+                $field->required();
+            }
+
+            return $field;
+        }
+
+        $options = array_combine(
+            array_keys($morphMap),
+            array_map(fn ($c) => class_basename($c), $morphMap),
+        );
+
+        $field = Select::make($columnName)
+            ->label(Str::headline(str_replace('_', ' ', $columnName)))
+            ->options($options)
+            ->searchable();
+
+        if (! $param->nullable) {
+            $field->required();
+        }
 
         return $field;
     }

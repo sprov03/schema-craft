@@ -136,6 +136,8 @@ class ActionsController
                 'foreignKeyColumn' => $p->foreignKeyColumn,
                 'columnName' => $p->columnName,
                 'relationship' => $p->relationship,
+                'morphPairName' => $p->morphPairName,
+                'isMorphType' => $p->isMorphType ?: null,
                 'isNestedRelationship' => $p->isNestedRelationship ?: null,
                 'nestedRelationship' => $p->nestedRelationship !== null ? [
                     'name' => $p->nestedRelationship->name,
