@@ -92,6 +92,34 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Visualizer Settings
+    |--------------------------------------------------------------------------
+    |
+    | Configuration for the Schema Visualizer dev tool.
+    |
+    | docs_path: Directory (relative to base_path()) to scan for project-level
+    |            markdown documentation files. These are displayed in the
+    |            Docs tab alongside the SchemaCraft package documentation.
+    |
+    */
+
+    'visualizer' => [
+        'docs_path' => 'docs',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | DB Connection Configurations
+    |--------------------------------------------------------------------------
+    |
+    | Each entry maps a config name to a database connection, with optional
+    | class name prefixes and namespace overrides. Use these when generating
+    | schemas/models from multiple databases that share the same table names.
+    |
+    */
+
     'db_connections' => [
         'default' => [
             'prefixes' => [

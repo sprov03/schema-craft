@@ -9,19 +9,72 @@ class DocsController
 {
     public function index(): JsonResponse
     {
-        $path = realpath(__DIR__.'/../../README.md');
+        $documents = [];
 
-        if (! $path || ! file_exists($path)) {
+        // 1. Package README — always first
+        $readmePath = realpath(__DIR__.'/../../README.md');
+        if ($readmePath && file_exists($readmePath)) {
+            $documents[] = $this->parseDocument($readmePath, 'SchemaCraft Guide');
+        }
+
+        // 2. Project-level docs from configured directory
+        $docsPath = base_path(config('schema-craft.visualizer.docs_path', 'docs'));
+
+        if (is_dir($docsPath)) {
+            $files = glob($docsPath.'/*.md');
+            sort($files);
+
+            foreach ($files as $file) {
+                $documents[] = $this->parseDocument($file);
+            }
+        }
+
+        if (empty($documents)) {
             return new JsonResponse([
-                'error' => 'Documentation file not found.',
-                'sections' => [],
+                'error' => 'No documentation files found.',
+                'documents' => [],
             ], 404);
         }
 
-        $content = file_get_contents($path);
+        return new JsonResponse(['documents' => $documents]);
+    }
+
+    /**
+     * Parse a markdown file into a document with sections.
+     *
+     * @return array{name: string, slug: string, sections: array}
+     */
+    private function parseDocument(string $filePath, ?string $fallbackName = null): array
+    {
+        $content = file_get_contents($filePath);
+        $name = $this->extractDocName($content, $filePath, $fallbackName);
         $sections = $this->splitByH2($content);
 
-        return new JsonResponse(['sections' => $sections]);
+        return [
+            'name' => $name,
+            'slug' => Str::slug($name),
+            'sections' => $sections,
+        ];
+    }
+
+    /**
+     * Extract the document name from the first H1, or fall back to filename.
+     */
+    private function extractDocName(string $content, string $filePath, ?string $fallbackName): string
+    {
+        if (preg_match('/^# (.+)$/m', $content, $matches)) {
+            return trim($matches[1]);
+        }
+
+        if ($fallbackName !== null) {
+            return $fallbackName;
+        }
+
+        // Humanize filename: "01-getting-started.md" → "Getting Started"
+        $basename = pathinfo($filePath, PATHINFO_FILENAME);
+        $basename = preg_replace('/^\d+[-_]/', '', $basename);
+
+        return Str::headline($basename);
     }
 
     /**

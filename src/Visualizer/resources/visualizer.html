@@ -2028,8 +2028,37 @@
             padding: 8px 0;
             list-style: none;
         }
+        .docs-toc-group {
+            margin-bottom: 4px;
+        }
+        .docs-toc-group-header {
+            padding: 10px 16px 6px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            user-select: none;
+        }
+        .docs-toc-group-header:hover {
+            color: var(--text-primary);
+        }
+        .docs-toc-group-header .docs-toc-chevron {
+            font-size: 9px;
+            transition: transform 0.15s;
+        }
+        .docs-toc-group.collapsed .docs-toc-chevron {
+            transform: rotate(-90deg);
+        }
+        .docs-toc-group.collapsed .docs-toc-group-items {
+            display: none;
+        }
         .docs-toc-item {
-            padding: 8px 16px;
+            padding: 6px 16px 6px 28px;
             font-size: 13px;
             color: var(--text-secondary);
             cursor: pointer;
@@ -2056,6 +2085,16 @@
             overflow-y: auto;
             padding: 32px 48px;
             max-width: 900px;
+        }
+        .docs-doc-divider {
+            margin: 48px 0 32px;
+            padding-top: 32px;
+            border-top: 2px solid var(--border);
+        }
+        .docs-doc-divider:first-child {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
         }
 
         /* Markdown rendering */
@@ -10708,7 +10747,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 
         // ── Docs Tab ──────────────────────────────────────
         var docsInitialized = false;
-        var docsData = null;
+        var docsDocuments = null; // array of { name, slug, sections: [{title, slug, content}] }
         var docsSearchTerm = '';
         var docsSearchTimeout = null;
 
@@ -10747,7 +10786,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
             fetch('/_schema-craft/api/docs')
                 .then(handleResponse)
                 .then(function(data) {
-                    docsData = data.sections;
+                    docsDocuments = data.documents || [];
                     renderDocsToc();
                     renderDocsContent();
                 })
@@ -10757,39 +10796,92 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 });
         }
 
-        function docsFilteredSections() {
-            if (!docsData) return [];
-            if (!docsSearchTerm) return docsData;
-            return docsData.filter(function(s) {
-                return s.title.toLowerCase().indexOf(docsSearchTerm) !== -1 ||
-                       s.content.toLowerCase().indexOf(docsSearchTerm) !== -1;
+        /** Build a flat list of all sections across all documents, with doc context. */
+        function docsAllSections() {
+            if (!docsDocuments) return [];
+            var all = [];
+            docsDocuments.forEach(function(doc) {
+                doc.sections.forEach(function(s) {
+                    all.push({
+                        docName: doc.name,
+                        docSlug: doc.slug,
+                        title: s.title,
+                        slug: doc.slug + '--' + s.slug,
+                        content: s.content
+                    });
+                });
             });
+            return all;
+        }
+
+        /** Filter documents and their sections by search term. Returns filtered doc array. */
+        function docsFilteredDocuments() {
+            if (!docsDocuments) return [];
+            if (!docsSearchTerm) return docsDocuments;
+
+            var filtered = [];
+            docsDocuments.forEach(function(doc) {
+                var matchingSections = doc.sections.filter(function(s) {
+                    return s.title.toLowerCase().indexOf(docsSearchTerm) !== -1 ||
+                           s.content.toLowerCase().indexOf(docsSearchTerm) !== -1;
+                });
+                if (matchingSections.length > 0) {
+                    filtered.push({
+                        name: doc.name,
+                        slug: doc.slug,
+                        sections: matchingSections
+                    });
+                }
+            });
+            return filtered;
         }
 
         function renderDocsToc() {
             var list = document.getElementById('docs-toc-list');
             var countEl = document.getElementById('docs-toc-count');
-            var filtered = docsFilteredSections();
+            var filteredDocs = docsFilteredDocuments();
 
-            if (!docsData) {
+            if (!docsDocuments) {
                 list.innerHTML = '';
                 countEl.textContent = '';
                 return;
             }
 
+            var allSections = docsAllSections();
+            var filteredTotal = 0;
+            filteredDocs.forEach(function(d) { filteredTotal += d.sections.length; });
+
             if (docsSearchTerm) {
-                countEl.textContent = filtered.length + ' of ' + docsData.length + ' sections';
+                countEl.textContent = filteredTotal + ' of ' + allSections.length + ' sections';
             } else {
-                countEl.textContent = docsData.length + ' sections';
+                countEl.textContent = allSections.length + ' sections';
             }
 
             var html = '';
-            filtered.forEach(function(s) {
-                html += '<li class="docs-toc-item" data-slug="' + escapeAttr(s.slug) + '">' +
-                    escapeHtml(s.title) + '</li>';
+            filteredDocs.forEach(function(doc) {
+                html += '<li class="docs-toc-group" data-doc-slug="' + escapeAttr(doc.slug) + '">';
+                html += '<div class="docs-toc-group-header">' +
+                    '<span class="docs-toc-chevron">&#9660;</span> ' +
+                    escapeHtml(doc.name) +
+                    '</div>';
+                html += '<ul class="docs-toc-group-items">';
+                doc.sections.forEach(function(s) {
+                    var fullSlug = doc.slug + '--' + s.slug;
+                    html += '<li class="docs-toc-item" data-slug="' + escapeAttr(fullSlug) + '">' +
+                        escapeHtml(s.title) + '</li>';
+                });
+                html += '</ul></li>';
             });
             list.innerHTML = html;
 
+            // Group header click → toggle collapse
+            list.querySelectorAll('.docs-toc-group-header').forEach(function(header) {
+                header.addEventListener('click', function() {
+                    header.parentElement.classList.toggle('collapsed');
+                });
+            });
+
+            // Section item click → scroll to section
             list.querySelectorAll('.docs-toc-item').forEach(function(item) {
                 item.addEventListener('click', function() {
                     var slug = item.dataset.slug;
@@ -10803,20 +10895,19 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 
         function renderDocsContent() {
             var container = document.getElementById('docs-content');
-            var filtered = docsFilteredSections();
+            var filteredDocs = docsFilteredDocuments();
 
-            if (!docsData) {
+            if (!docsDocuments) {
                 container.innerHTML = '<div class="docs-empty">Loading documentation...</div>';
                 return;
             }
 
-            if (filtered.length === 0) {
+            if (filteredDocs.length === 0) {
                 container.innerHTML = '<div class="docs-empty">No sections match &ldquo;' +
                     escapeHtml(docsSearchTerm) + '&rdquo;</div>';
                 return;
             }
 
-            // Check if marked.js is available
             if (typeof marked === 'undefined') {
                 container.innerHTML = '<div class="docs-empty">Documentation requires an internet connection for markdown rendering.<br><br>The <code>marked.js</code> library could not be loaded from CDN.</div>';
                 return;
@@ -10824,13 +10915,19 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 
             marked.setOptions({ gfm: true, breaks: false });
 
-            var html = '<div class="docs-article">';
-            filtered.forEach(function(s) {
-                html += '<div class="docs-section" id="doc-' + escapeAttr(s.slug) + '">';
-                html += marked.parse(s.content);
+            var html = '';
+            filteredDocs.forEach(function(doc) {
+                html += '<div class="docs-doc-divider">';
+                html += '<div class="docs-article">';
+                doc.sections.forEach(function(s) {
+                    var fullSlug = doc.slug + '--' + s.slug;
+                    html += '<div class="docs-section" id="doc-' + escapeAttr(fullSlug) + '">';
+                    html += marked.parse(s.content);
+                    html += '</div>';
+                });
+                html += '</div>';
                 html += '</div>';
             });
-            html += '</div>';
 
             container.innerHTML = html;
 
@@ -10851,7 +10948,6 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 pre.appendChild(btn);
             });
 
-            // Highlight search matches in text nodes
             if (docsSearchTerm) {
                 docsHighlightMatches(container, docsSearchTerm);
             }
@@ -10863,7 +10959,6 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 
             while (walker.nextNode()) {
                 var node = walker.currentNode;
-                // Skip code blocks and copy buttons
                 var parent = node.parentElement;
                 if (parent && (parent.tagName === 'CODE' || parent.tagName === 'PRE' ||
                     parent.classList.contains('docs-copy-btn'))) {

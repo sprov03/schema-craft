@@ -212,6 +212,7 @@ PostSchema::updateRules(['title', 'slug'])->toArray();  // for update
   - [Health Dashboard](#health-dashboard)
   - [Apply Fix from the UI](#apply-fix-from-the-ui)
   - [Explorer](#explorer)
+  - [Docs Tab — Project Documentation](#docs-tab--project-documentation)
 - [Full Example](#full-example)
 - [Full Multi-API Demo](#full-multi-api-demo)
 
@@ -2406,6 +2407,46 @@ The Explorer tab provides an interactive graph view of your schemas:
 - **Load related models** — click **[Load]** on any relationship to pull the related schema onto the canvas, or **[Load All]** to load all connected schemas at once.
 - **Relationship lines** — SVG lines connect related schemas (solid for belongsTo/hasMany/hasOne, dashed for belongsToMany, dotted for morphic).
 - **Draggable cards** — drag schema cards by their header to rearrange the layout.
+
+### Docs Tab — Project Documentation
+
+The Docs tab renders searchable, browsable documentation directly inside the visualizer. It automatically loads:
+
+1. **Package documentation** — the SchemaCraft README (this file), always shown first
+2. **Project-level documentation** — any `.md` files found in the configured docs directory
+
+#### Adding Project Docs
+
+Create markdown files in your project's `docs/` directory (or whichever path you configure):
+
+```
+docs/
+  01-getting-started.md
+  02-api-patterns.md
+  03-deployment.md
+```
+
+Each file becomes its own collapsible group in the sidebar. The document name is derived from the first `# H1` heading in the file, falling back to a humanized version of the filename (e.g., `01-getting-started.md` becomes "Getting Started"). Within each document, `## H2` headings become clickable sidebar entries for quick navigation.
+
+Numeric prefixes (e.g., `01-`, `02-`) control the sort order and are stripped from the display name.
+
+#### Configuring the Docs Path
+
+The docs directory defaults to `docs/` relative to your project root. To change it, publish the config and set `visualizer.docs_path`:
+
+```php
+// config/schema-craft.php
+
+'visualizer' => [
+    'docs_path' => 'docs',  // relative to base_path()
+],
+```
+
+For example, setting `'docs_path' => 'documentation/schema-craft'` would scan `{project_root}/documentation/schema-craft/*.md`.
+
+#### Search
+
+The search input filters across **all** documents at once — both the package README and your project docs. Matching sections are highlighted in the content area and the sidebar updates to show only relevant sections.
 
 ---
 
