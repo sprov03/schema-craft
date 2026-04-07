@@ -23,7 +23,24 @@ php artisan schema:generate PostSchema --force       # overwrite existing
 php artisan schema:generate-sdk                         # generate SDK from all API schemas
 php artisan schema:generate-sdk --path=packages/my-sdk  # custom output path
 php artisan schema:generate-sdk --name=acme/my-sdk      # custom package name
+php artisan schema:generate-sdk --sdk-version=1.0.0     # set SDK version
 php artisan schema:generate-sdk --force                 # overwrite existing
+
+# Multi-API Management
+php artisan vendor:publish --tag=schema-craft-config    # publish config
+php artisan schema:api:create partner --setup-sanctum   # scaffold new API
+php artisan schema:generate PostSchema --api=partner    # generate into partner API
+php artisan schema:generate-sdk --api=partner           # SDK for one API
+php artisan schema:generate-sdk --all                   # SDKs for all APIs
+
+# Installing & Using a Generated SDK
+# 1. Add path repository in consumer's composer.json:
+#    "repositories": [{"type": "path", "url": "../packages/partner-sdk"}]
+# 2. Require the package:
+#    composer require my-app/partner-sdk
+# 3. Use in your code:
+#    $client = new PartnerClient(baseUrl: '...', token: '...');
+#    $posts = $client->posts()->list();
 
 # Relationships (dev-only)
 php artisan schema-craft:relationship "User->belongsTo(Account)"
@@ -69,6 +86,12 @@ public ?Carbon $verified_at;                  // SQL expression default
 #[HasMany(Comment::class)] public Collection $comments;       // no column on this table
 #[BelongsToMany(Tag::class)] public Collection $tags;         // creates pivot table
 #[MorphTo('commentable')] public Model $commentable;          // type + id columns
+#[HasManyThrough(Post::class, through: User::class)] public Collection $posts;
+
+// Inline key overrides (match Laravel's method signatures)
+#[BelongsTo(User::class, foreignKey: 'created_by')] public User $creator;
+#[HasMany(Post::class, foreignKey: 'author_id')] public Collection $posts;
+#[BelongsToMany(Tag::class, table: 'taggables')] public Collection $tags;
 
 // Non-standard FK column type
 #[BelongsTo(User::class)]
@@ -125,7 +148,10 @@ PostSchema::updateRules(['title', 'slug'])->toArray();  // for update
   - [Polymorphic: MorphTo](#polymorphic-morphto)
   - [Polymorphic: MorphOne / MorphMany](#polymorphic-morphone--morphmany)
   - [Polymorphic: MorphToMany](#polymorphic-morphtomany)
+  - [Polymorphic: MorphedByMany](#polymorphic-morphedbymany)
+  - [HasOneThrough / HasManyThrough](#hasonethrough--hasmanythrough)
   - [Foreign Key Options](#foreign-key-options)
+  - [Reusable Morph Patterns with Traits and Interfaces](#reusable-morph-patterns-with-traits-and-interfaces)
 - [Timestamps and Soft Deletes](#timestamps-and-soft-deletes)
 - [Model Behavior](#model-behavior)
   - [Fillable](#fillable)
@@ -158,6 +184,16 @@ PostSchema::updateRules(['title', 'slug'])->toArray();  // for update
   - [Generated Client](#generated-client)
   - [Custom Actions in the SDK](#custom-actions-in-the-sdk)
   - [Publishing SDK Stubs](#publishing-sdk-stubs)
+- [Multi-API Configuration](#multi-api-configuration)
+  - [Config File](#config-file)
+  - [Creating a New API](#creating-a-new-api)
+  - [Generating Into a Specific API](#generating-into-a-specific-api)
+  - [SDK Versioning](#sdk-versioning)
+  - [Generating All SDKs](#generating-all-sdks)
+  - [Schema Filtering](#schema-filtering)
+- [Using the Generated SDK](#using-the-generated-sdk)
+  - [Installing the SDK Package](#installing-the-sdk-package)
+  - [Importing and Using the Client](#importing-and-using-the-client)
 - [Artisan Commands](#artisan-commands)
   - [schema-craft:install](#schemacraftinstall)
   - [make:schema](#makeschema)
@@ -165,12 +201,19 @@ PostSchema::updateRules(['title', 'slug'])->toArray();  // for update
   - [schema:migrate](#schemamigrate)
   - [schema:generate](#schemagenerate)
   - [schema:generate-sdk](#schemageneratesdk)
+  - [schema:api:create](#schemaapicreate)
   - [schema-craft:relationship](#schemacraftrelationship)
+- [Actions](#actions)
+  - [Filament Integration](#filament-integration)
+  - [Fill-Data Precedence](#fill-data-precedence)
+  - [Customising Form Fields — configureFields()](#customising-form-fields--configurefields)
+  - [API Endpoints](#api-endpoints)
 - [Schema Visualizer](#schema-visualizer)
   - [Health Dashboard](#health-dashboard)
   - [Apply Fix from the UI](#apply-fix-from-the-ui)
   - [Explorer](#explorer)
 - [Full Example](#full-example)
+- [Full Multi-API Demo](#full-multi-api-demo)
 
 ---
 
@@ -196,6 +239,14 @@ abstract class BaseModel extends SchemaModel
 ```
 
 Add shared scopes, boot logic, or overrides here and every model in your project inherits them.
+
+To manage multiple APIs per project, publish the configuration file:
+
+```bash
+php artisan vendor:publish --tag=schema-craft-config
+```
+
+This creates `config/schema-craft.php` where you can define isolated API configurations, SDK metadata, and route settings. See [Multi-API Configuration](#multi-api-configuration) for details.
 
 ---
 
@@ -621,14 +672,11 @@ public Profile $profile;
 public Collection $comments;
 ```
 
-If the foreign key on the related table doesn't follow convention, use `#[ForeignColumn]`:
+If the foreign key on the related table doesn't follow convention, pass `foreignKey:`:
 
 ```php
-use SchemaCraft\Attributes\ForeignColumn;
-
 /** @var Collection<int, Post> */
-#[HasMany(Post::class)]
-#[ForeignColumn('author_id')]       // Post.author_id instead of Post.user_id
+#[HasMany(Post::class, foreignKey: 'author_id')]  // Post.author_id instead of Post.user_id
 public Collection $posts;
 ```
 
@@ -648,12 +696,10 @@ public Collection $tags;             // creates post_tag pivot table
 Customize the pivot table name and add extra columns:
 
 ```php
-use SchemaCraft\Attributes\PivotTable;
 use SchemaCraft\Attributes\PivotColumns;
 
 /** @var Collection<int, Tag> */
-#[BelongsToMany(Tag::class)]
-#[PivotTable('taggables')]
+#[BelongsToMany(Tag::class, table: 'taggables')]
 #[PivotColumns(['order' => 'integer', 'added_by' => 'string'])]
 public Collection $tags;
 ```
@@ -702,6 +748,56 @@ use SchemaCraft\Attributes\Relations\MorphToMany;
 public Collection $tags;
 ```
 
+### Polymorphic: MorphedByMany
+
+The inverse of `MorphToMany` — defined on the related model (e.g., `Tag`) to access all models that morphed to it:
+
+```php
+use Illuminate\Database\Eloquent\Collection;
+use SchemaCraft\Attributes\Relations\MorphedByMany;
+
+/** @var Collection<int, Post> */
+#[MorphedByMany(Post::class, 'taggable')]
+public Collection $posts;
+
+/** @var Collection<int, Video> */
+#[MorphedByMany(Video::class, 'taggable')]
+public Collection $videos;
+```
+
+### HasOneThrough / HasManyThrough
+
+Access distant relationships through an intermediate model. No columns are created on this table:
+
+```php
+use Illuminate\Database\Eloquent\Collection;
+use SchemaCraft\Attributes\Relations\HasOneThrough;
+use SchemaCraft\Attributes\Relations\HasManyThrough;
+
+// A Country has one DeployEnvironment through a User
+#[HasOneThrough(DeployEnvironment::class, through: User::class)]
+public DeployEnvironment $deployEnvironment;
+
+// A Country has many Posts through Users
+/** @var Collection<int, Post> */
+#[HasManyThrough(Post::class, through: User::class)]
+public Collection $posts;
+```
+
+Optional key overrides match Laravel's method signature:
+
+```php
+#[HasManyThrough(
+    Post::class,
+    through: User::class,
+    firstKey: 'country_id',
+    secondKey: 'user_id',
+    localKey: 'id',
+    secondLocalKey: 'id',
+)]
+public Collection $posts;
+```
+
 ### Foreign Key Options
 
 Configure foreign key behavior on `BelongsTo` relationships:
@@ -710,7 +806,6 @@ Configure foreign key behavior on `BelongsTo` relationships:
 use SchemaCraft\Attributes\OnDelete;
 use SchemaCraft\Attributes\OnUpdate;
 use SchemaCraft\Attributes\NoConstraint;
-use SchemaCraft\Attributes\ForeignColumn;
 use SchemaCraft\Attributes\Relations\BelongsTo;
 
 #[BelongsTo(User::class)]
@@ -722,14 +817,113 @@ public User $author;
 #[OnUpdate('cascade')]               // ON UPDATE CASCADE
 public ?Team $team;
 
-#[BelongsTo(User::class)]
-#[ForeignColumn('created_by')]       // Custom FK column name
+#[BelongsTo(User::class, foreignKey: 'created_by')]  // Custom FK column name
 public User $creator;
 
 #[BelongsTo(User::class)]
 #[NoConstraint]                      // Index only, no FK constraint
 public User $reviewer;
 ```
+
+### Reusable Morph Patterns with Traits and Interfaces
+
+When multiple schemas share the same polymorphic relationship (e.g., `Comment` can belong to `Post`, `Video`, and `Photo`), you repeat `#[MorphMany(Comment::class, 'commentable')]` on every parent schema. Traits and interfaces eliminate this duplication while keeping type safety.
+
+**The pattern:** trait on the schema carries the relationship property, interface on the model provides the `instanceof` type contract.
+
+**Schema trait** — defines the relationship once:
+
+```php
+// app/Schemas/Concerns/HasCommentsSchema.php
+namespace App\Schemas\Concerns;
+
+use App\Models\Comment;
+use Illuminate\Database\Eloquent\Collection;
+use SchemaCraft\Attributes\Relations\MorphMany;
+
+trait HasCommentsSchema
+{
+    /** @var Collection<int, Comment> */
+    #[MorphMany(Comment::class, 'commentable')]
+    public Collection $comments;
+}
+```
+
+**Model interface** — an empty marker for type-hinting:
+
+```php
+// app/Models/Contracts/HasComments.php
+namespace App\Models\Contracts;
+
+interface HasComments
+{
+    // Marker interface — the trait on the schema carries the actual relationship.
+}
+```
+
+**Usage** — the schema uses the trait, the model implements the interface:
+
+```php
+// app/Schemas/PostSchema.php
+class PostSchema extends Schema
+{
+    use HasCommentsSchema;
+
+    #[Primary] #[AutoIncrement]
+    public int $id;
+    public string $title;
+}
+
+// app/Models/Post.php
+class Post extends BaseModel implements HasComments
+{
+    protected static string $schema = PostSchema::class;
+}
+```
+
+Now you can write type-safe method signatures that accept any commentable model:
+
+```php
+use App\Models\Contracts\HasComments;
+
+function addComment(HasComments $model, string $body): Comment
+{
+    return $model->comments()->create([
+        'body' => $body,
+        'author_id' => auth()->id(),
+    ]);
+}
+
+// Works with any model that implements HasComments
+addComment($post, 'Great article!');
+addComment($video, 'Nice video!');
+addComment($photo, 'Beautiful shot!');
+```
+
+**Why the split?** PHP interfaces cannot define properties, so they can't carry `#[MorphMany]` attributes. And SchemaCraft schemas don't pass their traits or interfaces to the model — the schema and model are separate classes. So each goes where it's useful: the trait on the schema (where SchemaCraft reads it), the interface on the model (where your application code type-hints it).
+
+**Stacking multiple traits** works naturally:
+
+```php
+class PostSchema extends Schema
+{
+    use HasCommentsSchema;
+    use HasTagsSchema;
+    use HasMediaSchema;
+    use TimestampsSchema;
+
+    // ... post-specific properties
+}
+
+class Post extends BaseModel implements HasComments, HasTags, HasMedia
+{
+    protected static string $schema = PostSchema::class;
+}
+```
+
+This follows the same pattern as SchemaCraft's built-in `TimestampsSchema` and `SoftDeletesSchema` traits — but for relationships instead of columns.
+
+> **Note:** The `SchemaAnalyzer` validates that morph relationships have matching inverses. If `PostSchema` uses `HasCommentsSchema` (which has `#[MorphMany(Comment::class, 'commentable')]`), it expects `CommentSchema` to have a corresponding `#[MorphTo('commentable')]` property. The scanner reads trait properties via PHP reflection, so everything works transparently.
 
 ---
 
@@ -1471,6 +1665,288 @@ Available SDK stubs:
 
 ---
 
+## Multi-API Configuration
+
+SchemaCraft supports managing multiple independent APIs per project. Each API gets fully isolated directories for Controllers, Requests, and Resources, its own route file, and its own SDK configuration.
+
+### Config File
+
+Publish the configuration file:
+
+```bash
+php artisan vendor:publish --tag=schema-craft-config
+```
+
+This creates `config/schema-craft.php`:
+
+```php
+return [
+    'default' => 'default',
+
+    'explicit_foreign_keys' => false,
+
+    'apis' => [
+        'default' => [
+            'namespaces' => [
+                'controller' => 'App\\Http\\Controllers\\Api',
+                'service'    => 'App\\Models\\Services',
+                'request'    => 'App\\Http\\Requests',
+                'resource'   => 'App\\Resources',
+                'schema'     => 'App\\Schemas',
+                'model'      => 'App\\Models',
+            ],
+            'routes' => [
+                'file'       => 'routes/api.php',
+                'prefix'     => 'api',
+                'middleware'  => ['auth:sanctum'],
+            ],
+            'schemas' => null,  // null = all schemas with controllers
+            'sdk' => [
+                'path'      => 'packages/sdk',
+                'name'      => 'my-app/sdk',
+                'namespace' => 'MyApp\\Sdk',
+                'client'    => 'MyAppClient',
+                'version'   => '0.1.0',
+            ],
+        ],
+    ],
+
+    'db_connections' => [
+        'default' => [
+            'namespaces' => [
+                'schema'  => 'App\\Schemas',
+                'model'   => 'App\\Models',
+                'service' => 'App\\Models\\Services',
+            ],
+            'connection' => 'default',
+        ],
+    ],
+];
+```
+
+| Key | Purpose |
+|---|---|
+| `default` | Which API configuration to use when `--api` is not specified |
+| `explicit_foreign_keys` | When `true`, `schema:from-database` generates FK columns as visible properties alongside BelongsTo (default `false`) |
+| `apis.*.namespaces` | Where to place generated controllers, services, requests, resources |
+| `apis.*.routes` | Route file path, URL prefix, and middleware |
+| `apis.*.schemas` | Array of schema class names to include (`null` = all) |
+| `apis.*.sdk` | SDK package output path, Composer name, namespace, client class, and version |
+| `db_connections.*` | Database connection configs — schema directories are derived from each connection's `namespaces.schema` |
+
+Without the config file, all commands use the same hardcoded defaults — zero behavior change for existing projects.
+
+### Creating a New API
+
+Scaffold a new API with a single command:
+
+```bash
+php artisan schema:api:create partner --setup-sanctum
+```
+
+This does five things:
+
+1. **Creates route file** — `routes/partner-api.php` with API route boilerplate
+2. **Creates isolated directories** — `app/Http/Controllers/PartnerApi/`, `app/Http/Requests/PartnerApi/`, `app/Resources/PartnerApi/`
+3. **Adds config entry** — inserts `apis.partner` into `config/schema-craft.php` with all namespaces pointing to the isolated directories
+4. **Registers route** — auto-edits `bootstrap/app.php` to register the route file in `withRouting()` via a `then:` closure
+5. **Installs Sanctum** — runs `php artisan install:api` if `laravel/sanctum` is not already installed (only when `--setup-sanctum` is used)
+
+Options:
+
+```bash
+php artisan schema:api:create partner                  # default prefix: partner-api
+php artisan schema:api:create partner --prefix=v2      # custom URL prefix
+php artisan schema:api:create partner --setup-sanctum  # install Sanctum if missing
+```
+
+After running, your config gains a new entry:
+
+```php
+'apis' => [
+    'default' => [ ... ],
+    'partner' => [
+        'namespaces' => [
+            'controller' => 'App\\Http\\Controllers\\PartnerApi',
+            'service'    => 'App\\Models\\Services',
+            'request'    => 'App\\Http\\Requests\\PartnerApi',
+            'resource'   => 'App\\Resources\\PartnerApi',
+            'schema'     => 'App\\Schemas',
+            'model'      => 'App\\Models',
+        ],
+        'routes' => [
+            'file'       => 'routes/partner-api.php',
+            'prefix'     => 'partner-api',
+            'middleware'  => ['auth:sanctum'],
+        ],
+        'schemas' => null,
+        'sdk' => [
+            'path'      => 'packages/partner-sdk',
+            'name'      => 'my-app/partner-sdk',
+            'namespace' => 'MyApp\\PartnerSdk',
+            'client'    => 'PartnerClient',
+            'version'   => '0.1.0',
+        ],
+    ],
+],
+```
+
+### Generating Into a Specific API
+
+Pass `--api` to target a specific API configuration:
+
+```bash
+php artisan schema:generate PostSchema --api=partner
+```
+
+This generates the controller, service, requests, and resource into the namespaces/directories defined in `apis.partner`. Without `--api`, the `default` API configuration is used.
+
+Files are placed into the isolated directories:
+
+| File | Location |
+|---|---|
+| Controller | `app/Http/Controllers/PartnerApi/PostController.php` |
+| Service | `app/Models/Services/PostService.php` |
+| Create Request | `app/Http/Requests/PartnerApi/CreatePostRequest.php` |
+| Update Request | `app/Http/Requests/PartnerApi/UpdatePostRequest.php` |
+| Resource | `app/Resources/PartnerApi/PostResource.php` |
+
+Then register routes in your route file:
+
+```php
+// routes/partner-api.php
+use App\Http\Controllers\PartnerApi\PostController;
+
+PostController::apiRoutes();
+```
+
+### SDK Versioning
+
+Each API's SDK has a version defined in the config:
+
+```php
+'sdk' => [
+    'version' => '0.1.0',
+],
+```
+
+The version appears in the generated SDK's `composer.json`. Bump it manually in the config, or override it at generation time:
+
+```bash
+php artisan schema:generate-sdk --api=partner --sdk-version=1.2.0
+```
+
+CLI options always take precedence over config values.
+
+### Generating All SDKs
+
+After updating schemas, regenerate all SDKs at once:
+
+```bash
+php artisan schema:generate-sdk --all
+```
+
+This iterates over every API in `config/schema-craft.php` and generates each one's SDK using its configured settings. Combine with `--force` to overwrite existing files:
+
+```bash
+php artisan schema:generate-sdk --all --force
+```
+
+### Schema Filtering
+
+By default, an API includes all schemas that have generated controllers. To limit an API to specific schemas, set the `schemas` key:
+
+```php
+'partner' => [
+    'schemas' => ['PostSchema', 'CommentSchema'],
+    // ...
+],
+```
+
+Only the listed schema classes will be included when generating the SDK for this API. Set to `null` to include all schemas with controllers.
+
+---
+
+## Using the Generated SDK
+
+### Installing the SDK Package
+
+The generated SDK is a standard Composer package. For local development, add it as a path repository in your consumer application's `composer.json`:
+
+```json
+{
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../my-app/packages/partner-sdk"
+        }
+    ],
+    "require": {
+        "my-app/partner-sdk": "*"
+    }
+}
+```
+
+Then install:
+
+```bash
+composer require my-app/partner-sdk
+```
+
+For production distribution, publish the SDK to a private Packagist repository or a Git-based Composer repository.
+
+### Importing and Using the Client
+
+```php
+use MyApp\PartnerSdk\PartnerClient;
+
+$client = new PartnerClient(
+    baseUrl: 'https://myapp.com/partner-api',
+    token: 'your-sanctum-token',
+);
+
+// List all posts
+$posts = $client->posts()->list();       // PostData[]
+
+// Create a post
+$post = $client->posts()->create(
+    title: 'Hello World',
+    slug: 'hello-world',
+    body: 'Content here...',
+    price: 29.99,
+    viewCount: 0,
+    isFeatured: false,
+    authorId: 1,
+);                                        // PostData
+
+// Get a single post
+$post = $client->posts()->get(1);        // PostData
+$post->title;                            // string
+$post->createdAt;                        // ?string
+
+// Update
+$client->posts()->update(1,
+    title: 'Updated Title',
+    slug: 'hello-world',
+    body: 'Updated content',
+    price: 29.99,
+    viewCount: 0,
+    isFeatured: true,
+    authorId: 1,
+);
+
+// Delete
+$client->posts()->delete(1);
+
+// Custom actions
+$client->posts()->cancel(1);
+$client->posts()->publish(1);
+```
+
+All responses are typed DTOs — your IDE provides full autocomplete for every property.
+
+---
+
 ## Artisan Commands
 
 ### schema-craft:install
@@ -1569,6 +2045,7 @@ php artisan schema:generate PostSchema                  # short name
 php artisan schema:generate Post                        # auto-appends Schema
 php artisan schema:generate App\Schemas\PostSchema      # FQCN
 php artisan schema:generate PostSchema --force           # overwrite existing
+php artisan schema:generate PostSchema --api=partner     # target a specific API
 ```
 
 Add a custom action to an existing API:
@@ -1579,12 +2056,22 @@ php artisan schema:generate PostSchema --action=archive
 php artisan schema:generate PostSchema --action=publish
 ```
 
+Options:
+
+| Option | Description |
+|---|---|
+| `--force` | Overwrite existing files |
+| `--action=` | Add a new action to an existing API stack |
+| `--api=` | API configuration name from `config/schema-craft.php` (defaults to `default`) |
+
 **Output (initial generation):**
 - `app/Http/Controllers/Api/{Name}Controller.php`
 - `app/Models/Services/{Name}Service.php`
 - `app/Http/Requests/Create{Name}Request.php`
 - `app/Http/Requests/Update{Name}Request.php`
 - `app/Resources/{Name}Resource.php`
+
+When using `--api=partner`, output paths use the configured namespaces (e.g., `app/Http/Controllers/PartnerApi/{Name}Controller.php`).
 
 **Output (--action):**
 - Creates `app/Http/Requests/{Action}{Name}Request.php`
@@ -1599,24 +2086,71 @@ Generate a standalone Composer package that acts as a typed PHP API client for y
 
 ```bash
 php artisan schema:generate-sdk                                # generate SDK from all API schemas
-php artisan schema:generate-sdk --path=packages/my-sdk         # custom output directory
-php artisan schema:generate-sdk --name=acme/my-sdk             # custom package name
-php artisan schema:generate-sdk --namespace=Acme\\Sdk          # custom PHP namespace
-php artisan schema:generate-sdk --client=AcmeClient            # custom client class name
+php artisan schema:generate-sdk --api=partner                  # generate SDK for a specific API
+php artisan schema:generate-sdk --all                          # generate SDKs for all configured APIs
+php artisan schema:generate-sdk --sdk-version=1.0.0            # set SDK package version
+php artisan schema:generate-sdk --path=packages/my-sdk         # custom output directory (overrides config)
+php artisan schema:generate-sdk --name=acme/my-sdk             # custom package name (overrides config)
+php artisan schema:generate-sdk --namespace=Acme\\Sdk          # custom PHP namespace (overrides config)
+php artisan schema:generate-sdk --client=AcmeClient            # custom client class name (overrides config)
 php artisan schema:generate-sdk --schema-path=app/Schemas      # custom schema directory
 php artisan schema:generate-sdk --force                        # overwrite existing files
 ```
 
 The command automatically discovers schemas that have API controllers (generated via `schema:generate`) and includes any custom actions detected in the controllers.
 
+Options:
+
+| Option | Description |
+|---|---|
+| `--api=` | API configuration name from `config/schema-craft.php` |
+| `--all` | Generate SDKs for every configured API |
+| `--sdk-version=` | SDK package version (overrides config's `sdk.version`) |
+| `--path=` | Output directory (overrides config's `sdk.path`) |
+| `--name=` | Composer package name (overrides config's `sdk.name`) |
+| `--namespace=` | PHP namespace (overrides config's `sdk.namespace`) |
+| `--client=` | Client class name (overrides config's `sdk.client`) |
+| `--schema-path=` | Custom schema scan directories (repeatable) |
+| `--force` | Overwrite existing files |
+
+When a config file exists, the SDK's path, name, namespace, client, and version are read from the API's `sdk` config. CLI options always override config values.
+
 **Output:**
-- `{path}/composer.json` — package manifest with Guzzle dependency
+- `{path}/composer.json` — package manifest with Guzzle dependency and version
 - `{path}/src/SdkConnector.php` — HTTP transport with bearer token auth
 - `{path}/src/{Client}.php` — main client entry point
 - `{path}/src/Data/{Name}Data.php` — response DTO per schema
 - `{path}/src/Resources/{Name}Resource.php` — CRUD resource per schema
 
 See [SDK Client Generation](#sdk-client-generation) for details on what the generated code looks like.
+
+### schema:api:create
+
+Scaffold a new API configuration with isolated directories and route file:
+
+```bash
+php artisan schema:api:create partner                  # create partner API
+php artisan schema:api:create partner --prefix=v2      # custom URL prefix
+php artisan schema:api:create partner --setup-sanctum  # install Sanctum if missing
+```
+
+Options:
+
+| Option | Description |
+|---|---|
+| `name` | The API name (e.g., `partner`, `internal`, `mobile`) |
+| `--prefix=` | URL prefix for routes (defaults to `{name}-api`) |
+| `--setup-sanctum` | Install Laravel Sanctum via `install:api` if not already present |
+
+**What gets created:**
+- `routes/{name}-api.php` — API route file
+- `app/Http/Controllers/{StudlyName}Api/` — isolated controller directory
+- `app/Http/Requests/{StudlyName}Api/` — isolated request directory
+- `app/Resources/{StudlyName}Api/` — isolated resource directory
+- `config/schema-craft.php` — updated with new `apis.{name}` entry
+- `bootstrap/app.php` — updated with route registration in `withRouting()`
+
+See [Multi-API Configuration](#multi-api-configuration) for details.
 
 ### schema-craft:relationship
 
@@ -1682,6 +2216,150 @@ public Collection $dogs;
 ```
 
 The command is idempotent — running it twice with the same relationship will not create duplicates.
+
+---
+
+## Actions
+
+Actions are typed PHP classes that describe **what** an operation needs — its parameters, types, validation, and relationships. SchemaCraft auto-generates Filament forms and API endpoints from these typed properties, so the same action works in both contexts without duplication.
+
+### Filament Integration
+
+Use `filamentAction()` to render an action as a Filament modal form. Each component's `->default()` closure resolves values from the record via Filament's DI at mount time. Works for both page actions and table row actions.
+
+```php
+use App\Models\Actions\Dog\CreateDogAction;
+
+// ViewRecord or EditRecord — record resolved automatically via Filament DI
+protected function getHeaderActions(): array
+{
+    return [
+        CreateDogAction::create()->filamentAction(),
+    ];
+}
+
+// ListRecords — no record, form starts from PHP property defaults
+protected function getHeaderActions(): array
+{
+    return [
+        CreateDogAction::create()->filamentAction(),
+    ];
+}
+```
+
+### Fill-Data Precedence
+
+All form defaults use Filament's native `->default()` with closure DI. Values are resolved at mount time in this order (lowest to highest priority):
+
+1. **PHP property defaults** — `public ?string $status = 'draft';`
+2. **Record data** — auto-generated `->default(fn($record) => $record->column)` closures
+3. **`configureFields()` `->default()`** — runs last, always wins
+
+```php
+use Illuminate\Database\Eloquent\Model;
+use SchemaCraft\FieldProxy;
+
+CreateDogAction::create()
+    ->configureFields(function (FieldProxy $fields): void {
+        $fields->owner
+            ->default(fn (?Model $record) => $record?->owner_id)
+            ->disabled();
+
+        $fields->status->default('active');
+    })
+    ->filamentAction();
+```
+
+The `->default()` closure receives the record via Filament's dependency injection — the same pattern Filament's own actions use. This works for both page actions (record available immediately) and table row actions (record injected per-row at mount time).
+
+When column names don't match property names, override the default in `configureFields()`:
+
+```php
+->configureFields(function (FieldProxy $fields): void {
+    $fields->city->default(fn (?Model $record) => $record?->mailing_city);
+    $fields->email->default(fn (?Model $record) => $record?->owner->email);
+})
+```
+
+### Customising Form Fields — configureFields()
+
+The Action describes *what* an operation needs. *How* to present those fields is a call-site concern — the same action might show different options on different pages. Use `configureFields()` to tweak or replace auto-generated Filament components at the call site.
+
+The closure receives a `FieldProxy` where each property maps to the auto-generated Filament component by its camelCase property name.
+
+#### Modify Mode — tweak the auto-generated component
+
+```php
+use App\Models\Actions\Dog\CreateDogAction;
+use SchemaCraft\FieldProxy;
+
+CreateDogAction::create()
+    ->configureFields(function (FieldProxy $fields): void {
+        // Chain any Filament method on the auto-generated component
+        $fields->owner
+            ->options(fn () => Owner::active()->pluck('name', 'id'))
+            ->searchable()
+            ->preload();
+
+        $fields->status->label('Current Status');
+    })
+    ->filamentAction();
+```
+
+#### Replace Mode — swap the entire component
+
+```php
+use Filament\Forms\Components\Textarea;
+use SchemaCraft\FieldProxy;
+
+CreateDogAction::create()
+    ->configureFields(function (FieldProxy $fields): void {
+        // Assign a new component to completely replace the auto-generated one
+        $fields->name = Textarea::make('name')
+            ->rows(3)
+            ->placeholder('Enter a description...');
+    })
+    ->filamentAction();
+```
+
+#### Setting Defaults and Presentation Together
+
+Use `configureFields()` to both set default values and customise presentation in one place. Use Filament closure DI to access the record:
+
+```php
+use Illuminate\Database\Eloquent\Model;
+use SchemaCraft\FieldProxy;
+
+CreateDogAction::create()
+    ->configureFields(function (FieldProxy $fields): void {
+        // Pre-fill and lock the owner field from the record
+        $fields->owner
+            ->default(fn (?Model $record) => $record?->owner_id)
+            ->disabled();
+
+        // Dynamic options based on the record
+        $fields->category
+            ->options(fn (?Model $record) => Category::where('type', $record?->type)->pluck('name', 'id'));
+    })
+    ->filamentAction();
+```
+
+### API Endpoints
+
+Actions also serve as API endpoints. Call `endpoint()` inside a route group to register the route automatically:
+
+```php
+use App\Models\Actions\Dog\CreateDogAction;
+use App\Http\Resources\DogResource;
+
+Route::prefix('v1/dogs/{dog_id}')
+    ->middleware(['auth:sanctum'])
+    ->group(function () {
+        (new CreateDogAction)->endpoint(DogResource::class);
+    });
+```
+
+The action's HTTP method, route segment, and model binding are derived from the action definition. `configureFields()` is a Filament-only concern — it has no effect on API endpoints.
 
 ---
 
@@ -1863,3 +2541,261 @@ $post->metadata;     // array (auto-cast from json)
 
 Post::published()->with('comments')->paginate();
 ```
+
+---
+
+## Full Multi-API Demo
+
+This walkthrough creates a partner API from scratch — from schemas to a consumer app using the generated SDK.
+
+### Step 1: Setup
+
+```bash
+php artisan schema-craft:install
+php artisan vendor:publish --tag=schema-craft-config
+```
+
+### Step 2: Define Schemas
+
+```bash
+php artisan make:schema Post Comment --soft-deletes
+```
+
+Edit `app/Schemas/PostSchema.php`:
+
+```php
+namespace App\Schemas;
+
+use App\Models\Comment;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Collection;
+use SchemaCraft\Attributes\AutoIncrement;
+use SchemaCraft\Attributes\Fillable;
+use SchemaCraft\Attributes\Primary;
+use SchemaCraft\Attributes\Relations\BelongsTo;
+use SchemaCraft\Attributes\Relations\HasMany;
+use SchemaCraft\Attributes\Text;
+use SchemaCraft\Attributes\Unique;
+use SchemaCraft\Schema;
+use SchemaCraft\Traits\SoftDeletesSchema;
+use SchemaCraft\Traits\TimestampsSchema;
+
+class PostSchema extends Schema
+{
+    use SoftDeletesSchema;
+    use TimestampsSchema;
+
+    #[Primary]
+    #[AutoIncrement]
+    public int $id;
+
+    #[Fillable]
+    public string $title;
+
+    #[Fillable]
+    #[Unique]
+    public string $slug;
+
+    #[Fillable]
+    #[Text]
+    public ?string $body;
+
+    #[Fillable]
+    #[BelongsTo(User::class)]
+    public User $author;
+
+    /** @var Collection<int, Comment> */
+    #[HasMany(Comment::class)]
+    public Collection $comments;
+}
+```
+
+Edit `app/Schemas/CommentSchema.php`:
+
+```php
+namespace App\Schemas;
+
+use App\Models\Post;
+use App\Models\User;
+use SchemaCraft\Attributes\AutoIncrement;
+use SchemaCraft\Attributes\Fillable;
+use SchemaCraft\Attributes\Primary;
+use SchemaCraft\Attributes\Relations\BelongsTo;
+use SchemaCraft\Attributes\Text;
+use SchemaCraft\Schema;
+use SchemaCraft\Traits\TimestampsSchema;
+
+class CommentSchema extends Schema
+{
+    use TimestampsSchema;
+
+    #[Primary]
+    #[AutoIncrement]
+    public int $id;
+
+    #[Fillable]
+    #[Text]
+    public string $body;
+
+    #[Fillable]
+    #[BelongsTo(Post::class)]
+    public Post $post;
+
+    #[Fillable]
+    #[BelongsTo(User::class)]
+    public User $author;
+}
+```
+
+### Step 3: Run Migrations
+
+```bash
+php artisan schema:migrate --run
+```
+
+### Step 4: Create the Partner API
+
+```bash
+php artisan schema:api:create partner --setup-sanctum
+```
+
+This scaffolds:
+- `routes/partner-api.php`
+- `app/Http/Controllers/PartnerApi/`
+- `app/Http/Requests/PartnerApi/`
+- `app/Resources/PartnerApi/`
+- Config entry in `config/schema-craft.php`
+- Route registration in `bootstrap/app.php`
+
+### Step 5: Generate the API Stack
+
+```bash
+php artisan schema:generate PostSchema --api=partner
+php artisan schema:generate CommentSchema --api=partner
+```
+
+This creates controllers, services, requests, and resources in the partner API's isolated directories.
+
+### Step 6: Register Routes
+
+Edit `routes/partner-api.php`:
+
+```php
+<?php
+
+use App\Http\Controllers\PartnerApi\PostController;
+use App\Http\Controllers\PartnerApi\CommentController;
+use Illuminate\Support\Facades\Route;
+
+PostController::apiRoutes();
+CommentController::apiRoutes();
+```
+
+### Step 7: Generate the SDK
+
+```bash
+php artisan schema:generate-sdk --api=partner
+```
+
+The SDK is generated at `packages/partner-sdk/`:
+
+```
+packages/partner-sdk/
+├── composer.json                    # "my-app/partner-sdk" v0.1.0
+└── src/
+    ├── PartnerClient.php            # $client->posts(), $client->comments()
+    ├── SdkConnector.php             # Guzzle HTTP transport
+    ├── Data/
+    │   ├── PostData.php             # Typed response DTO
+    │   └── CommentData.php
+    └── Resources/
+        ├── PostResource.php         # CRUD methods
+        └── CommentResource.php
+```
+
+### Step 8: Use the SDK in a Consumer App
+
+Add the SDK to a consumer application's `composer.json`:
+
+```json
+{
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../my-app/packages/partner-sdk"
+        }
+    ],
+    "require": {
+        "my-app/partner-sdk": "*"
+    }
+}
+```
+
+```bash
+composer require my-app/partner-sdk
+```
+
+Then use the typed client:
+
+```php
+use MyApp\PartnerSdk\PartnerClient;
+
+$client = new PartnerClient(
+    baseUrl: 'https://myapp.com/partner-api',
+    token: $sanctumToken,
+);
+
+// Create a post
+$post = $client->posts()->create(
+    title: 'Getting Started with SchemaCraft',
+    slug: 'getting-started',
+    body: 'SchemaCraft makes API development fast...',
+    authorId: 1,
+);
+
+echo $post->title;      // "Getting Started with SchemaCraft"
+echo $post->slug;        // "getting-started"
+echo $post->createdAt;   // "2026-02-23T12:00:00.000000Z"
+
+// List all posts
+$posts = $client->posts()->list();
+foreach ($posts as $post) {
+    echo "{$post->title} by author #{$post->authorId}\n";
+}
+
+// Add a comment
+$comment = $client->comments()->create(
+    body: 'Great article!',
+    postId: $post->id,
+    authorId: 2,
+);
+
+// Update a post
+$client->posts()->update($post->id,
+    title: 'Updated Title',
+    slug: 'getting-started',
+    body: 'Updated content...',
+    authorId: 1,
+);
+
+// Delete
+$client->posts()->delete($post->id);
+```
+
+### Step 9: Update After Schema Changes
+
+When your schemas change, regenerate everything:
+
+```bash
+# Regenerate API stack
+php artisan schema:generate PostSchema --api=partner --force
+php artisan schema:generate CommentSchema --api=partner --force
+
+# Bump version and regenerate SDK
+php artisan schema:generate-sdk --api=partner --sdk-version=0.2.0 --force
+
+# Or regenerate all SDKs at once
+php artisan schema:generate-sdk --all --force
+```
+
+The consumer app runs `composer update` and gets the updated typed SDK automatically.

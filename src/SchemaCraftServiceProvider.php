@@ -18,6 +18,7 @@ use SchemaCraft\Console\SchemaStatusCommand;
 use SchemaCraft\Generators\GeneratorRegistry;
 use SchemaCraft\Generators\GeneratorRunner;
 use SchemaCraft\Visualizer\ActionsController;
+use SchemaCraft\Visualizer\DocsController;
 use SchemaCraft\Visualizer\GenerateController;
 use SchemaCraft\Visualizer\GeneratorController;
 use SchemaCraft\Visualizer\SchemaController;
@@ -244,6 +245,9 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 ->withoutMiddleware($noCsrf);
             Route::post('/api/sdk/generate', [GenerateController::class, 'sdkGenerate'])
                 ->withoutMiddleware($noCsrf);
+
+            // Docs API
+            Route::get('/api/docs', [DocsController::class, 'index']);
         });
     }
 }

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SchemaCraft Visualizer</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1985,6 +1986,243 @@
         .act-create-form .sc-form-group { margin-bottom: 16px; }
         .act-form-row { display: flex; gap: 12px; margin-bottom: 16px; }
         .act-form-row > * { flex: 1; }
+
+        /* === Docs Tab === */
+        #docs-tab {
+            display: flex;
+            height: calc(100vh - 56px);
+            overflow: hidden;
+        }
+        #docs-tab[hidden] { display: none; }
+
+        .docs-sidebar {
+            width: 280px;
+            min-width: 280px;
+            border-right: 1px solid var(--border);
+            background: var(--bg-secondary);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .docs-search {
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        .docs-search input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-family: var(--font-mono);
+        }
+        .docs-search input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .docs-toc-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+            list-style: none;
+        }
+        .docs-toc-item {
+            padding: 8px 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-left: 3px solid transparent;
+            transition: all 0.15s;
+        }
+        .docs-toc-item:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+        .docs-toc-item.active {
+            color: var(--accent);
+            border-left-color: var(--accent);
+            background: var(--accent-dim);
+        }
+        .docs-toc-count {
+            font-size: 11px;
+            color: var(--text-muted);
+            padding: 12px 16px 4px;
+        }
+
+        .docs-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 32px 48px;
+            max-width: 900px;
+        }
+
+        /* Markdown rendering */
+        .docs-article h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+        .docs-article h2 {
+            font-size: 22px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-top: 40px;
+            margin-bottom: 16px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+        }
+        .docs-article .docs-section:first-child h2 {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+        .docs-article h3 {
+            font-size: 17px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-top: 28px;
+            margin-bottom: 12px;
+        }
+        .docs-article h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-top: 20px;
+            margin-bottom: 8px;
+        }
+        .docs-article p {
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+        .docs-article a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .docs-article a:hover {
+            text-decoration: underline;
+        }
+        .docs-article strong {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        .docs-article ul, .docs-article ol {
+            margin-bottom: 12px;
+            padding-left: 24px;
+        }
+        .docs-article li {
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        .docs-article li > ul, .docs-article li > ol {
+            margin-top: 4px;
+            margin-bottom: 4px;
+        }
+        .docs-article code {
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            background: var(--bg-tertiary);
+            color: var(--accent);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .docs-article pre {
+            position: relative;
+            margin-bottom: 16px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .docs-article pre code {
+            display: block;
+            padding: 16px 20px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 12.5px;
+            line-height: 1.6;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        .docs-article pre .docs-copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            padding: 4px 10px;
+            font-size: 11px;
+            background: var(--bg-tertiary);
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .docs-article pre:hover .docs-copy-btn {
+            opacity: 1;
+        }
+        .docs-article pre .docs-copy-btn:hover {
+            color: var(--text-primary);
+            background: var(--bg-secondary);
+        }
+        .docs-article table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+        .docs-article th {
+            text-align: left;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-weight: 600;
+            border: 1px solid var(--border);
+        }
+        .docs-article td {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        .docs-article tr:nth-child(even) td {
+            background: var(--bg-secondary);
+        }
+        .docs-article blockquote {
+            border-left: 3px solid var(--accent);
+            padding: 12px 16px;
+            margin-bottom: 12px;
+            background: var(--accent-dim);
+            border-radius: 0 6px 6px 0;
+        }
+        .docs-article blockquote p {
+            margin-bottom: 0;
+            color: var(--text-primary);
+        }
+        .docs-article hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 32px 0;
+        }
+
+        mark.docs-highlight {
+            background: var(--warning-dim);
+            color: var(--text-primary);
+            padding: 1px 2px;
+            border-radius: 2px;
+        }
+
+        .docs-empty {
+            padding: 48px 24px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -1999,6 +2237,7 @@
             <button class="tab-btn" data-tab="generate">APIs</button>
             <button class="tab-btn" data-tab="actions">Actions</button>
             <button class="tab-btn" data-tab="generators">Generators</button>
+            <button class="tab-btn" data-tab="docs">Docs</button>
         </nav>
         <div class="header-actions">
             <button class="theme-toggle" id="theme-toggle">Light</button>
@@ -2063,6 +2302,7 @@
     <section id="generate-tab" hidden></section>
     <section id="actions-tab" hidden></section>
     <section id="generators-tab" hidden></section>
+    <section id="docs-tab" hidden></section>
 
     <div id="toast-container" class="toast-container"></div>
 
@@ -2442,6 +2682,7 @@
             document.getElementById('generate-tab').hidden = tab !== 'generate';
             document.getElementById('actions-tab').hidden = tab !== 'actions';
             document.getElementById('generators-tab').hidden = tab !== 'generators';
+            document.getElementById('docs-tab').hidden = tab !== 'docs';
 
             updateQueryParams({ tab: tab });
             if (tab !== 'generate') {
@@ -2471,6 +2712,7 @@
             if (tab === 'generate') initGenerateTab();
             if (tab === 'actions') initActionsTab();
             if (tab === 'generators') initGeneratorsTab();
+            if (tab === 'docs') initDocsTab();
         }
 
         function toggleTheme() {
@@ -10462,6 +10704,220 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     showToast(data.message || 'Files generated.', 'success');
                 })
                 .catch(function(e) { showToast('Generation error: ' + e.message, 'error'); });
+        }
+
+        // ── Docs Tab ──────────────────────────────────────
+        var docsInitialized = false;
+        var docsData = null;
+        var docsSearchTerm = '';
+        var docsSearchTimeout = null;
+
+        function initDocsTab() {
+            if (docsInitialized) return;
+            docsInitialized = true;
+
+            var section = document.getElementById('docs-tab');
+            section.innerHTML =
+                '<div class="docs-sidebar">' +
+                    '<div class="docs-search">' +
+                        '<input type="search" id="docs-search-input" placeholder="Search documentation...">' +
+                    '</div>' +
+                    '<div class="docs-toc-count" id="docs-toc-count"></div>' +
+                    '<ul class="docs-toc-list" id="docs-toc-list"></ul>' +
+                '</div>' +
+                '<div class="docs-content" id="docs-content">' +
+                    '<div class="docs-empty">Loading documentation...</div>' +
+                '</div>';
+
+            document.getElementById('docs-search-input').addEventListener('input', function(e) {
+                clearTimeout(docsSearchTimeout);
+                docsSearchTimeout = setTimeout(function() {
+                    docsSearchTerm = e.target.value.trim().toLowerCase();
+                    renderDocsToc();
+                    renderDocsContent();
+                }, 200);
+            });
+
+            document.getElementById('docs-content').addEventListener('scroll', docsTrackScroll);
+
+            loadDocsData();
+        }
+
+        function loadDocsData() {
+            fetch('/_schema-craft/api/docs')
+                .then(handleResponse)
+                .then(function(data) {
+                    docsData = data.sections;
+                    renderDocsToc();
+                    renderDocsContent();
+                })
+                .catch(function(e) {
+                    document.getElementById('docs-content').innerHTML =
+                        '<div class="docs-empty">Failed to load documentation: ' + escapeHtml(e.message) + '</div>';
+                });
+        }
+
+        function docsFilteredSections() {
+            if (!docsData) return [];
+            if (!docsSearchTerm) return docsData;
+            return docsData.filter(function(s) {
+                return s.title.toLowerCase().indexOf(docsSearchTerm) !== -1 ||
+                       s.content.toLowerCase().indexOf(docsSearchTerm) !== -1;
+            });
+        }
+
+        function renderDocsToc() {
+            var list = document.getElementById('docs-toc-list');
+            var countEl = document.getElementById('docs-toc-count');
+            var filtered = docsFilteredSections();
+
+            if (!docsData) {
+                list.innerHTML = '';
+                countEl.textContent = '';
+                return;
+            }
+
+            if (docsSearchTerm) {
+                countEl.textContent = filtered.length + ' of ' + docsData.length + ' sections';
+            } else {
+                countEl.textContent = docsData.length + ' sections';
+            }
+
+            var html = '';
+            filtered.forEach(function(s) {
+                html += '<li class="docs-toc-item" data-slug="' + escapeAttr(s.slug) + '">' +
+                    escapeHtml(s.title) + '</li>';
+            });
+            list.innerHTML = html;
+
+            list.querySelectorAll('.docs-toc-item').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    var slug = item.dataset.slug;
+                    var target = document.getElementById('doc-' + slug);
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                });
+            });
+        }
+
+        function renderDocsContent() {
+            var container = document.getElementById('docs-content');
+            var filtered = docsFilteredSections();
+
+            if (!docsData) {
+                container.innerHTML = '<div class="docs-empty">Loading documentation...</div>';
+                return;
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="docs-empty">No sections match &ldquo;' +
+                    escapeHtml(docsSearchTerm) + '&rdquo;</div>';
+                return;
+            }
+
+            // Check if marked.js is available
+            if (typeof marked === 'undefined') {
+                container.innerHTML = '<div class="docs-empty">Documentation requires an internet connection for markdown rendering.<br><br>The <code>marked.js</code> library could not be loaded from CDN.</div>';
+                return;
+            }
+
+            marked.setOptions({ gfm: true, breaks: false });
+
+            var html = '<div class="docs-article">';
+            filtered.forEach(function(s) {
+                html += '<div class="docs-section" id="doc-' + escapeAttr(s.slug) + '">';
+                html += marked.parse(s.content);
+                html += '</div>';
+            });
+            html += '</div>';
+
+            container.innerHTML = html;
+
+            // Add copy buttons to code blocks
+            container.querySelectorAll('pre').forEach(function(pre) {
+                var btn = document.createElement('button');
+                btn.className = 'docs-copy-btn';
+                btn.textContent = 'Copy';
+                btn.addEventListener('click', function() {
+                    var code = pre.querySelector('code');
+                    if (code) {
+                        navigator.clipboard.writeText(code.textContent).then(function() {
+                            btn.textContent = 'Copied!';
+                            setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+                        });
+                    }
+                });
+                pre.appendChild(btn);
+            });
+
+            // Highlight search matches in text nodes
+            if (docsSearchTerm) {
+                docsHighlightMatches(container, docsSearchTerm);
+            }
+        }
+
+        function docsHighlightMatches(root, term) {
+            var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+            var nodesToReplace = [];
+
+            while (walker.nextNode()) {
+                var node = walker.currentNode;
+                // Skip code blocks and copy buttons
+                var parent = node.parentElement;
+                if (parent && (parent.tagName === 'CODE' || parent.tagName === 'PRE' ||
+                    parent.classList.contains('docs-copy-btn'))) {
+                    continue;
+                }
+                var idx = node.textContent.toLowerCase().indexOf(term);
+                if (idx !== -1) {
+                    nodesToReplace.push(node);
+                }
+            }
+
+            nodesToReplace.forEach(function(node) {
+                var text = node.textContent;
+                var lowerText = text.toLowerCase();
+                var frag = document.createDocumentFragment();
+                var lastIdx = 0;
+                var idx = lowerText.indexOf(term, lastIdx);
+
+                while (idx !== -1) {
+                    if (idx > lastIdx) {
+                        frag.appendChild(document.createTextNode(text.substring(lastIdx, idx)));
+                    }
+                    var mark = document.createElement('mark');
+                    mark.className = 'docs-highlight';
+                    mark.textContent = text.substring(idx, idx + term.length);
+                    frag.appendChild(mark);
+                    lastIdx = idx + term.length;
+                    idx = lowerText.indexOf(term, lastIdx);
+                }
+
+                if (lastIdx < text.length) {
+                    frag.appendChild(document.createTextNode(text.substring(lastIdx)));
+                }
+
+                node.parentNode.replaceChild(frag, node);
+            });
+        }
+
+        function docsTrackScroll() {
+            var container = document.getElementById('docs-content');
+            var sections = container.querySelectorAll('.docs-section');
+            var tocItems = document.querySelectorAll('.docs-toc-item');
+            var scrollTop = container.scrollTop;
+            var activeSlug = null;
+
+            sections.forEach(function(sec) {
+                if (sec.offsetTop - container.offsetTop <= scrollTop + 80) {
+                    activeSlug = sec.id.replace('doc-', '');
+                }
+            });
+
+            tocItems.forEach(function(item) {
+                item.classList.toggle('active', item.dataset.slug === activeSlug);
+            });
         }
 
         // ── Helpers ────────────────────────────────────────
