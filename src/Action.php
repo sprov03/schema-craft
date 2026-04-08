@@ -742,7 +742,7 @@ abstract class Action
         $stringTypes = ['string', 'char', 'varchar', 'text', 'uuid', 'ulid'];
 
         try {
-            $schema = SchemaScanner::resolveSchemaClass($modelClass);
+            $schema = ActionScanner::resolveRelatedSchemaClass($modelClass);
             if ($schema !== null) {
                 $table = (new SchemaScanner($schema))->scan();
 
