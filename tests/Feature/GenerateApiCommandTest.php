@@ -571,7 +571,7 @@ class GenerateApiCommandTest extends TestCase
 
         // Check controller uses int ID and model resolver
         $this->assertStringContainsString('int $post_id', $controllerContent);
-        $this->assertStringContainsString('Post::forAuthUser()->findOrFail($post_id)', $controllerContent);
+        $this->assertStringContainsString('Post::query()->findOrFail($post_id)', $controllerContent);
 
         // Check service was updated with typed params
         $serviceContent = $this->files->get(app_path('Models/Services/PostService.php'));
@@ -684,7 +684,7 @@ class GenerateApiCommandTest extends TestCase
 
         // Controller method should use int ID, NOT a request parameter
         $this->assertStringContainsString('public function status(int $post_id)', $controllerContent);
-        $this->assertStringContainsString('Post::forAuthUser()->findOrFail($post_id)', $controllerContent);
+        $this->assertStringContainsString('Post::query()->findOrFail($post_id)', $controllerContent);
         $this->assertStringNotContainsString('StatusPostRequest', $controllerContent);
 
         // Service method should NOT have validated params
@@ -721,7 +721,7 @@ class GenerateApiCommandTest extends TestCase
 
         // Controller method should use int ID, NOT a request parameter
         $this->assertStringContainsString('public function softDelete(int $post_id)', $controllerContent);
-        $this->assertStringContainsString('Post::forAuthUser()->findOrFail($post_id)', $controllerContent);
+        $this->assertStringContainsString('Post::query()->findOrFail($post_id)', $controllerContent);
         $this->assertStringNotContainsString('SoftDeletePostRequest', $controllerContent);
     }
 
@@ -806,8 +806,8 @@ class GenerateApiCommandTest extends TestCase
 
         $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
 
-        // Should resolve model via forAuthUser pattern
-        $this->assertStringContainsString('$post = Post::forAuthUser()->findOrFail($post_id)', $controllerContent);
+        // Should resolve model via query pattern
+        $this->assertStringContainsString('$post = Post::query()->findOrFail($post_id)', $controllerContent);
         $this->assertStringContainsString('$post->Service()->preview()', $controllerContent);
     }
 
@@ -839,7 +839,7 @@ class GenerateApiCommandTest extends TestCase
         $this->assertStringContainsString("\$request->validated()['title']", $controllerContent);
 
         // FK field (author_id) should be resolved via model resolver
-        $this->assertStringContainsString("User::forAuthUser()->findOrFail(\$request->validated()['author_id'])", $controllerContent);
+        $this->assertStringContainsString("User::query()->findOrFail(\$request->validated()['author_id'])", $controllerContent);
 
         // FK model should be imported
         $this->assertStringContainsString('use SchemaCraft\Tests\Fixtures\Models\User;', $controllerContent);
@@ -870,7 +870,7 @@ class GenerateApiCommandTest extends TestCase
         $controllerContent = $this->files->get(app_path('Http/Controllers/Api/PostController.php'));
 
         // Nullable FK (category_id) should use the nullable model resolver pattern (find instead of findOrFail)
-        $this->assertStringContainsString('Category::forAuthUser()->find(', $controllerContent);
+        $this->assertStringContainsString('Category::query()->find(', $controllerContent);
     }
 
     public function test_action_service_method_has_typed_params(): void

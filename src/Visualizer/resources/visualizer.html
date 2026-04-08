@@ -10235,7 +10235,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 
             var snippetApiPost =
 '// For POST (create) actions endpoint() automatically passes new ' + escapeHtml(modelName) + '()\n' +
-'// For PUT/PATCH/DELETE it fetches the model by {' + escapeHtml(modelParam) + '} via forAuthUser()->findOrFail()\n\n' +
+'// For PUT/PATCH/DELETE it fetches the model by {' + escapeHtml(modelParam) + '} via query()->findOrFail()\n\n' +
 '// Request body is validated against action->rules(),\n' +
 '// mapped via action->mapData(), then passed to run().\n' +
 '// Returns: ' + escapeHtml(modelName) + 'Resource  (or 204 No Content for DELETE)';

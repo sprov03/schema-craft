@@ -192,6 +192,12 @@ PostSchema::updateRules(['title', 'slug'])->toArray();  // for update
   - [Generating All SDKs](#generating-all-sdks)
   - [Schema Filtering](#schema-filtering)
   - [API Authentication](#api-authentication)
+- [Data Scoping](#data-scoping)
+  - [The ScopeContext Pattern](#the-scopecontext-pattern)
+  - [Defining ScopeContext](#defining-scopecontext)
+  - [Activating Scopes via Middleware](#activating-scopes-via-middleware)
+  - [Applying Scopes in Models](#applying-scopes-in-models)
+  - [Why SchemaCraft Uses query() Instead of Scoped Queries](#why-schemacraft-uses-query-instead-of-scoped-queries)
 - [Using the Generated SDK](#using-the-generated-sdk)
   - [Installing the SDK Package](#installing-the-sdk-package)
   - [Importing and Using the Client](#importing-and-using-the-client)
@@ -2001,6 +2007,138 @@ $tenant->createToken('app-name', ['*']);
 ```
 
 The first parameter is just a label for identifying the token (e.g., in a token management UI). Only the abilities array affects authorization.
+
+---
+
+## Data Scoping
+
+SchemaCraft actions use `Model::query()` for all model resolution — BelongsTo lookups, MorphTo resolution, and endpoint record fetching. This is intentional: **the package does not enforce data scoping**. Instead, your application controls which records are visible by activating global scopes via middleware.
+
+This separation means:
+- Actions work identically across Filament panels, API endpoints, and any other context
+- Each API or panel controls its own data isolation rules
+- Models define their scoping logic once, middleware decides when it activates
+
+### The ScopeContext Pattern
+
+The recommended pattern uses a central constants class, a middleware that sets flags, and models that conditionally register global scopes based on those flags.
+
+### Defining ScopeContext
+
+Create a class with constants for each API or context that needs data scoping:
+
+```php
+// app/Support/ScopeContext.php
+namespace App\Support;
+
+class ScopeContext
+{
+    public const PanaceaCoreApi = 'panacea_core_api';
+    public const PartnerApi = 'partner_api';
+    public const AdminPanel = 'admin_panel';
+
+    /** @var array<string, bool> */
+    protected static array $active = [];
+
+    public static function activate(string $context): void
+    {
+        static::$active[$context] = true;
+    }
+
+    public static function isActive(string $context): bool
+    {
+        return static::$active[$context] ?? false;
+    }
+
+    public static function reset(): void
+    {
+        static::$active = [];
+    }
+}
+```
+
+Using constants (instead of free-form strings) prevents typos and enables IDE autocompletion.
+
+### Activating Scopes via Middleware
+
+Create a middleware for each API that activates the appropriate scope context:
+
+```php
+// app/Http/Middleware/ActivatePanaceaCoreScope.php
+namespace App\Http\Middleware;
+
+use App\Support\ScopeContext;
+use Closure;
+use Illuminate\Http\Request;
+
+class ActivatePanaceaCoreScope
+{
+    public function handle(Request $request, Closure $next): mixed
+    {
+        ScopeContext::activate(ScopeContext::PanaceaCoreApi);
+
+        return $next($request);
+    }
+}
+```
+
+Then register it on the appropriate route group:
+
+```php
+// routes/api.php
+Route::middleware(['auth:sanctum', ActivatePanaceaCoreScope::class])
+    ->prefix('v1')
+    ->group(function () {
+        // These routes will have PanaceaCoreApi scoping active
+        (new ArchivePostAction)->endpoint(PostResource::class);
+    });
+```
+
+### Applying Scopes in Models
+
+Models check `ScopeContext::isActive()` in their `booted()` method to conditionally add global scopes:
+
+```php
+// app/Models/Post.php
+use App\Support\ScopeContext;
+use Illuminate\Database\Eloquent\Builder;
+
+class Post extends BaseModel
+{
+    protected static function booted(): void
+    {
+        // When the Panacea Core API is active, scope posts to the authenticated user
+        if (ScopeContext::isActive(ScopeContext::PanaceaCoreApi)) {
+            static::addGlobalScope('panacea-core', function (Builder $query) {
+                $query->where('user_id', auth()->id());
+            });
+        }
+
+        // When the Partner API is active, scope to the partner's tenant
+        if (ScopeContext::isActive(ScopeContext::PartnerApi)) {
+            static::addGlobalScope('partner', function (Builder $query) {
+                $query->where('tenant_id', auth()->user()->tenant_id);
+            });
+        }
+    }
+}
+```
+
+Each model decides how it should be scoped for each context. Some models may only need scoping in one API, others in several, and some not at all.
+
+### Why SchemaCraft Uses query() Instead of Scoped Queries
+
+SchemaCraft deliberately uses `Model::query()` everywhere because:
+
+1. **Actions are context-agnostic** — the same action class runs in Filament, API endpoints, CLI commands, and tests. Hardcoding auth scopes inside the package would break non-web contexts.
+
+2. **Global scopes are automatic** — when a global scope is registered (via `booted()`), `Model::query()` already includes it. No explicit `forAuthUser()` call is needed.
+
+3. **Multiple APIs, different rules** — a `Post` might be scoped by `user_id` in one API and `tenant_id` in another. The model + middleware handle this; the action doesn't need to know.
+
+4. **Filament panels** — Filament has its own auth and tenancy middleware. Global scopes activated by Filament middleware apply to SchemaCraft actions rendered in Filament panels automatically.
+
+If you previously used a `forAuthUser()` scope on your models, you can migrate to this pattern by moving that logic into `booted()` conditional scopes activated by your middleware.
 
 ---
 

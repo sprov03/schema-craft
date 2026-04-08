@@ -211,7 +211,8 @@ abstract class Action
      * Map raw request/form data to resolved service parameters.
      *
      * Default: passes scalars through by name, resolves FK model references
-     * from IDs using the model-resolver pattern (forAuthUser()->findOrFail/find).
+     * from IDs using findOrFail/find. Scoping should be handled by global
+     * scopes activated via middleware (see ScopeContext pattern in docs).
      * Override to customize.
      *
      * @return array<string, mixed>
@@ -249,8 +250,8 @@ abstract class Action
                 if ($value !== null && $param->modelClass !== null) {
                     $modelClass = $param->modelClass;
                     $mapped[$param->name] = $param->nullable
-                        ? $modelClass::forAuthUser()->find($value)
-                        : $modelClass::forAuthUser()->findOrFail($value);
+                        ? $modelClass::query()->find($value)
+                        : $modelClass::query()->findOrFail($value);
                 } else {
                     $mapped[$param->name] = null;
                 }
@@ -268,8 +269,8 @@ abstract class Action
             if ($typeValue !== null && $idValue !== null) {
                 $modelClass = Relation::getMorphedModel($typeValue) ?? $typeValue;
                 $mapped[$info['propertyName']] = $info['nullable']
-                    ? $modelClass::forAuthUser()->find($idValue)
-                    : $modelClass::forAuthUser()->findOrFail($idValue);
+                    ? $modelClass::query()->find($idValue)
+                    : $modelClass::query()->findOrFail($idValue);
             } else {
                 $mapped[$info['propertyName']] = null;
             }
@@ -862,7 +863,7 @@ abstract class Action
         // For PUT/PATCH/DELETE, resolve from route parameter
         $paramName = Str::snake(class_basename($modelClass));
 
-        return $modelClass::forAuthUser()->findOrFail($request->route($paramName));
+        return $modelClass::query()->findOrFail($request->route($paramName));
     }
 
     /**
