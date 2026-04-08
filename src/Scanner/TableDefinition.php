@@ -14,6 +14,7 @@ class TableDefinition
      * @param  string[]  $fillable
      * @param  string[]  $hidden
      * @param  string[]  $with
+     * @param  string[]  $titleColumns
      */
     public function __construct(
         public string $tableName,
@@ -27,5 +28,7 @@ class TableDefinition
         public array $fillable = [],
         public array $hidden = [],
         public array $with = [],
+        /** Column name(s) designated as the display title via #[Title]. */
+        public array $titleColumns = [],
     ) {}
 }

@@ -571,7 +571,7 @@ class ActionsController
         ];
 
         // Check if we should also generate/update the registry
-        $existingActions = $this->discoverActions($modelName, $connectionConfig->modelNamespace);
+        $existingActions = $this->discoverActions($modelName, $connectionConfig);
         $actionClassName = ucfirst($actionName).$modelName.'Action';
         $actionFqcn = $actionNamespace.'\\'.$actionClassName;
 

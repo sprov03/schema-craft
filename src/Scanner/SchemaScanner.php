@@ -51,6 +51,7 @@ use SchemaCraft\Attributes\SmallInt;
 use SchemaCraft\Attributes\Text;
 use SchemaCraft\Attributes\Time;
 use SchemaCraft\Attributes\TinyInt;
+use SchemaCraft\Attributes\Title;
 use SchemaCraft\Attributes\Unique;
 use SchemaCraft\Attributes\Unsigned;
 use SchemaCraft\Attributes\UsingPivot;
@@ -94,6 +95,7 @@ class SchemaScanner
         $hasTimestamps = isset($traits[TimestampsSchema::class]);
         $hasSoftDeletes = isset($traits[SoftDeletesSchema::class]);
         $compositeIndexes = $this->readCompositeIndexes($reflection);
+        $titleColumns = $this->readTitleColumns($reflection);
 
         $columns = [];
         $relationships = [];
@@ -208,6 +210,7 @@ class SchemaScanner
             fillable: $fillable,
             hidden: $hidden,
             with: $with,
+            titleColumns: $titleColumns,
         );
     }
 
@@ -585,6 +588,35 @@ class SchemaScanner
         }
 
         return $indexes;
+    }
+
+    /**
+     * Read #[Title] from class-level or property-level attributes.
+     *
+     * Class-level: #[Title(['first_name', 'last_name'])] → composite title.
+     * Property-level: #[Title] on a property → single column title.
+     *
+     * @return string[]
+     */
+    private function readTitleColumns(ReflectionClass $reflection): array
+    {
+        // Class-level takes priority
+        $classAttrs = $reflection->getAttributes(Title::class);
+        if (! empty($classAttrs)) {
+            $instance = $classAttrs[0]->newInstance();
+            if ($instance->columns !== null) {
+                return $instance->columns;
+            }
+        }
+
+        // Property-level: find the first property with #[Title]
+        foreach ($this->getSchemaProperties($reflection) as $property) {
+            if ($this->hasAttribute($property, Title::class)) {
+                return [Str::snake($property->getName())];
+            }
+        }
+
+        return [];
     }
 
     /**

@@ -489,11 +489,22 @@ abstract class Action
     {
         $fkColumn = $param->foreignKeyColumn ?? $param->name.'_id';
         $modelClass = $param->modelClass;
-        $titleColumn = $this->guessTitleColumn($modelClass);
+        $titleColumns = $this->getTitleColumns($modelClass);
 
         $field = Select::make($fkColumn)
             ->label(Str::headline($param->name))
-            ->options(fn () => $modelClass::query()->pluck($titleColumn, 'id'))
+            ->options(function () use ($modelClass, $titleColumns) {
+                if (count($titleColumns) <= 1) {
+                    return $modelClass::query()->pluck($titleColumns[0] ?? 'id', 'id');
+                }
+
+                // Composite title: concatenate columns with a space
+                $concat = implode(", ' ', ", array_map(fn ($c) => "`{$c}`", $titleColumns));
+
+                return $modelClass::query()
+                    ->selectRaw("id, CONCAT({$concat}) as _title")
+                    ->pluck('_title', 'id');
+            })
             ->searchable();
 
         if (! $param->nullable) {
@@ -702,19 +713,61 @@ abstract class Action
      *
      * @param  class-string<Model>  $modelClass
      */
+    /**
+     * Resolve the title column(s) for a model's Select options.
+     *
+     * Returns a single column name. For composite #[Title], returns the first column
+     * — use getTitleColumns() for the full list when building custom pluck queries.
+     *
+     * Priority: #[Title] attribute → preferred names → first string column → 'id'.
+     *
+     * @param  class-string<Model>  $modelClass
+     */
     private function guessTitleColumn(string $modelClass): string
     {
+        $columns = $this->getTitleColumns($modelClass);
+
+        return $columns[0] ?? 'id';
+    }
+
+    /**
+     * Get the title column(s) for a model, resolving from schema #[Title] or by guessing.
+     *
+     * @param  class-string<Model>  $modelClass
+     * @return string[]
+     */
+    private function getTitleColumns(string $modelClass): array
+    {
         $guesses = ['name', 'title', 'label', 'email', 'display_name'];
+        $stringTypes = ['string', 'char', 'varchar', 'text', 'uuid', 'ulid'];
 
         try {
             $schema = SchemaScanner::resolveSchemaClass($modelClass);
             if ($schema !== null) {
                 $table = (new SchemaScanner($schema))->scan();
+
+                // First: #[Title] attribute on the schema
+                if (! empty($table->titleColumns)) {
+                    return $table->titleColumns;
+                }
+
+                // Second: check preferred column names
                 foreach ($guesses as $guess) {
                     foreach ($table->columns as $col) {
                         if ($col->name === $guess) {
-                            return $guess;
+                            return [$guess];
                         }
+                    }
+                }
+
+                // Third: fall back to first string column that isn't a key/type column
+                foreach ($table->columns as $col) {
+                    if ($col->name === 'id' || str_ends_with($col->name, '_id') || str_ends_with($col->name, '_type')) {
+                        continue;
+                    }
+
+                    if (in_array($col->castType ?? 'string', ['string']) || in_array($col->columnType, $stringTypes)) {
+                        return [$col->name];
                     }
                 }
             }
@@ -722,7 +775,7 @@ abstract class Action
             // Fall through to default
         }
 
-        return 'name';
+        return [];
     }
 
     // ─── Endpoint Registration ────────────────────────────────────────────

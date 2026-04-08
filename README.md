@@ -191,6 +191,7 @@ PostSchema::updateRules(['title', 'slug'])->toArray();  // for update
   - [SDK Versioning](#sdk-versioning)
   - [Generating All SDKs](#generating-all-sdks)
   - [Schema Filtering](#schema-filtering)
+  - [API Authentication](#api-authentication)
 - [Using the Generated SDK](#using-the-generated-sdk)
   - [Installing the SDK Package](#installing-the-sdk-package)
   - [Importing and Using the Client](#importing-and-using-the-client)
@@ -1865,6 +1866,141 @@ By default, an API includes all schemas that have generated controllers. To limi
 ```
 
 Only the listed schema classes will be included when generating the SDK for this API. Set to `null` to include all schemas with controllers.
+
+### API Authentication
+
+Each API's `routes.middleware` array controls how requests are authenticated. This is where you wire up Laravel Sanctum (or any auth middleware) per API.
+
+#### Prerequisites
+
+Install Sanctum and run the migration:
+
+```bash
+php artisan install:api
+php artisan migrate
+```
+
+Add the `HasApiTokens` trait to your User model (or any model that issues tokens):
+
+```php
+use Laravel\Sanctum\HasApiTokens;
+
+class User extends BaseModel implements Authenticatable
+{
+    use \Illuminate\Auth\Authenticatable;
+    use HasApiTokens;
+}
+```
+
+Register the ability middleware aliases in `bootstrap/app.php`:
+
+```php
+->withMiddleware(function (Middleware $middleware): void {
+    $middleware->alias([
+        'abilities' => \Laravel\Sanctum\Http\Middleware\CheckAbilities::class,
+        'ability'   => \Laravel\Sanctum\Http\Middleware\CheckForAnyAbility::class,
+    ]);
+})
+```
+
+#### Middleware per API
+
+The `routes.middleware` array on each API entry determines what auth is required. Here are the common patterns:
+
+```php
+'apis' => [
+
+    // Standard API — any valid Sanctum token
+    'default' => [
+        'routes' => [
+            'middleware' => ['auth:sanctum'],
+        ],
+    ],
+
+    // Scoped API — token must have the 'partner' ability
+    'partner' => [
+        'routes' => [
+            'middleware' => ['auth:sanctum', 'ability:partner'],
+        ],
+    ],
+
+    // Admin API — token must have ALL listed abilities
+    'admin' => [
+        'routes' => [
+            'middleware' => ['auth:sanctum', 'abilities:admin-read,admin-write'],
+        ],
+    ],
+
+    // Multi-guard API — different auth guard (different User model)
+    'tenant' => [
+        'routes' => [
+            'middleware' => ['auth:tenant-sanctum'],
+        ],
+    ],
+
+    // Public API — no auth, rate-limited only
+    'public' => [
+        'routes' => [
+            'middleware' => ['throttle:60,1'],
+        ],
+    ],
+],
+```
+
+- **`auth:sanctum`** — authenticates the request (who are you?)
+- **`ability:X`** — token must have at least one of the listed abilities (what can you do?)
+- **`abilities:X,Y`** — token must have ALL listed abilities
+- **`auth:custom-guard`** — uses a different guard/user model entirely
+
+#### Multiple Auth Guards
+
+When different APIs authenticate against different user models, define additional guards and providers in `config/auth.php`:
+
+```php
+'guards' => [
+    'web' => [
+        'driver' => 'session',
+        'provider' => 'users',
+    ],
+    'tenant-sanctum' => [
+        'driver' => 'sanctum',
+        'provider' => 'tenants',
+    ],
+],
+
+'providers' => [
+    'users' => [
+        'driver' => 'eloquent',
+        'model' => App\Models\User::class,
+    ],
+    'tenants' => [
+        'driver' => 'eloquent',
+        'model' => App\Models\Tenant::class,
+    ],
+],
+```
+
+Then reference the guard name in the API's middleware: `'middleware' => ['auth:tenant-sanctum']`.
+
+#### Issuing Tokens
+
+Tokens are created on the authenticatable model. The abilities array controls which APIs the token can access:
+
+```php
+// Full access — works on any API using auth:sanctum
+$user->createToken('app-name', ['*']);
+
+// Scoped — only works on APIs requiring the 'partner' ability
+$user->createToken('app-name', ['partner']);
+
+// Multiple abilities — works on APIs requiring any/all of these
+$user->createToken('app-name', ['admin-read', 'admin-write', 'partner']);
+
+// Different model — for APIs using a different guard
+$tenant->createToken('app-name', ['*']);
+```
+
+The first parameter is just a label for identifying the token (e.g., in a token management UI). Only the abilities array affects authorization.
 
 ---
 

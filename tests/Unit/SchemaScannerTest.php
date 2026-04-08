@@ -12,6 +12,8 @@ use SchemaCraft\Tests\Fixtures\Schemas\IndexedCommentSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\NonStandardFkSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\RenamedColumnSchema;
+use SchemaCraft\Tests\Fixtures\Schemas\TitleCompositeSchema;
+use SchemaCraft\Tests\Fixtures\Schemas\TitlePropertySchema;
 use SchemaCraft\Tests\Fixtures\Schemas\UserSchema;
 use SchemaCraft\Tests\Fixtures\Types\TestBitmask;
 use SchemaCraft\Tests\Fixtures\Types\TestJsonDto;
@@ -429,6 +431,29 @@ class SchemaScannerTest extends TestCase
 
         $this->assertNotNull($slug);
         $this->assertNull($slug->renamedFrom);
+    }
+
+    // --- Title Attribute Tests ---
+
+    public function test_property_level_title_sets_single_title_column(): void
+    {
+        $table = (new SchemaScanner(TitlePropertySchema::class))->scan();
+
+        $this->assertSame(['company_name'], $table->titleColumns);
+    }
+
+    public function test_class_level_composite_title_sets_multiple_columns(): void
+    {
+        $table = (new SchemaScanner(TitleCompositeSchema::class))->scan();
+
+        $this->assertSame(['first_name', 'last_name'], $table->titleColumns);
+    }
+
+    public function test_no_title_attribute_returns_empty_array(): void
+    {
+        $table = (new SchemaScanner(PostSchema::class))->scan();
+
+        $this->assertSame([], $table->titleColumns);
     }
 
     private function findColumn($table, string $name)
