@@ -591,29 +591,19 @@ class SchemaScanner
     }
 
     /**
-     * Read #[Title] from class-level or property-level attributes.
+     * Read #[Title] from class-level attribute.
      *
-     * Class-level: #[Title(['first_name', 'last_name'])] → composite title.
-     * Property-level: #[Title] on a property → single column title.
+     * Single: #[Title('company_name')] → ['company_name']
+     * Composite: #[Title(['first_name', 'last_name'])] → ['first_name', 'last_name']
      *
      * @return string[]
      */
     private function readTitleColumns(ReflectionClass $reflection): array
     {
-        // Class-level takes priority
-        $classAttrs = $reflection->getAttributes(Title::class);
-        if (! empty($classAttrs)) {
-            $instance = $classAttrs[0]->newInstance();
-            if ($instance->columns !== null) {
-                return $instance->columns;
-            }
-        }
+        $attrs = $reflection->getAttributes(Title::class);
 
-        // Property-level: find the first property with #[Title]
-        foreach ($this->getSchemaProperties($reflection) as $property) {
-            if ($this->hasAttribute($property, Title::class)) {
-                return [Str::snake($property->getName())];
-            }
+        if (! empty($attrs)) {
+            return $attrs[0]->newInstance()->columns;
         }
 
         return [];

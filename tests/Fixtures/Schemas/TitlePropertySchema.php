@@ -7,13 +7,13 @@ use SchemaCraft\Attributes\Primary;
 use SchemaCraft\Attributes\Title;
 use SchemaCraft\Schema;
 
+#[Title('company_name')]
 class TitlePropertySchema extends Schema
 {
     #[Primary]
     #[AutoIncrement]
     public int $id;
 
-    #[Title]
     public string $companyName;
 
     public string $taxId;

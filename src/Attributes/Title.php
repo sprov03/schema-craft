@@ -5,23 +5,28 @@ namespace SchemaCraft\Attributes;
 use Attribute;
 
 /**
- * Marks the display title column(s) for a schema.
+ * Designates the display title column(s) for a schema. Class-level only.
  *
- * Property-level: uses that single column as the title.
- *   #[Title]
- *   public string $companyName;
+ * Single column:
+ *   #[Title('company_name')]
+ *   class ApiAccountSchema extends Schema { ... }
  *
- * Class-level with columns: composite title from multiple columns.
+ * Composite (multiple columns concatenated with a space):
  *   #[Title(['first_name', 'last_name'])]
  *   class UserSchema extends Schema { ... }
  */
-#[Attribute(Attribute::TARGET_PROPERTY | Attribute::TARGET_CLASS)]
+#[Attribute(Attribute::TARGET_CLASS)]
 class Title
 {
+    /** @var string[] */
+    public array $columns;
+
     /**
-     * @param  string[]|null  $columns  Column names for composite title (class-level only).
+     * @param  string|string[]  $columns  Column name(s) for the display title.
      */
     public function __construct(
-        public ?array $columns = null,
-    ) {}
+        string|array $columns,
+    ) {
+        $this->columns = is_array($columns) ? $columns : [$columns];
+    }
 }
