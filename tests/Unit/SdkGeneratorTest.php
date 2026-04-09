@@ -137,9 +137,9 @@ class SdkGeneratorTest extends TestCase
 
         $files = $this->generator->generate($schemas, 'acme/my-sdk', 'Acme\\Sdk', 'AcmeClient');
 
-        // composer.json + connector + (data + resource) * 2 schemas + client
-        // = 1 + 1 + 4 + 1 = 7
-        $this->assertCount(7, $files);
+        // composer.json + connector + (data + resource) * 2 schemas + client + readme
+        // = 1 + 1 + 4 + 1 + 1 = 8
+        $this->assertCount(8, $files);
     }
 
     public function test_single_schema_generates_minimal_package(): void
@@ -160,8 +160,8 @@ class SdkGeneratorTest extends TestCase
 
         $files = $this->generator->generate($schemas, 'acme/my-sdk', 'Acme\\Sdk', 'AcmeClient');
 
-        // composer.json + connector + data_User + resource_User + client = 5
-        $this->assertCount(5, $files);
+        // composer.json + connector + data_User + resource_User + client + readme = 6
+        $this->assertCount(6, $files);
         $this->assertArrayHasKey('data_User', $files);
         $this->assertArrayHasKey('resource_User', $files);
     }

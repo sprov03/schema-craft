@@ -86,6 +86,19 @@ class SdkGenerator
             ),
         );
 
+        // README.md
+        $files['readme'] = new GeneratedFile(
+            path: 'README.md',
+            content: (new SdkReadmeGenerator)->generate(
+                $packageName,
+                $clientClassName,
+                $namespace,
+                $primaryModelNames,
+                $schemas,
+                $version,
+            ),
+        );
+
         return $files;
     }
 
