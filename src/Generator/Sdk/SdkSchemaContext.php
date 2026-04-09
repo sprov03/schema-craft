@@ -10,7 +10,7 @@ use SchemaCraft\Scanner\TableDefinition;
 class SdkSchemaContext
 {
     /**
-     * @param  string[]  $customActions
+     * @param  SdkCustomAction[]  $customActions
      * @param  bool  $isDependencyOnly  When true, only a Data DTO is generated (no SDK Resource or Client accessor)
      */
     public function __construct(

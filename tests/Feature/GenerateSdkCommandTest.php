@@ -96,7 +96,7 @@ class GenerateSdkCommandTest extends TestCase
         ])->assertFailed();
     }
 
-    public function test_fails_when_no_api_controllers_exist(): void
+    public function test_fails_when_no_routes_registered(): void
     {
         $this->artisan('schema:generate-sdk', [
             '--schema-path' => [dirname(__DIR__).'/Fixtures/Schemas'],

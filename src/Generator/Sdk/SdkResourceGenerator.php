@@ -23,7 +23,7 @@ class SdkResourceGenerator
     /**
      * Generate the resource class PHP code.
      *
-     * @param  string[]  $customActions
+     * @param  SdkCustomAction[]  $customActions
      */
     public function generate(
         TableDefinition $table,
@@ -106,14 +106,15 @@ class SdkResourceGenerator
         // Custom actions
         foreach ($customActions as $action) {
             $lines[] = '';
-            $actionSlug = Str::snake($action, '-');
+            $actionSlug = Str::snake($action->name, '-');
+            $httpMethod = $action->httpMethod;
             $lines[] = '    /**';
             $lines[] = '     * @param int|string $id';
             $lines[] = '     * @return void';
             $lines[] = '     */';
-            $lines[] = "    public function {$action}(\$id)";
+            $lines[] = "    public function {$action->name}(\$id)";
             $lines[] = '    {';
-            $lines[] = "        \$this->connector->put(\"{$routePrefix}/{\$id}/{$actionSlug}\", []);";
+            $lines[] = "        \$this->connector->{$httpMethod}(\"{$routePrefix}/{\$id}/{$actionSlug}\", []);";
             $lines[] = '    }';
         }
 

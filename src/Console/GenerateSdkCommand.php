@@ -9,6 +9,8 @@ use SchemaCraft\Config\ApiConfig;
 use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Generator\DependencyResolver;
 use SchemaCraft\Generator\Sdk\ControllerActionScanner;
+use SchemaCraft\Generator\Sdk\RuntimeRouteScanner;
+use SchemaCraft\Generator\Sdk\SdkCustomAction;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
 use SchemaCraft\Generator\Sdk\SdkSchemaContext;
 use SchemaCraft\Generator\StubResolver;
@@ -65,7 +67,6 @@ class GenerateSdkCommand extends Command
     {
         $schemaDirectories = $this->getSchemaDirectories();
         $discovery = new SchemaDiscovery;
-        $actionScanner = new ControllerActionScanner;
 
         $schemaClasses = $discovery->discover($schemaDirectories);
 
@@ -90,11 +91,11 @@ class GenerateSdkCommand extends Command
             }
         }
 
-        // Build SDK contexts for schemas that have API controllers
-        $schemas = $this->buildSchemaContexts($schemaClasses, $actionScanner, $files, $apiConfig);
+        // Build SDK contexts for schemas that have registered API routes
+        $schemas = $this->buildSchemaContexts($schemaClasses, $apiConfig);
 
         if (empty($schemas)) {
-            $this->components->error('No schemas with generated API controllers found. Run schema:generate first.');
+            $this->components->error('No schemas with registered API routes found. Ensure your routes are registered and the route prefix matches your API config.');
 
             return self::FAILURE;
         }
@@ -153,36 +154,96 @@ class GenerateSdkCommand extends Command
     }
 
     /**
-     * Build SdkSchemaContext for each schema that has an API controller.
+     * Build SdkSchemaContext for each schema that has an API surface.
+     *
+     * Primary discovery: RuntimeRouteScanner checks for registered routes
+     * (works with hand-written controllers, action-based routes, and generated controllers).
+     *
+     * Fallback: controller file existence check (for environments where routes
+     * aren't registered at scan time, e.g., after schema:generate before boot).
      *
      * @param  class-string[]  $schemaClasses
      * @return array<string, SdkSchemaContext>
      */
     private function buildSchemaContexts(
         array $schemaClasses,
-        ControllerActionScanner $actionScanner,
-        Filesystem $files,
         ApiConfig $apiConfig,
     ): array {
         $schemas = [];
 
-        foreach ($schemaClasses as $schemaClass) {
-            $modelName = $this->resolveModelName($schemaClass);
-            $controllerPath = $apiConfig->controllerPath($modelName);
+        // Primary: use RuntimeRouteScanner to find schemas with registered routes
+        $routeScanner = new RuntimeRouteScanner;
+        $routeData = $routeScanner->scanAll(
+            controllerNamespace: $apiConfig->controllerNamespace,
+            schemaNamespace: $apiConfig->schemaNamespace,
+            routePrefix: $apiConfig->routePrefix ?: null,
+        );
 
-            if (! $files->exists($controllerPath)) {
+        $schemaEndpoints = $routeData['schemas'] ?? [];
+        $allowedSchemas = array_flip($schemaClasses);
+        $discoveredSchemaClasses = [];
+
+        foreach ($schemaEndpoints as $schemaClass => $endpoints) {
+            if (! isset($allowedSchemas[$schemaClass])) {
                 continue;
             }
 
+            $modelName = $this->resolveModelName($schemaClass);
             $scanner = new SchemaScanner($schemaClass);
             $table = $scanner->scan();
 
-            $customActions = $actionScanner->scanFile($controllerPath);
+            // Extract custom actions with actual HTTP methods from route data
+            $customActions = [];
+            foreach ($endpoints as $endpoint) {
+                if ($endpoint['type'] === 'custom') {
+                    $methods = explode('|', $endpoint['method']);
+                    $httpMethod = strtolower($methods[0]);
+
+                    $customActions[] = new SdkCustomAction(
+                        name: $endpoint['action'],
+                        httpMethod: $httpMethod,
+                    );
+                }
+            }
 
             $schemas[$modelName] = new SdkSchemaContext(
                 table: $table,
                 customActions: $customActions,
             );
+            $discoveredSchemaClasses[$schemaClass] = true;
+        }
+
+        // Fallback: check for controller files for schemas not found via routes
+        if ($apiConfig->controllerNamespace !== '') {
+            $files = new Filesystem;
+            $actionScanner = new ControllerActionScanner;
+
+            foreach ($schemaClasses as $schemaClass) {
+                if (isset($discoveredSchemaClasses[$schemaClass])) {
+                    continue;
+                }
+
+                $modelName = $this->resolveModelName($schemaClass);
+                $controllerPath = $apiConfig->controllerPath($modelName);
+
+                if (! $files->exists($controllerPath)) {
+                    continue;
+                }
+
+                $scanner = new SchemaScanner($schemaClass);
+                $table = $scanner->scan();
+
+                $actionNames = $actionScanner->scanFile($controllerPath);
+                $customActions = array_map(
+                    fn (string $name) => new SdkCustomAction(name: $name, httpMethod: 'put'),
+                    $actionNames,
+                );
+
+                $schemas[$modelName] = new SdkSchemaContext(
+                    table: $table,
+                    customActions: $customActions,
+                );
+            }
         }
 
         return $schemas;

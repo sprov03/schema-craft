@@ -3,6 +3,7 @@
 namespace SchemaCraft\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use SchemaCraft\Generator\Sdk\SdkCustomAction;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
 use SchemaCraft\Generator\Sdk\SdkSchemaContext;
 use SchemaCraft\Scanner\ColumnDefinition;
@@ -116,7 +117,10 @@ class SdkGeneratorTest extends TestCase
                         new ColumnDefinition(name: 'title', columnType: 'string'),
                     ],
                 ),
-                customActions: ['cancel', 'publish'],
+                customActions: [
+                    new SdkCustomAction(name: 'cancel', httpMethod: 'put'),
+                    new SdkCustomAction(name: 'publish', httpMethod: 'post'),
+                ],
             ),
         ];
 

@@ -2094,6 +2094,34 @@ Route::middleware(['auth:sanctum', ActivatePanaceaCoreScope::class])
     });
 ```
 
+#### Filament / Livewire Panels
+
+Filament panels use Livewire, which handles subsequent requests via `/livewire/update`. Filament's `isPersistent: true` on `authMiddleware()` does **not** register middleware with Livewire's persistent middleware system. You must register it directly with Livewire in a service provider:
+
+```php
+// app/Providers/AppServiceProvider.php
+use Livewire\Livewire;
+use App\Support\ActivatePanaceaCoreScope;
+
+public function boot(): void
+{
+    Livewire::addPersistentMiddleware([
+        ActivatePanaceaCoreScope::class,
+    ]);
+}
+```
+
+Then add it to your panel provider as usual:
+
+```php
+->authMiddleware([
+    Authenticate::class,
+    ActivatePanaceaCoreScope::class,
+], isPersistent: true)
+```
+
+Without `Livewire::addPersistentMiddleware()`, the middleware only runs on the initial page load — not on Livewire AJAX requests where form fields and queries actually execute.
+
 ### Applying Scopes in Models
 
 Models check `ScopeContext::isActive()` in their `booted()` method to conditionally add global scopes:
