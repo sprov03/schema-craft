@@ -1114,7 +1114,7 @@ class GenerateController
             $shortName = class_basename($actionClass);
 
             // Skip if already imported
-            if (str_contains($routeContent, $shortName.'::endpoint(')) {
+            if (str_contains($routeContent, $shortName.'())->endpoint(')) {
                 continue;
             }
 
@@ -1126,7 +1126,7 @@ class GenerateController
             $routeContent = $writer->addImport($routeContent, $resourceFqcn);
 
             // Add endpoint registration inside the Route::group closure
-            $endpointLine = "    {$shortName}::endpoint({$modelName}Resource::class);";
+            $endpointLine = "    (new {$shortName}())->endpoint({$modelName}Resource::class);";
             $routeContent = $this->insertIntoRouteGroup($routeContent, $endpointLine);
 
             $addedActions[] = $shortName;
