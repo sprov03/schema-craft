@@ -109,6 +109,19 @@ use SoftDeletesSchema;                        // deleted_at
 public string $slug;
 PostSchema::createRules(['title', 'slug'])->toArray();  // for create
 PostSchema::updateRules(['title', 'slug'])->toArray();  // for update
+
+// Custom Generators — place in app/Generators/
+Input::schemaSelector('schema', 'Schema')              // schema dropdown
+Input::text('class_name', 'Class Name')                // text input
+Input::schemaColumn('group_by', 'Group By', 'schema')  // column picker
+
+Template::file('[schema.model.title].php', 'generators.my-template')
+...Template::forEachRelationship('schema', 'rel', [...], 'collection')
+
+// NameChain — order-independent modifiers
+$schema->model->title           // "UserProfile"
+$schema->model->plural->title   // "UserProfiles"
+$schema->model->plural->kebab   // "user-profiles"
 ```
 
 ---
@@ -220,6 +233,17 @@ PostSchema::updateRules(['title', 'slug'])->toArray();  // for update
   - [Apply Fix from the UI](#apply-fix-from-the-ui)
   - [Explorer](#explorer)
   - [Docs Tab — Project Documentation](#docs-tab--project-documentation)
+- [Custom Generators](#custom-generators)
+  - [Creating a Generator](#creating-a-generator)
+  - [Input Types](#input-types)
+  - [NameChain — Model Name Helper](#namechain--model-name-helper)
+  - [Template API](#template-api)
+  - [Schema Context](#schema-context)
+  - [GeneratorColumn Helpers](#generatorcolumn-helpers)
+  - [GeneratorRelationship Helpers](#generatorrelationship-helpers)
+  - [Template Data Hook](#template-data-hook)
+  - [Writing Blade Templates](#writing-blade-templates)
+  - [Complete Generator Example](#complete-generator-example)
 - [Full Example](#full-example)
 - [Full Multi-API Demo](#full-multi-api-demo)
 
@@ -2749,6 +2773,315 @@ For example, setting `'docs_path' => 'documentation/schema-craft'` would scan `{
 #### Search
 
 The search input filters across **all** documents at once — both the package README and your project docs. Matching sections are highlighted in the content area and the sidebar updates to show only relevant sections.
+
+---
+
+## Custom Generators
+
+The generator system lets you create reusable code generators that render Blade templates with schema-aware context. Generators appear in the **Generators** tab of the Schema Visualizer.
+
+### Creating a Generator
+
+Extend `SchemaCraftGenerator` and place it in `app/Generators/` (auto-discovered):
+
+```php
+<?php
+
+namespace App\Generators;
+
+use SchemaCraft\Generators\Input;
+use SchemaCraft\Generators\SchemaCraftGenerator;
+use SchemaCraft\Generators\Template;
+
+class FilamentResourceGenerator extends SchemaCraftGenerator
+{
+    public function name(): string
+    {
+        return 'Filament Resource';
+    }
+
+    public function inputs(): array
+    {
+        return [
+            Input::schemaSelector('schema', 'Schema', selectColumns: true, selectRelationships: true),
+            Input::text('class_name', 'Class Name'),
+            Input::select('chart_type', 'Chart Type', [
+                'line' => 'Line',
+                'bar' => 'Bar',
+            ]),
+        ];
+    }
+
+    public function templates(): array
+    {
+        return [
+            Template::file(
+                'app/Filament/Resources/[schema.model.plural.title]/[class_name].php',
+                'generators.my-resource',
+            ),
+        ];
+    }
+}
+```
+
+### Input Types
+
+Inputs define the form fields shown in the Visualizer when configuring a generator.
+
+| Method | Description |
+|--------|-------------|
+| `Input::schemaSelector($key, $label)` | Schema dropdown with optional column/relationship checkboxes |
+| `Input::text($key, $label)` | Free text field |
+| `Input::select($key, $label, $options)` | Dropdown select |
+| `Input::boolean($key, $label, $default)` | Checkbox toggle |
+| `Input::schemaColumn($key, $label, $selectorKey)` | Single column picker (from a schemaSelector) |
+| `Input::schemaColumns($key, $label, $selectorKey)` | Multi column picker (from a schemaSelector) |
+| `Input::selectResourceDirectory($key, $label)` | Filament resource directory picker |
+
+#### Schema Selector
+
+`Input::schemaSelector()` replaces the old `schemas()` method. It creates a schema dropdown in the inputs section and optionally shows column and relationship checkboxes:
+
+```php
+Input::schemaSelector('schema', 'Schema', selectColumns: true, selectRelationships: true)
+```
+
+The selected schema is resolved to a `GeneratorSchemaContext` object available in your templates as `$schema`.
+
+#### Schema Column / Schema Columns
+
+These reference a `schemaSelector` input by key. The column picker populates from whichever schema the user selected:
+
+```php
+Input::schemaSelector('schema', 'Schema'),
+Input::schemaColumn('group_by', 'Group By Column', 'schema'),
+Input::schemaColumns('visible_cols', 'Visible Columns', 'schema'),
+```
+
+### NameChain — Model Name Helper
+
+When a schema is selected, the `$schema->model` property is a `NameChain` — an immutable, chainable name helper. Modifiers are **independent flags**, so order does not matter.
+
+#### Modifiers
+
+**Plurality:** `->singular` (default), `->plural`
+
+**Casing:** `->snake` (default), `->title` (StudlyCase), `->camel`, `->kebab`
+
+#### Examples
+
+Given a schema for the `user_profiles` table:
+
+| Expression | Result |
+|-----------|--------|
+| `$schema->model` | `user_profile` |
+| `$schema->model->title` | `UserProfile` |
+| `$schema->model->plural->title` | `UserProfiles` |
+| `$schema->model->title->plural` | `UserProfiles` (same — order doesn't matter) |
+| `$schema->model->camel` | `userProfile` |
+| `$schema->model->plural->snake` | `user_profiles` |
+| `$schema->model->kebab` | `user-profile` |
+| `$schema->model->plural->kebab` | `user-profiles` |
+
+#### Two Syntaxes, One Mechanism
+
+- **Output paths** use bracket notation: `[schema.model.plural.title]`
+- **Blade templates** use PHP property chaining: `{!! $schema->model->plural->title !!}`
+
+Both traverse the same NameChain objects.
+
+### Template API
+
+Templates define which Blade views to render and where to write the output.
+
+#### Basic Template
+
+```php
+Template::file($outputPath, $viewName, $extraVariables = [])
+```
+
+- **`$outputPath`** — File path with `[bracket]` placeholders, e.g. `'app/[schema.model.title].php'`
+- **`$viewName`** — Blade view name, e.g. `'generators.my-template'`
+- **`$extraVariables`** — Extra variables injected into the template; string values support `[bracket]` placeholders
+
+#### Iterating Over Relationships
+
+Use `Template::forEachRelationship()` to generate a file per relationship:
+
+```php
+public function templates(): array
+{
+    return [
+        Template::file(
+            'app/Resources/[schema.model.title]Resource.php',
+            'generators.resource',
+        ),
+
+        ...Template::forEachRelationship('schema', 'relationship', [
+            Template::file(
+                'app/Resources/RelationManagers/[relationship.name.title]RelationManager.php',
+                'generators.relation-manager',
+                ['ClassName' => '[relationship.name.title]RelationManager'],
+            ),
+        ], 'collection'),
+    ];
+}
+```
+
+The `...` spread is required because `forEachRelationship()` returns an array.
+
+#### Filters
+
+The optional fourth parameter filters which items to iterate over:
+
+| Filter | Description |
+|--------|-------------|
+| `'collection'` | Only hasMany, belongsToMany, morphMany, morphToMany, morphedByMany, hasManyThrough |
+| `'singular'` | Only hasOne, belongsTo, morphTo, morphOne, hasOneThrough |
+| `null` | All relationships (default) |
+
+#### Generic Iteration
+
+`Template::forEach()` iterates over any dot-path iterable. `forEachRelationship()` is sugar for it:
+
+```php
+// These are equivalent:
+Template::forEachRelationship('schema', 'relationship', $templates, 'collection')
+Template::forEach('schema.relationships', 'relationship', $templates, 'collection')
+```
+
+### Schema Context
+
+When a `schemaSelector` input is resolved, templates receive a `GeneratorSchemaContext` with:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `$schema->model` | `NameChain` | Model name with chaining (see above) |
+| `$schema->tableName` | `string` | Raw table name, e.g. `'user_profiles'` |
+| `$schema->columns` | `GeneratorColumn[]` | User-selected columns (or all if none selected) |
+| `$schema->allColumns` | `GeneratorColumn[]` | All columns in the schema |
+| `$schema->relationships` | `GeneratorRelationship[]` | User-selected relationships (or all) |
+| `$schema->allRelationships` | `GeneratorRelationship[]` | All relationships in the schema |
+
+### GeneratorColumn Helpers
+
+Each column in `$schema->columns` provides:
+
+| Method | Example Output |
+|--------|---------------|
+| `$col->name` | `'first_name'` |
+| `$col->phpType()` | `'string'`, `'int'`, `'bool'`, `'float'` |
+| `$col->phpTypeNullable()` | `'?string'` |
+| `$col->camelName()` | `'firstName'` |
+| `$col->studlyName()` | `'FirstName'` |
+| `$col->humanName()` | `'First Name'` |
+| `$col->fakerValue()` | `'$faker->safeEmail()'` |
+| `$col->asFilamentField()` | Filament form field component string |
+| `$col->asFilamentColumn()` | Filament table column component string |
+| `$col->asMethodParam()` | `'string $firstName'` or `'?string $firstName = null'` |
+| `$col->asAssignment('$model')` | `'$model->first_name = $firstName;'` |
+| `$col->isFK()` | `true` if column ends with `_id` |
+| `$col->relationshipName()` | `'owner'` (strips `_id`, camelCase) |
+
+### GeneratorRelationship Helpers
+
+Each relationship in `$schema->relationships` provides:
+
+| Property / Method | Description |
+|-------------------|-------------|
+| `$rel->name` | NameChain — `$rel->name->title` → `'Author'` |
+| `$rel->relatedModel` | NameChain — `$rel->relatedModel->plural->title` → `'Users'` |
+| `$rel->type` | `'belongsTo'`, `'hasMany'`, etc. |
+| `$rel->nullable` | Whether the relationship is nullable |
+| `$rel->isCollection()` | `true` for hasMany, belongsToMany, morphMany, etc. |
+| `$rel->isSingular()` | `true` for belongsTo, hasOne, morphTo, etc. |
+| `$rel->pivotTable` | Pivot table name (belongsToMany) |
+| `$rel->morphName` | Morph name (polymorphic relationships) |
+
+All `RelationshipDefinition` properties are accessible via delegation.
+
+### Template Data Hook
+
+Override `templateData()` to inject custom variables into all templates:
+
+```php
+public function templateData(): array
+{
+    return [
+        'app_name' => config('app.name'),
+        'timestamp' => now()->toDateTimeString(),
+    ];
+}
+```
+
+### Writing Blade Templates
+
+Place templates in `resources/views/generators/`. Use `{!! !!}` (unescaped) for code output:
+
+```blade
+{!! $phpOpenTag !!}
+
+namespace App\Models;
+
+use App\Models\{!! $schema->model->title !!};
+
+class {!! $class_name !!}
+{
+@foreach ($schema->columns as $column)
+    public {!! $column->phpType() !!} ${!! $column->name !!};
+@endforeach
+}
+```
+
+The `$phpOpenTag` variable (`<?php`) is always available — use it instead of a raw PHP tag which would confuse Blade.
+
+### Complete Generator Example
+
+```php
+<?php
+
+namespace App\Generators;
+
+use SchemaCraft\Generators\Input;
+use SchemaCraft\Generators\SchemaCraftGenerator;
+use SchemaCraft\Generators\Template;
+
+class FilamentResourceGenerator extends SchemaCraftGenerator
+{
+    public function name(): string
+    {
+        return 'Filament Resource with Relation Managers';
+    }
+
+    public function inputs(): array
+    {
+        return [
+            Input::schemaSelector('schema', 'Schema', selectColumns: true, selectRelationships: true),
+            Input::selectResourceDirectory('resource_directory', 'Resource Directory'),
+        ];
+    }
+
+    public function templates(): array
+    {
+        return [
+            // Main resource file
+            Template::file(
+                '[resource_directory]/[schema.model.plural.title]/[schema.model.title]Resource.php',
+                'generators.resources.resource',
+            ),
+
+            // One relation manager per collection relationship
+            ...Template::forEachRelationship('schema', 'relationship', [
+                Template::file(
+                    '[resource_directory]/[schema.model.plural.title]/RelationManagers/[relationship.name.title]RelationManager.php',
+                    'generators.resources.relation-manager',
+                    ['ClassName' => '[relationship.name.title]RelationManager'],
+                ),
+            ], 'collection'),
+        ];
+    }
+}
+```
 
 ---
 
