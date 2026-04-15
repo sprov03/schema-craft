@@ -16,6 +16,7 @@ use SchemaCraft\Scanner\RelationshipDefinition;
  *
  *     {!! $relationship->name->title !!}          // "Author"
  *     {!! $relationship->relatedModel->plural->title !!} // "Users"
+ *     {!! $relationship->relatedModelClass !!}    // "App\\Models\\User" (FQCN)
  *     $relationship->isCollection()               // true for hasMany, belongsToMany, etc.
  *     $relationship->type                         // "belongsTo" (delegates to definition)
  */
@@ -27,9 +28,13 @@ class GeneratorRelationship
     /** The related model name as a NameChain (extracted from FQCN). */
     public readonly NameChain $relatedModel;
 
+    /** The full FQCN of the related model, e.g. 'App\Models\User'. */
+    public readonly string $relatedModelClass;
+
     public function __construct(public readonly RelationshipDefinition $definition)
     {
         $this->name = new NameChain($definition->name);
+        $this->relatedModelClass = $definition->relatedModel;
         $this->relatedModel = new NameChain(
             Str::snake(class_basename($definition->relatedModel))
         );

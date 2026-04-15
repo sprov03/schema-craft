@@ -130,6 +130,30 @@ class GeneratorColumn
     }
 
     /**
+     * Returns true if this column is marked as a primary key.
+     */
+    public function isPrimary(): bool
+    {
+        return $this->definition->primary;
+    }
+
+    /**
+     * Returns true if this column is a Laravel timestamps column (created_at / updated_at).
+     */
+    public function isTimestamp(): bool
+    {
+        return in_array($this->definition->name, ['created_at', 'updated_at'], true);
+    }
+
+    /**
+     * Returns true if this column is the soft-delete column (deleted_at).
+     */
+    public function isSoftDelete(): bool
+    {
+        return $this->definition->name === 'deleted_at';
+    }
+
+    /**
      * Returns the relationship name for FK columns (strips _id suffix, camelCase).
      * e.g. 'owner_id' → 'owner', 'created_by_user_id' → 'createdByUser'
      */

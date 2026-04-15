@@ -28,6 +28,34 @@ use SchemaCraft\Scanner\TableDefinition;
  *
  *     $schema->relationships    // User-selected relationships (or all if none selected)
  *     $schema->allRelationships // All relationships in the schema
+ *
+ * ## Schema metadata (from TableDefinition)
+ *
+ *     $schema->schemaClass   // "App\\Schemas\\PostSchema"
+ *     $schema->connection    // DB connection name or null
+ *     $schema->fillable      // string[] of fillable attribute names
+ *     $schema->hidden        // string[] of hidden attribute names
+ *     $schema->defaultWith   // string[] of default eager-loaded relationships
+ *     $schema->titleColumns  // string[] of column names marked with #[Title]
+ *
+ * ## Flags
+ *
+ *     $schema->hasTimestamps   // bool — uses created_at/updated_at
+ *     $schema->hasSoftDeletes  // bool — uses deleted_at (SoftDeletesSchema or deleted_at column)
+ *
+ * ## Column lookups
+ *
+ *     $schema->primaryKey           // First GeneratorColumn with primary=true, or null
+ *     $schema->titleColumn          // First column in titleColumns (falls back to primaryKey)
+ *     $schema->column('email')      // Find a column by name or null
+ *     $schema->hasColumn('email')   // bool
+ *     $schema->relationship('author') // Find a relationship by name or null
+ *
+ * ## Filtered column sets
+ *
+ *     $schema->foreignKeyColumns() // Columns whose name ends in _id
+ *     $schema->searchableColumns() // String/text columns, excluding FKs/PKs/timestamps/soft-delete
+ *     $schema->fillableColumns()   // Columns whose name appears in $fillable
  */
 class GeneratorSchemaContext
 {
@@ -36,6 +64,24 @@ class GeneratorSchemaContext
 
     /** Raw table name, e.g. 'user_profiles'. */
     public readonly string $tableName;
+
+    /** FQCN of the scanned schema class, e.g. 'App\Schemas\PostSchema'. */
+    public readonly string $schemaClass;
+
+    /** DB connection name, or null for default. */
+    public readonly ?string $connection;
+
+    /** @var string[] Fillable attribute names (from schema). */
+    public readonly array $fillable;
+
+    /** @var string[] Hidden attribute names (from schema). */
+    public readonly array $hidden;
+
+    /** @var string[] Default eager-loaded relationship names (from schema ->with). */
+    public readonly array $defaultWith;
+
+    /** @var string[] Column names marked with #[Title] — used as display name. */
+    public readonly array $titleColumns;
 
     /** @var GeneratorColumn[] User-selected columns (or all columns if none specified). */
     public readonly array $columns;
@@ -48,6 +94,18 @@ class GeneratorSchemaContext
 
     /** @var GeneratorRelationship[] All relationships in the schema. */
     public readonly array $allRelationships;
+
+    /** True if the schema uses timestamps (created_at/updated_at). */
+    public readonly bool $hasTimestamps;
+
+    /** True if the schema uses soft deletes (SoftDeletesSchema trait or a deleted_at column). */
+    public readonly bool $hasSoftDeletes;
+
+    /** First column marked primary, or null if none. */
+    public readonly ?GeneratorColumn $primaryKey;
+
+    /** First column in titleColumns as a GeneratorColumn, falls back to $primaryKey. */
+    public readonly ?GeneratorColumn $titleColumn;
 
     /**
      * @param  string[]  $selectedColumnNames  Column names to include in $columns. Empty = all.
@@ -63,9 +121,28 @@ class GeneratorSchemaContext
         $this->tableName = $table->tableName;
         $this->model = new NameChain($singular);
 
+        // Schema metadata
+        $this->schemaClass = $table->schemaClass;
+        $this->connection = $table->connection;
+        $this->fillable = $table->fillable;
+        $this->hidden = $table->hidden;
+        $this->defaultWith = $table->with;
+        $this->titleColumns = $table->titleColumns;
+        $this->hasTimestamps = $table->hasTimestamps;
+
         // Columns
         $allCols = array_map(fn ($col) => new GeneratorColumn($col), $table->columns);
         $this->allColumns = $allCols;
+
+        // Soft deletes: trait flag OR a deleted_at column
+        $hasDeletedAtColumn = false;
+        foreach ($allCols as $col) {
+            if ($col->name === 'deleted_at') {
+                $hasDeletedAtColumn = true;
+                break;
+            }
+        }
+        $this->hasSoftDeletes = $table->hasSoftDeletes || $hasDeletedAtColumn;
 
         if (empty($selectedColumnNames)) {
             $this->columns = $allCols;
@@ -84,5 +161,127 @@ class GeneratorSchemaContext
             $selected = array_filter($allRels, fn ($rel) => in_array($rel->definition->name, $selectedRelationshipNames));
             $this->relationships = array_values($selected);
         }
+
+        // Derived helpers
+        $this->primaryKey = $this->resolvePrimaryKey($allCols);
+        $this->titleColumn = $this->resolveTitleColumn($allCols, $table->titleColumns, $this->primaryKey);
+    }
+
+    /**
+     * Look up a column by name, or return null if not found.
+     */
+    public function column(string $name): ?GeneratorColumn
+    {
+        foreach ($this->allColumns as $col) {
+            if ($col->name === $name) {
+                return $col;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if a column exists on this schema.
+     */
+    public function hasColumn(string $name): bool
+    {
+        return $this->column($name) !== null;
+    }
+
+    /**
+     * Look up a relationship by name, or return null if not found.
+     */
+    public function relationship(string $name): ?GeneratorRelationship
+    {
+        foreach ($this->allRelationships as $rel) {
+            if ($rel->definition->name === $name) {
+                return $rel;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Columns ending with `_id` — FK candidates.
+     *
+     * @return GeneratorColumn[]
+     */
+    public function foreignKeyColumns(): array
+    {
+        return array_values(array_filter(
+            $this->allColumns,
+            fn (GeneratorColumn $col) => $col->isFK(),
+        ));
+    }
+
+    /**
+     * String/text columns excluding FKs, timestamps, primary keys, and soft-delete.
+     *
+     * Good default for "searchable" columns in Filament resources or APIs.
+     *
+     * @return GeneratorColumn[]
+     */
+    public function searchableColumns(): array
+    {
+        $stringTypes = ['string', 'text', 'mediumText', 'longText', 'char'];
+
+        return array_values(array_filter(
+            $this->allColumns,
+            fn (GeneratorColumn $col) => in_array($col->columnType, $stringTypes, true)
+                && ! $col->isFK()
+                && ! $col->isPrimary()
+                && ! $col->isTimestamp()
+                && ! $col->isSoftDelete(),
+        ));
+    }
+
+    /**
+     * Columns whose name appears in the schema's $fillable array.
+     *
+     * @return GeneratorColumn[]
+     */
+    public function fillableColumns(): array
+    {
+        if (empty($this->fillable)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $this->allColumns,
+            fn (GeneratorColumn $col) => in_array($col->name, $this->fillable, true),
+        ));
+    }
+
+    /**
+     * @param  GeneratorColumn[]  $cols
+     */
+    private function resolvePrimaryKey(array $cols): ?GeneratorColumn
+    {
+        foreach ($cols as $col) {
+            if ($col->primary) {
+                return $col;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  GeneratorColumn[]  $cols
+     * @param  string[]  $titleColumns
+     */
+    private function resolveTitleColumn(array $cols, array $titleColumns, ?GeneratorColumn $primaryKey): ?GeneratorColumn
+    {
+        foreach ($titleColumns as $name) {
+            foreach ($cols as $col) {
+                if ($col->name === $name) {
+                    return $col;
+                }
+            }
+        }
+
+        return $primaryKey;
     }
 }

@@ -18,16 +18,39 @@ class GeneratorSchemaContextTest extends TestCase
         return new TableDefinition(
             tableName: 'user_profiles',
             schemaClass: 'App\\Schemas\\UserProfileSchema',
+            connection: 'testing',
             columns: [
-                new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true),
+                new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true),
+                new ColumnDefinition(name: 'user_id', columnType: 'unsignedBigInteger'),
                 new ColumnDefinition(name: 'first_name', columnType: 'string'),
                 new ColumnDefinition(name: 'email', columnType: 'string'),
                 new ColumnDefinition(name: 'age', columnType: 'integer', nullable: true),
+                new ColumnDefinition(name: 'created_at', columnType: 'timestamp', nullable: true),
+                new ColumnDefinition(name: 'updated_at', columnType: 'timestamp', nullable: true),
+                new ColumnDefinition(name: 'deleted_at', columnType: 'timestamp', nullable: true),
             ],
             relationships: [
                 new RelationshipDefinition(name: 'user', type: 'belongsTo', relatedModel: 'App\\Models\\User'),
                 new RelationshipDefinition(name: 'posts', type: 'hasMany', relatedModel: 'App\\Models\\Post'),
                 new RelationshipDefinition(name: 'tags', type: 'belongsToMany', relatedModel: 'App\\Models\\Tag'),
+            ],
+            hasTimestamps: true,
+            hasSoftDeletes: true,
+            fillable: ['first_name', 'email', 'age'],
+            hidden: ['email'],
+            with: ['user'],
+            titleColumns: ['first_name'],
+        );
+    }
+
+    private function makeTableWithoutMetadata(): TableDefinition
+    {
+        return new TableDefinition(
+            tableName: 'notes',
+            schemaClass: 'App\\Schemas\\NoteSchema',
+            columns: [
+                new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true),
+                new ColumnDefinition(name: 'body', columnType: 'text'),
             ],
         );
     }
@@ -89,7 +112,7 @@ class GeneratorSchemaContextTest extends TestCase
     {
         $ctx = new GeneratorSchemaContext($this->makeTable());
 
-        $this->assertCount(4, $ctx->allColumns);
+        $this->assertCount(8, $ctx->allColumns);
         $this->assertContainsOnlyInstancesOf(GeneratorColumn::class, $ctx->allColumns);
     }
 
@@ -97,7 +120,7 @@ class GeneratorSchemaContextTest extends TestCase
     {
         $ctx = new GeneratorSchemaContext($this->makeTable());
 
-        $this->assertCount(4, $ctx->columns);
+        $this->assertCount(8, $ctx->columns);
         $this->assertSame($ctx->allColumns, $ctx->columns);
     }
 
@@ -114,7 +137,7 @@ class GeneratorSchemaContextTest extends TestCase
     {
         $ctx = new GeneratorSchemaContext($this->makeTable(), ['first_name']);
 
-        $this->assertCount(4, $ctx->allColumns);
+        $this->assertCount(8, $ctx->allColumns);
         $this->assertCount(1, $ctx->columns);
     }
 
@@ -176,5 +199,241 @@ class GeneratorSchemaContextTest extends TestCase
         $this->assertTrue($ctx->relationships[0]->isSingular());  // belongsTo
         $this->assertTrue($ctx->relationships[1]->isCollection()); // hasMany
         $this->assertTrue($ctx->relationships[2]->isCollection()); // belongsToMany
+    }
+
+    // ─── Schema metadata ──────────────────────────────────────────
+
+    public function test_schema_class_is_exposed(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertSame('App\\Schemas\\UserProfileSchema', $ctx->schemaClass);
+    }
+
+    public function test_connection_is_exposed(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertSame('testing', $ctx->connection);
+    }
+
+    public function test_connection_is_null_when_default(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+
+        $this->assertNull($ctx->connection);
+    }
+
+    public function test_fillable_is_exposed(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertSame(['first_name', 'email', 'age'], $ctx->fillable);
+    }
+
+    public function test_hidden_is_exposed(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertSame(['email'], $ctx->hidden);
+    }
+
+    public function test_default_with_is_exposed(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertSame(['user'], $ctx->defaultWith);
+    }
+
+    public function test_title_columns_is_exposed(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertSame(['first_name'], $ctx->titleColumns);
+    }
+
+    // ─── Flags ────────────────────────────────────────────────────
+
+    public function test_has_timestamps_reflects_table_definition(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertTrue($ctx->hasTimestamps);
+    }
+
+    public function test_has_timestamps_is_false_when_not_set(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+
+        $this->assertFalse($ctx->hasTimestamps);
+    }
+
+    public function test_has_soft_deletes_true_via_flag(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertTrue($ctx->hasSoftDeletes);
+    }
+
+    public function test_has_soft_deletes_true_via_deleted_at_column(): void
+    {
+        $table = new TableDefinition(
+            tableName: 'logs',
+            schemaClass: 'App\\Schemas\\LogSchema',
+            columns: [
+                new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true),
+                new ColumnDefinition(name: 'deleted_at', columnType: 'timestamp', nullable: true),
+            ],
+            // hasSoftDeletes flag is NOT set — should still detect via column
+        );
+
+        $ctx = new GeneratorSchemaContext($table);
+
+        $this->assertTrue($ctx->hasSoftDeletes);
+    }
+
+    public function test_has_soft_deletes_is_false_when_no_trait_or_column(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+
+        $this->assertFalse($ctx->hasSoftDeletes);
+    }
+
+    // ─── Column lookups ───────────────────────────────────────────
+
+    public function test_primary_key_picks_first_primary_column(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertNotNull($ctx->primaryKey);
+        $this->assertSame('id', $ctx->primaryKey->name);
+        $this->assertTrue($ctx->primaryKey->isPrimary());
+    }
+
+    public function test_primary_key_is_null_when_no_primary_column(): void
+    {
+        $table = new TableDefinition(
+            tableName: 'no_pk_table',
+            schemaClass: 'App\\Schemas\\NoPkSchema',
+            columns: [
+                new ColumnDefinition(name: 'data', columnType: 'string'),
+            ],
+        );
+
+        $ctx = new GeneratorSchemaContext($table);
+
+        $this->assertNull($ctx->primaryKey);
+    }
+
+    public function test_title_column_uses_title_columns_first(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertNotNull($ctx->titleColumn);
+        $this->assertSame('first_name', $ctx->titleColumn->name);
+    }
+
+    public function test_title_column_falls_back_to_primary_key(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+
+        $this->assertNotNull($ctx->titleColumn);
+        $this->assertSame('id', $ctx->titleColumn->name);
+    }
+
+    public function test_column_finds_by_name(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $col = $ctx->column('email');
+        $this->assertNotNull($col);
+        $this->assertSame('email', $col->name);
+    }
+
+    public function test_column_returns_null_when_missing(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertNull($ctx->column('does_not_exist'));
+    }
+
+    public function test_has_column_checks_existence(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertTrue($ctx->hasColumn('email'));
+        $this->assertFalse($ctx->hasColumn('missing'));
+    }
+
+    public function test_relationship_finds_by_name(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $rel = $ctx->relationship('posts');
+        $this->assertNotNull($rel);
+        $this->assertSame('posts', $rel->definition->name);
+    }
+
+    public function test_relationship_returns_null_when_missing(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertNull($ctx->relationship('nonexistent'));
+    }
+
+    // ─── Filtered column sets ─────────────────────────────────────
+
+    public function test_foreign_key_columns_returns_only_fk_columns(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $fks = $ctx->foreignKeyColumns();
+
+        $this->assertCount(1, $fks);
+        $this->assertSame('user_id', $fks[0]->name);
+    }
+
+    public function test_searchable_columns_excludes_fks_pks_timestamps_soft_delete(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $searchable = $ctx->searchableColumns();
+        $names = array_map(fn ($c) => $c->name, $searchable);
+
+        // Only 'first_name' and 'email' (string types, not FK/PK/timestamps/soft-delete)
+        $this->assertSame(['first_name', 'email'], $names);
+    }
+
+    public function test_searchable_columns_returns_empty_when_no_string_columns(): void
+    {
+        $table = new TableDefinition(
+            tableName: 'numbers',
+            schemaClass: 'App\\Schemas\\NumberSchema',
+            columns: [
+                new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true),
+                new ColumnDefinition(name: 'value', columnType: 'integer'),
+            ],
+        );
+
+        $ctx = new GeneratorSchemaContext($table);
+
+        $this->assertSame([], $ctx->searchableColumns());
+    }
+
+    public function test_fillable_columns_intersects_all_columns_with_fillable(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $fillable = $ctx->fillableColumns();
+        $names = array_map(fn ($c) => $c->name, $fillable);
+
+        $this->assertSame(['first_name', 'email', 'age'], $names);
+    }
+
+    public function test_fillable_columns_returns_empty_when_fillable_unset(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+
+        $this->assertSame([], $ctx->fillableColumns());
     }
 }

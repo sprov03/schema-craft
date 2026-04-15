@@ -243,6 +243,7 @@ $schema->model->plural->kebab   // "user-profiles"
   - [GeneratorRelationship Helpers](#generatorrelationship-helpers)
   - [Template Data Hook](#template-data-hook)
   - [Writing Blade Templates](#writing-blade-templates)
+  - [Composable Templates with `@include`](#composable-templates-with-include)
   - [Complete Generator Example](#complete-generator-example)
 - [Full Example](#full-example)
 - [Full Multi-API Demo](#full-multi-api-demo)
@@ -2963,6 +2964,39 @@ When a `schemaSelector` input is resolved, templates receive a `GeneratorSchemaC
 | `$schema->relationships` | `GeneratorRelationship[]` | User-selected relationships (or all) |
 | `$schema->allRelationships` | `GeneratorRelationship[]` | All relationships in the schema |
 
+#### Schema metadata
+
+Pulled straight from the scanned `TableDefinition`:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `$schema->schemaClass` | `string` | FQCN of the scanned schema class, e.g. `'App\Schemas\PostSchema'` |
+| `$schema->connection` | `?string` | DB connection name, or null for default |
+| `$schema->fillable` | `string[]` | Fillable attribute names |
+| `$schema->hidden` | `string[]` | Hidden attribute names |
+| `$schema->defaultWith` | `string[]` | Default eager-loaded relationship names (schema `$with`) |
+| `$schema->titleColumns` | `string[]` | Column names marked with `#[Title]` |
+| `$schema->hasTimestamps` | `bool` | True if the schema uses `created_at` / `updated_at` |
+| `$schema->hasSoftDeletes` | `bool` | True if the schema uses `SoftDeletesSchema` or has a `deleted_at` column |
+
+#### Column lookups
+
+| Property / Method | Returns | Description |
+|---|---|---|
+| `$schema->primaryKey` | `?GeneratorColumn` | First column marked `#[Primary]`, or null |
+| `$schema->titleColumn` | `?GeneratorColumn` | First column in `titleColumns`, falls back to `primaryKey` |
+| `$schema->column('email')` | `?GeneratorColumn` | Find a column by name, or null |
+| `$schema->hasColumn('email')` | `bool` | Check if a column exists by name |
+| `$schema->relationship('author')` | `?GeneratorRelationship` | Find a relationship by name, or null |
+
+#### Filtered column sets
+
+| Method | Returns | Description |
+|---|---|---|
+| `$schema->foreignKeyColumns()` | `GeneratorColumn[]` | Columns whose name ends in `_id` |
+| `$schema->searchableColumns()` | `GeneratorColumn[]` | String/text columns, excluding FKs, PKs, timestamps, and soft-delete |
+| `$schema->fillableColumns()` | `GeneratorColumn[]` | Columns whose name appears in `$schema->fillable` |
+
 ### GeneratorColumn Helpers
 
 Each column in `$schema->columns` provides:
@@ -2981,6 +3015,9 @@ Each column in `$schema->columns` provides:
 | `$col->asMethodParam()` | `'string $firstName'` or `'?string $firstName = null'` |
 | `$col->asAssignment('$model')` | `'$model->first_name = $firstName;'` |
 | `$col->isFK()` | `true` if column ends with `_id` |
+| `$col->isPrimary()` | `true` if column is marked `#[Primary]` |
+| `$col->isTimestamp()` | `true` for `created_at` or `updated_at` |
+| `$col->isSoftDelete()` | `true` for `deleted_at` |
 | `$col->relationshipName()` | `'owner'` (strips `_id`, camelCase) |
 
 ### GeneratorRelationship Helpers
@@ -2991,6 +3028,7 @@ Each relationship in `$schema->relationships` provides:
 |-------------------|-------------|
 | `$rel->name` | NameChain — `$rel->name->title` → `'Author'` |
 | `$rel->relatedModel` | NameChain — `$rel->relatedModel->plural->title` → `'Users'` |
+| `$rel->relatedModelClass` | Full FQCN — `'App\Models\User'` |
 | `$rel->type` | `'belongsTo'`, `'hasMany'`, etc. |
 | `$rel->nullable` | Whether the relationship is nullable |
 | `$rel->isCollection()` | `true` for hasMany, belongsToMany, morphMany, etc. |
@@ -3034,6 +3072,80 @@ class {!! $class_name !!}
 ```
 
 The `$phpOpenTag` variable (`<?php`) is always available — use it instead of a raw PHP tag which would confuse Blade.
+
+### Composable Templates with `@include`
+
+Generator templates are rendered through Laravel's standard Blade view factory, so **all Blade directives work** — including `@include` for composable partials. This lets you split a large template into small, reusable pieces.
+
+> **Note:** Use `@include(...)`, not `@view(...)`. `@view` is not a Blade directive.
+
+**Layout convention:** put partials alongside your main templates under `resources/views/generators/`:
+
+```
+resources/views/generators/
+└── filament-resource/
+    ├── table.blade.php              ← main template
+    └── partials/
+        ├── column.blade.php         ← @include('generators.filament-resource.partials.column')
+        └── relationship.blade.php   ← @include('generators.filament-resource.partials.relationship')
+```
+
+**Main template** loops and delegates to partials:
+
+```blade
+{!! $phpOpenTag !!}
+
+namespace App\Filament\Resources\{!! $schema->model->plural->title !!}\Tables;
+
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\TrashedFilter;
+use Filament\Tables\Table;
+
+class {!! $schema->model->plural->title !!}Table
+{
+    public static function configure(Table $table): Table
+    {
+        return $table
+            ->columns([
+@foreach($schema->relationships as $relationship)
+                @include('generators.filament-resource.partials.relationship', ['relationship' => $relationship])
+@endforeach
+@foreach($schema->columns as $column)
+                @include('generators.filament-resource.partials.column', ['column' => $column])
+@endforeach
+            ])
+            ->filters([
+@if($schema->hasSoftDeletes)
+                TrashedFilter::make(),
+@endif
+            ]);
+    }
+}
+```
+
+**Partial `partials/column.blade.php`:**
+
+```blade
+@if($column->isPrimary() || $column->isTimestamp() || $column->isSoftDelete())
+                TextColumn::make('{!! $column->name !!}')
+                    ->dateTime()
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+@elseif($column->isFK())
+                TextColumn::make('{!! $column->name !!}')
+                    ->numeric()
+                    ->sortable(),
+@else
+                TextColumn::make('{!! $column->name !!}')
+                    ->searchable(),
+@endif
+```
+
+**How the partial sees data:**
+
+- Partials inherit the full parent scope, so `$schema`, `$phpOpenTag`, and any `templateData()` variables are all accessible — no need to pass them through.
+- The `['column' => $column]` array on `@include` scopes the loop variable for that partial invocation.
+- Dotted view names map to filesystem paths: `generators.foo.bar.baz` → `resources/views/generators/foo/bar/baz.blade.php`.
 
 ### Complete Generator Example
 

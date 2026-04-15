@@ -139,6 +139,64 @@ class GeneratorColumnTest extends TestCase
         $this->assertFalse($col->isFK());
     }
 
+    // ─── isPrimary / isTimestamp / isSoftDelete ───────────────────
+
+    public function test_is_primary_returns_true_for_primary_column(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true));
+
+        $this->assertTrue($col->isPrimary());
+    }
+
+    public function test_is_primary_returns_false_for_non_primary_column(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'name', columnType: 'string'));
+
+        $this->assertFalse($col->isPrimary());
+    }
+
+    public function test_is_timestamp_returns_true_for_created_at(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'created_at', columnType: 'timestamp'));
+
+        $this->assertTrue($col->isTimestamp());
+    }
+
+    public function test_is_timestamp_returns_true_for_updated_at(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'updated_at', columnType: 'timestamp'));
+
+        $this->assertTrue($col->isTimestamp());
+    }
+
+    public function test_is_timestamp_returns_false_for_other_columns(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'published_at', columnType: 'timestamp'));
+
+        $this->assertFalse($col->isTimestamp());
+    }
+
+    public function test_is_timestamp_returns_false_for_deleted_at(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'deleted_at', columnType: 'timestamp'));
+
+        $this->assertFalse($col->isTimestamp());
+    }
+
+    public function test_is_soft_delete_returns_true_for_deleted_at(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'deleted_at', columnType: 'timestamp'));
+
+        $this->assertTrue($col->isSoftDelete());
+    }
+
+    public function test_is_soft_delete_returns_false_for_other_columns(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'created_at', columnType: 'timestamp'));
+
+        $this->assertFalse($col->isSoftDelete());
+    }
+
     public function test_relationship_name_strips_id_and_camel_cases(): void
     {
         $col = new GeneratorColumn(new ColumnDefinition(name: 'owner_id', columnType: 'unsignedBigInteger'));

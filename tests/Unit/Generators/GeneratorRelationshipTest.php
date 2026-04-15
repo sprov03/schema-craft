@@ -51,6 +51,29 @@ class GeneratorRelationshipTest extends TestCase
         $this->assertSame('UserProfiles', (string) $rel->relatedModel->plural->title);
     }
 
+    public function test_related_model_class_is_full_fqcn(): void
+    {
+        $rel = new GeneratorRelationship(new RelationshipDefinition(
+            name: 'author',
+            type: 'belongsTo',
+            relatedModel: 'App\\Models\\User',
+        ));
+
+        $this->assertSame('App\\Models\\User', $rel->relatedModelClass);
+    }
+
+    public function test_related_model_class_preserves_nested_namespace(): void
+    {
+        $rel = new GeneratorRelationship(new RelationshipDefinition(
+            name: 'profile',
+            type: 'hasOne',
+            relatedModel: 'App\\Models\\Users\\Profile',
+        ));
+
+        $this->assertSame('App\\Models\\Users\\Profile', $rel->relatedModelClass);
+        $this->assertSame('Profile', (string) $rel->relatedModel->title);
+    }
+
     // ─── Cardinality ──────────────────────────────────────────────
 
     public function test_belongs_to_is_singular(): void
