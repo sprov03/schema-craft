@@ -8,6 +8,7 @@ use SchemaCraft\Generators\GeneratorSchemaContext;
 use SchemaCraft\Generators\SchemaCraftGenerator;
 use SchemaCraft\Generators\Template;
 use SchemaCraft\Scanner\ColumnDefinition;
+use SchemaCraft\Scanner\RelationshipDefinition;
 use SchemaCraft\Scanner\TableDefinition;
 use SchemaCraft\Tests\TestCase;
 
@@ -29,11 +30,14 @@ class GeneratorRunnerTest extends TestCase
         $this->runner = $this->app->make(GeneratorRunner::class);
     }
 
-    private function makeGenerator(array $templates): SchemaCraftGenerator
+    private function makeGenerator(array $templates, array $templateData = []): SchemaCraftGenerator
     {
-        return new class($templates) extends SchemaCraftGenerator
+        return new class($templates, $templateData) extends SchemaCraftGenerator
         {
-            public function __construct(private readonly array $tpls) {}
+            public function __construct(
+                private readonly array $tpls,
+                private readonly array $tplData = [],
+            ) {}
 
             public function name(): string
             {
@@ -43,6 +47,11 @@ class GeneratorRunnerTest extends TestCase
             public function templates(): array
             {
                 return $this->tpls;
+            }
+
+            public function templateData(): array
+            {
+                return $this->tplData;
             }
         };
     }
@@ -63,18 +72,38 @@ class GeneratorRunnerTest extends TestCase
         return new GeneratorSchemaContext($table);
     }
 
+    private function makeSchemaContextWithRelationships(): GeneratorSchemaContext
+    {
+        $table = new TableDefinition(
+            tableName: 'posts',
+            schemaClass: 'App\\Schemas\\PostSchema',
+            columns: [
+                new ColumnDefinition(name: 'title', columnType: 'string'),
+            ],
+            relationships: [
+                new RelationshipDefinition(name: 'author', type: 'belongsTo', relatedModel: 'App\\Models\\User'),
+                new RelationshipDefinition(name: 'comments', type: 'hasMany', relatedModel: 'App\\Models\\Comment'),
+                new RelationshipDefinition(name: 'tags', type: 'belongsToMany', relatedModel: 'App\\Models\\Tag'),
+            ],
+        );
+
+        return new GeneratorSchemaContext($table);
+    }
+
     // ─── Basic rendering ──────────────────────────────────────────
 
     public function test_run_renders_template_with_schema_context(): void
     {
         $generator = $this->makeGenerator([
-            Template::file('sample-template', 'app/[class_name].php'),
+            Template::file('app/[class_name].php', 'sample-template'),
         ]);
 
         $files = $this->runner->run(
             generator: $generator,
-            schemaContexts: ['schema' => $this->makeSchemaContext()],
-            inputValues: ['class_name' => 'MyClass'],
+            inputValues: [
+                'schema' => $this->makeSchemaContext(),
+                'class_name' => 'MyClass',
+            ],
         );
 
         $this->assertCount(1, $files);
@@ -89,31 +118,59 @@ class GeneratorRunnerTest extends TestCase
     public function test_output_path_substitutes_string_input(): void
     {
         $generator = $this->makeGenerator([
-            Template::file('sample-template', 'app/[class_name].php'),
+            Template::file('app/[class_name].php', 'sample-template'),
         ]);
 
         $files = $this->runner->run(
             generator: $generator,
-            schemaContexts: ['schema' => $this->makeSchemaContext()],
-            inputValues: ['class_name' => 'FooService'],
+            inputValues: [
+                'schema' => $this->makeSchemaContext(),
+                'class_name' => 'FooService',
+            ],
         );
 
         $this->assertSame('app/FooService.php', $files[0]->path);
     }
 
+    public function test_output_path_resolves_chained_dot_notation(): void
+    {
+        $generator = $this->makeGenerator([
+            Template::file('app/[schema.model.plural.title]/[schema.model.title].php', 'sample-template'),
+        ]);
+
+        $schema = new GeneratorSchemaContext(new TableDefinition(
+            tableName: 'user_profiles',
+            schemaClass: 'App\\Schemas\\UserProfileSchema',
+            columns: [new ColumnDefinition(name: 'name', columnType: 'string')],
+        ));
+
+        $files = $this->runner->run(
+            generator: $generator,
+            inputValues: [
+                'schema' => $schema,
+                'class_name' => 'UserProfile',
+            ],
+        );
+
+        $this->assertSame('app/UserProfiles/UserProfile.php', $files[0]->path);
+    }
+
     public function test_output_path_does_not_substitute_non_string_inputs(): void
     {
         $generator = $this->makeGenerator([
-            Template::file('sample-template', 'app/output.php'),
+            Template::file('app/output.php', 'sample-template'),
         ]);
 
         $files = $this->runner->run(
             generator: $generator,
-            schemaContexts: ['schema' => $this->makeSchemaContext()],
-            inputValues: ['class_name' => 'Output', 'enabled' => true],
+            inputValues: [
+                'schema' => $this->makeSchemaContext(),
+                'class_name' => 'Output',
+                'enabled' => true,
+            ],
         );
 
-        // 'enabled' is a boolean so it is not substituted; path stays as 'app/output.php'
+        // 'enabled' is a boolean so it stays as-is; path is not affected
         $this->assertSame('app/output.php', $files[0]->path);
     }
 
@@ -122,14 +179,16 @@ class GeneratorRunnerTest extends TestCase
     public function test_multiple_templates_produce_multiple_files(): void
     {
         $generator = $this->makeGenerator([
-            Template::file('sample-template', 'app/[class_name].php'),
-            Template::file('sample-template', 'tests/[class_name]Test.php'),
+            Template::file('app/[class_name].php', 'sample-template'),
+            Template::file('tests/[class_name]Test.php', 'sample-template'),
         ]);
 
         $files = $this->runner->run(
             generator: $generator,
-            schemaContexts: ['schema' => $this->makeSchemaContext()],
-            inputValues: ['class_name' => 'Foo'],
+            inputValues: [
+                'schema' => $this->makeSchemaContext(),
+                'class_name' => 'Foo',
+            ],
         );
 
         $this->assertCount(2, $files);
@@ -139,19 +198,21 @@ class GeneratorRunnerTest extends TestCase
 
     // ─── Schema context variables ─────────────────────────────────
 
-    public function test_schema_context_name_helpers_are_accessible_in_template(): void
+    public function test_schema_model_name_chain_accessible_in_path(): void
     {
         $generator = $this->makeGenerator([
-            Template::file('sample-template', 'app/output.php'),
+            Template::file('app/[schema.model.title].php', 'sample-template'),
         ]);
 
         $files = $this->runner->run(
             generator: $generator,
-            schemaContexts: ['schema' => $this->makeSchemaContext()],
-            inputValues: ['class_name' => $this->makeSchemaContext()->ModelName],
+            inputValues: [
+                'schema' => $this->makeSchemaContext(),
+                'class_name' => 'Post',
+            ],
         );
 
-        $this->assertStringContainsString('class Post', $files[0]->content);
+        $this->assertSame('app/Post.php', $files[0]->path);
     }
 
     // ─── No schemas ───────────────────────────────────────────────
@@ -165,24 +226,159 @@ class GeneratorRunnerTest extends TestCase
                 return 'No Schema Generator';
             }
 
-            public function schemas(): array
-            {
-                return [];
-            }
-
             public function templates(): array
             {
-                return [Template::file('no-schema-template', 'app/output.php')];
+                return [Template::file('app/output.php', 'no-schema-template')];
             }
         };
 
         $files = $this->runner->run(
             generator: $noSchemaGenerator,
-            schemaContexts: [],
             inputValues: ['class_name' => 'Output'],
         );
 
         $this->assertCount(1, $files);
         $this->assertStringContainsString('class Output', $files[0]->content);
+    }
+
+    // ─── Extra variables ──────────────────────────────────────────
+
+    public function test_extra_variables_are_resolved_and_injected(): void
+    {
+        $generator = $this->makeGenerator([
+            Template::file('app/output.php', 'no-schema-template', [
+                'class_name' => '[base_name]Service',
+            ]),
+        ]);
+
+        $files = $this->runner->run(
+            generator: $generator,
+            inputValues: ['base_name' => 'User'],
+        );
+
+        $this->assertStringContainsString('class UserService', $files[0]->content);
+    }
+
+    // ─── templateData() ───────────────────────────────────────────
+
+    public function test_template_data_is_available_in_templates(): void
+    {
+        $generator = $this->makeGenerator(
+            [Template::file('app/output.php', 'no-schema-template')],
+            ['class_name' => 'FromTemplateData'],
+        );
+
+        $files = $this->runner->run(
+            generator: $generator,
+            inputValues: [],
+        );
+
+        $this->assertStringContainsString('class FromTemplateData', $files[0]->content);
+    }
+
+    // ─── Iteration ────────────────────────────────────────────────
+
+    public function test_for_each_iterates_over_relationships(): void
+    {
+        $generator = $this->makeGenerator([
+            ...Template::forEachRelationship('schema', 'relationship', [
+                Template::file(
+                    'app/[relationship.name.title]RelationManager.php',
+                    'no-schema-template',
+                    ['class_name' => '[relationship.name.title]RelationManager'],
+                ),
+            ]),
+        ]);
+
+        $files = $this->runner->run(
+            generator: $generator,
+            inputValues: ['schema' => $this->makeSchemaContextWithRelationships()],
+        );
+
+        $this->assertCount(3, $files);
+        $this->assertSame('app/AuthorRelationManager.php', $files[0]->path);
+        $this->assertSame('app/CommentRelationManager.php', $files[1]->path);
+        $this->assertSame('app/TagRelationManager.php', $files[2]->path);
+        $this->assertStringContainsString('class AuthorRelationManager', $files[0]->content);
+    }
+
+    public function test_for_each_with_collection_filter(): void
+    {
+        $generator = $this->makeGenerator([
+            ...Template::forEachRelationship('schema', 'relationship', [
+                Template::file(
+                    'app/[relationship.name.title]RelationManager.php',
+                    'no-schema-template',
+                    ['class_name' => '[relationship.name.title]RelationManager'],
+                ),
+            ], 'collection'),
+        ]);
+
+        $files = $this->runner->run(
+            generator: $generator,
+            inputValues: ['schema' => $this->makeSchemaContextWithRelationships()],
+        );
+
+        // Only hasMany (comments) and belongsToMany (tags) — not belongsTo (author)
+        $this->assertCount(2, $files);
+        $this->assertSame('app/CommentRelationManager.php', $files[0]->path);
+        $this->assertSame('app/TagRelationManager.php', $files[1]->path);
+    }
+
+    public function test_for_each_with_singular_filter(): void
+    {
+        $generator = $this->makeGenerator([
+            ...Template::forEachRelationship('schema', 'relationship', [
+                Template::file(
+                    'app/[relationship.name.title].php',
+                    'no-schema-template',
+                    ['class_name' => '[relationship.name.title]'],
+                ),
+            ], 'singular'),
+        ]);
+
+        $files = $this->runner->run(
+            generator: $generator,
+            inputValues: ['schema' => $this->makeSchemaContextWithRelationships()],
+        );
+
+        // Only belongsTo (author)
+        $this->assertCount(1, $files);
+        $this->assertSame('app/Author.php', $files[0]->path);
+    }
+
+    public function test_for_each_skips_when_iterable_not_found(): void
+    {
+        $generator = $this->makeGenerator([
+            ...Template::forEach('nonexistent.path', 'item', [
+                Template::file('app/[item].php', 'no-schema-template'),
+            ]),
+        ]);
+
+        $files = $this->runner->run(
+            generator: $generator,
+            inputValues: [],
+        );
+
+        $this->assertCount(0, $files);
+    }
+
+    // ─── String wrapping ──────────────────────────────────────────
+
+    public function test_string_inputs_are_wrapped_as_name_chains(): void
+    {
+        $generator = $this->makeGenerator([
+            Template::file('app/[model_name.plural.title].php', 'no-schema-template'),
+        ]);
+
+        $files = $this->runner->run(
+            generator: $generator,
+            inputValues: [
+                'model_name' => 'UserProfile',
+                'class_name' => 'Test',
+            ],
+        );
+
+        $this->assertSame('app/UserProfiles.php', $files[0]->path);
     }
 }

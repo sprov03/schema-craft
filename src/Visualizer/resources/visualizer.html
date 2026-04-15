@@ -10519,34 +10519,36 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
         function renderGeneratorForm(generatorDef) {
             var content = document.getElementById('genr-content');
             var schemas = (generatorsConfig && generatorsConfig.schemas) ? generatorsConfig.schemas : [];
+            var resourceDirs = (generatorsConfig && generatorsConfig.resourceDirectories) ? generatorsConfig.resourceDirectories : {};
 
-            // Build schema slot pickers
-            var schemaPickersHtml = '';
-            (generatorDef.schemas || []).forEach(function(slotKey) {
-                var optionsHtml = '<option value="">-- Select a schema --</option>';
-                schemas.forEach(function(s) {
-                    optionsHtml += '<option value="' + escapeAttr(s.class) + '">' + escapeHtml(s.modelName) + ' (' + escapeHtml(shortName(s.class)) + ')</option>';
-                });
-                schemaPickersHtml +=
-                    '<div class="act-field-row" style="margin-bottom:16px;">' +
-                        '<label class="act-field-label">' + escapeHtml(slotKey) + ' schema</label>' +
-                        '<select class="sc-input genr-schema-picker" data-slot="' + escapeAttr(slotKey) + '" id="genr-schema-' + escapeAttr(slotKey) + '">' +
-                            optionsHtml +
-                        '</select>' +
-                        '<div class="genr-column-section" id="genr-cols-' + escapeAttr(slotKey) + '" style="display:none;margin-top:8px;">' +
-                            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Columns (leave all unchecked to include all)</div>' +
-                            '<div class="genr-columns-list" id="genr-cols-list-' + escapeAttr(slotKey) + '"></div>' +
-                        '</div>' +
-                    '</div>';
-            });
-
-            // Build input fields
+            // Build input fields (including schemaSelector which replaces old schema slots)
             var inputsHtml = '';
             (generatorDef.inputs || []).forEach(function(input) {
                 inputsHtml += '<div class="act-field-row" style="margin-bottom:12px;">';
                 inputsHtml += '<label class="act-field-label">' + escapeHtml(input.label) + '</label>';
 
-                if (input.type === 'text') {
+                if (input.type === 'schemaSelector') {
+                    var schemaOpts = '<option value="">-- Select a schema --</option>';
+                    schemas.forEach(function(s) {
+                        schemaOpts += '<option value="' + escapeAttr(s.class) + '">' + escapeHtml(s.modelName) + ' (' + escapeHtml(shortName(s.class)) + ')</option>';
+                    });
+                    inputsHtml += '<select class="sc-input genr-schema-selector" data-key="' + escapeAttr(input.key) + '" ' +
+                        'data-select-columns="' + (input.selectColumns ? '1' : '0') + '" ' +
+                        'data-select-relationships="' + (input.selectRelationships ? '1' : '0') + '">' +
+                        schemaOpts + '</select>';
+                    if (input.selectColumns) {
+                        inputsHtml += '<div class="genr-selector-cols" id="genr-selector-cols-' + escapeAttr(input.key) + '" style="display:none;margin-top:8px;">' +
+                            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Columns (leave all unchecked to include all)</div>' +
+                            '<div class="genr-columns-list" id="genr-selector-cols-list-' + escapeAttr(input.key) + '"></div>' +
+                        '</div>';
+                    }
+                    if (input.selectRelationships) {
+                        inputsHtml += '<div class="genr-selector-rels" id="genr-selector-rels-' + escapeAttr(input.key) + '" style="display:none;margin-top:8px;">' +
+                            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Relationships (leave all unchecked to include all)</div>' +
+                            '<div class="genr-relationships-list" id="genr-selector-rels-list-' + escapeAttr(input.key) + '"></div>' +
+                        '</div>';
+                    }
+                } else if (input.type === 'text') {
                     inputsHtml += '<input type="text" class="sc-input genr-input" data-key="' + escapeAttr(input.key) + '" value="' + escapeAttr(input.default || '') + '">';
                 } else if (input.type === 'boolean') {
                     inputsHtml += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
@@ -10560,13 +10562,19 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     });
                     inputsHtml += '<select class="sc-input genr-input" data-key="' + escapeAttr(input.key) + '">' + opts + '</select>';
                 } else if (input.type === 'schemaColumn') {
-                    inputsHtml += '<select class="sc-input genr-input genr-schema-col-picker" data-key="' + escapeAttr(input.key) + '" data-schema-key="' + escapeAttr(input.schemaKey || 'schema') + '">' +
+                    inputsHtml += '<select class="sc-input genr-input genr-schema-col-picker" data-key="' + escapeAttr(input.key) + '" data-selector-key="' + escapeAttr(input.selectorKey || 'schema') + '">' +
                         '<option value="">-- Select a column --</option>' +
                     '</select>';
                 } else if (input.type === 'schemaColumns') {
-                    inputsHtml += '<div class="genr-schema-cols-picker" data-key="' + escapeAttr(input.key) + '" data-schema-key="' + escapeAttr(input.schemaKey || 'schema') + '">' +
+                    inputsHtml += '<div class="genr-schema-cols-picker" data-key="' + escapeAttr(input.key) + '" data-selector-key="' + escapeAttr(input.selectorKey || 'schema') + '">' +
                         '<div style="font-size:11px;color:var(--text-muted);">Select a schema first</div>' +
                     '</div>';
+                } else if (input.type === 'selectResourceDirectory') {
+                    var dirOpts = '<option value="">-- Select a directory --</option>';
+                    Object.keys(resourceDirs).forEach(function(label) {
+                        dirOpts += '<option value="' + escapeAttr(resourceDirs[label]) + '">' + escapeHtml(label) + ' (' + escapeHtml(resourceDirs[label]) + ')</option>';
+                    });
+                    inputsHtml += '<select class="sc-input genr-input" data-key="' + escapeAttr(input.key) + '">' + dirOpts + '</select>';
                 }
 
                 inputsHtml += '</div>';
@@ -10579,18 +10587,17 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                         '<span class="gen-stack-route-prefix">' + escapeHtml(shortName(generatorDef.class)) + '</span>' +
                     '</div>' +
                     '<div style="padding:20px;">' +
-                        ((generatorDef.schemas && generatorDef.schemas.length > 0) ? '<div class="gen-endpoint-section-title" style="margin-bottom:12px;">Schema Slots</div>' + schemaPickersHtml : '') +
-                        ((generatorDef.inputs && generatorDef.inputs.length > 0) ? '<div class="gen-endpoint-section-title" style="margin-bottom:12px;">Inputs</div>' + inputsHtml : '') +
+                        ((generatorDef.inputs && generatorDef.inputs.length > 0) ? '<div class="gen-endpoint-section-title" style="margin-bottom:12px;">Configuration</div>' + inputsHtml : '') +
                         '<div style="display:flex;gap:8px;margin-top:20px;">' +
                             '<button class="sc-btn primary" id="genr-preview-btn">Preview</button>' +
                         '</div>' +
                     '</div>' +
                 '</div>';
 
-            // Schema picker change → load columns
-            content.querySelectorAll('.genr-schema-picker').forEach(function(select) {
+            // Schema selector change → load columns/relationships
+            content.querySelectorAll('.genr-schema-selector').forEach(function(select) {
                 select.addEventListener('change', function() {
-                    genLoadSchemaColumns(generatorDef, select.dataset.slot, select.value);
+                    genLoadSelectorData(generatorDef, select.dataset.key, select.value, select.dataset.selectColumns === '1', select.dataset.selectRelationships === '1');
                 });
             });
 
@@ -10600,44 +10607,66 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
             });
         }
 
-        function genLoadSchemaColumns(generatorDef, slotKey, schemaClass) {
-            var colSection = document.getElementById('genr-cols-' + slotKey);
-            var colList = document.getElementById('genr-cols-list-' + slotKey);
+        function genLoadSelectorData(generatorDef, selectorKey, schemaClass, loadColumns, loadRelationships) {
+            var colSection = document.getElementById('genr-selector-cols-' + selectorKey);
+            var colList = document.getElementById('genr-selector-cols-list-' + selectorKey);
+            var relSection = document.getElementById('genr-selector-rels-' + selectorKey);
+            var relList = document.getElementById('genr-selector-rels-list-' + selectorKey);
 
             if (!schemaClass) {
-                colSection.style.display = 'none';
-                genUpdateColumnPickers(generatorDef, slotKey, []);
+                if (colSection) { colSection.style.display = 'none'; }
+                if (relSection) { relSection.style.display = 'none'; }
+                genUpdateColumnPickers(generatorDef, selectorKey, []);
                 return;
             }
 
             var params = new URLSearchParams({ generator: generatorDef.class });
-            params.set('schemas[' + slotKey + ']', schemaClass);
+            params.set('selectors[' + selectorKey + ']', schemaClass);
 
             fetch('/_schema-craft/api/generators/detail?' + params.toString())
                 .then(handleResponse)
                 .then(function(data) {
-                    var columns = (data.schemaColumns && data.schemaColumns[slotKey]) ? data.schemaColumns[slotKey] : [];
-                    var html = '';
-                    columns.forEach(function(col) {
-                        html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px;">' +
-                            '<input type="checkbox" class="genr-col-check" data-slot="' + escapeAttr(slotKey) + '" data-col="' + escapeAttr(col.name) + '">' +
-                            '<span style="font-size:12px;font-family:monospace;">' + escapeHtml(col.name) + '</span>' +
-                            '<span style="font-size:11px;color:var(--text-muted);">' + escapeHtml(col.type) + '</span>' +
-                        '</label>';
-                    });
-                    colList.innerHTML = html || '<div style="font-size:12px;color:var(--text-muted);">No columns found</div>';
-                    colSection.style.display = columns.length ? 'block' : 'none';
-                    genUpdateColumnPickers(generatorDef, slotKey, columns);
+                    var sData = (data.selectorData && data.selectorData[selectorKey]) ? data.selectorData[selectorKey] : {};
+                    var columns = sData.columns || [];
+                    var relationships = sData.relationships || [];
+
+                    if (loadColumns && colList) {
+                        var colHtml = '';
+                        columns.forEach(function(col) {
+                            colHtml += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px;">' +
+                                '<input type="checkbox" class="genr-col-check" data-selector="' + escapeAttr(selectorKey) + '" data-col="' + escapeAttr(col.name) + '">' +
+                                '<span style="font-size:12px;font-family:monospace;">' + escapeHtml(col.name) + '</span>' +
+                                '<span style="font-size:11px;color:var(--text-muted);">' + escapeHtml(col.type) + '</span>' +
+                            '</label>';
+                        });
+                        colList.innerHTML = colHtml || '<div style="font-size:12px;color:var(--text-muted);">No columns found</div>';
+                        colSection.style.display = columns.length ? 'block' : 'none';
+                    }
+
+                    if (loadRelationships && relList) {
+                        var relHtml = '';
+                        relationships.forEach(function(rel) {
+                            relHtml += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px;">' +
+                                '<input type="checkbox" class="genr-rel-check" data-selector="' + escapeAttr(selectorKey) + '" data-rel="' + escapeAttr(rel.name) + '">' +
+                                '<span style="font-size:12px;font-family:monospace;">' + escapeHtml(rel.name) + '</span>' +
+                                '<span style="font-size:11px;color:var(--text-muted);">' + escapeHtml(rel.type) + ' → ' + escapeHtml(rel.relatedModel) + '</span>' +
+                            '</label>';
+                        });
+                        relList.innerHTML = relHtml || '<div style="font-size:12px;color:var(--text-muted);">No relationships found</div>';
+                        relSection.style.display = relationships.length ? 'block' : 'none';
+                    }
+
+                    genUpdateColumnPickers(generatorDef, selectorKey, columns);
                 })
-                .catch(function(e) { showToast('Failed to load columns: ' + e.message, 'error'); });
+                .catch(function(e) { showToast('Failed to load schema data: ' + e.message, 'error'); });
         }
 
-        function genUpdateColumnPickers(generatorDef, slotKey, columns) {
-            // Update schemaColumn / schemaColumns pickers whose schemaKey matches this slot
+        function genUpdateColumnPickers(generatorDef, selectorKey, columns) {
+            // Update schemaColumn / schemaColumns pickers whose selectorKey matches
             var content = document.getElementById('genr-content');
             if (!content) return;
 
-            content.querySelectorAll('.genr-schema-col-picker[data-schema-key="' + slotKey + '"]').forEach(function(select) {
+            content.querySelectorAll('.genr-schema-col-picker[data-selector-key="' + selectorKey + '"]').forEach(function(select) {
                 var current = select.value;
                 var opts = '<option value="">-- Select a column --</option>';
                 columns.forEach(function(col) {
@@ -10648,7 +10677,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 select.innerHTML = opts;
             });
 
-            content.querySelectorAll('.genr-schema-cols-picker[data-schema-key="' + slotKey + '"]').forEach(function(div) {
+            content.querySelectorAll('.genr-schema-cols-picker[data-selector-key="' + selectorKey + '"]').forEach(function(div) {
                 var html = '';
                 columns.forEach(function(col) {
                     html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px;">' +
@@ -10665,27 +10694,32 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
             var content = document.getElementById('genr-content');
             var payload = {
                 generator: generatorDef.class,
-                schemas: {},
                 inputs: {},
             };
 
-            // Schema slots
-            (generatorDef.schemas || []).forEach(function(slotKey) {
-                var select = document.getElementById('genr-schema-' + slotKey);
-                if (!select || !select.value) return;
+            // Schema selectors → send as { class, selectedColumns, selectedRelationships }
+            content.querySelectorAll('.genr-schema-selector').forEach(function(select) {
+                var key = select.dataset.key;
+                if (!select.value) return;
 
                 var selectedCols = [];
-                content.querySelectorAll('.genr-col-check[data-slot="' + slotKey + '"]:checked').forEach(function(cb) {
+                content.querySelectorAll('.genr-col-check[data-selector="' + key + '"]:checked').forEach(function(cb) {
                     selectedCols.push(cb.dataset.col);
                 });
 
-                payload.schemas[slotKey] = {
+                var selectedRels = [];
+                content.querySelectorAll('.genr-rel-check[data-selector="' + key + '"]:checked').forEach(function(cb) {
+                    selectedRels.push(cb.dataset.rel);
+                });
+
+                payload.inputs[key] = {
                     class: select.value,
                     selectedColumns: selectedCols,
+                    selectedRelationships: selectedRels,
                 };
             });
 
-            // Inputs
+            // Regular inputs
             content.querySelectorAll('.genr-input').forEach(function(el) {
                 var key = el.dataset.key;
                 if (!key) return;

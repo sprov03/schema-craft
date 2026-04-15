@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\Generators\FilamentPanelDiscovery;
 use SchemaCraft\Generators\GeneratorColumn;
 use SchemaCraft\Generators\GeneratorRegistry;
 use SchemaCraft\Generators\GeneratorRunner;
@@ -22,8 +23,8 @@ class GeneratorController
     ) {}
 
     /**
-     * Return all registered generators with their schema/input metadata,
-     * plus the list of available schema classes for schema pickers.
+     * Return all registered generators with their input metadata,
+     * plus the list of available schema classes for schema selectors.
      */
     public function config(): JsonResponse
     {
@@ -36,13 +37,14 @@ class GeneratorController
                 'type' => $input->type,
                 'default' => $input->default,
                 'options' => $input->options,
-                'schemaKey' => $input->schemaKey,
+                'selectColumns' => $input->selectColumns,
+                'selectRelationships' => $input->selectRelationships,
+                'selectorKey' => $input->selectorKey,
             ], $generator->inputs());
 
             $generators[] = [
                 'class' => $class,
                 'name' => $generator->name(),
-                'schemas' => $generator->schemas(),
                 'inputs' => $inputs,
             ];
         }
@@ -55,19 +57,23 @@ class GeneratorController
             'modelName' => $this->resolveModelName($schemaClass),
         ], $schemaClasses);
 
+        // Discover resource directories for selectResourceDirectory inputs
+        $resourceDirectories = (new FilamentPanelDiscovery)->discover();
+
         return new JsonResponse([
             'generators' => $generators,
             'schemas' => $schemas,
+            'resourceDirectories' => $resourceDirectories,
         ]);
     }
 
     /**
-     * Return column data for the schema slots of a generator.
-     * Used by the UI to populate per-schema column checkboxes.
+     * Return column and relationship data for a schema selector input.
+     * Used by the UI to populate column/relationship checkboxes.
      *
      * Query params:
      *   generator  - FQCN of the generator
-     *   schemas    - associative array of slot key => schema class FQCN
+     *   selectors  - associative array of selector key => schema class FQCN
      */
     public function detail(Request $request): JsonResponse
     {
@@ -76,30 +82,37 @@ class GeneratorController
         ]);
 
         $generator = $this->registry->resolve($request->query('generator'));
-        $schemaColumns = [];
+        $selectorData = [];
 
-        foreach ($generator->schemas() as $slotKey) {
-            $schemaClass = $request->input('schemas.'.$slotKey);
+        $selectors = $request->input('selectors', []);
 
+        foreach ($selectors as $selectorKey => $schemaClass) {
             if (! $schemaClass || ! class_exists($schemaClass)) {
-                $schemaColumns[$slotKey] = [];
+                $selectorData[$selectorKey] = ['columns' => [], 'relationships' => []];
 
                 continue;
             }
 
             $table = (new SchemaScanner($schemaClass))->scan();
 
-            $schemaColumns[$slotKey] = array_map(fn ($col) => [
-                'name' => $col->name,
-                'type' => $col->columnType,
-                'nullable' => $col->nullable,
-                'primary' => $col->primary,
-            ], $table->columns);
+            $selectorData[$selectorKey] = [
+                'columns' => array_map(fn ($col) => [
+                    'name' => $col->name,
+                    'type' => $col->columnType,
+                    'nullable' => $col->nullable,
+                    'primary' => $col->primary,
+                ], $table->columns),
+                'relationships' => array_map(fn ($rel) => [
+                    'name' => $rel->name,
+                    'type' => $rel->type,
+                    'relatedModel' => class_basename($rel->relatedModel),
+                ], $table->relationships),
+            ];
         }
 
         return new JsonResponse([
             'success' => true,
-            'schemaColumns' => $schemaColumns,
+            'selectorData' => $selectorData,
         ]);
     }
 
@@ -113,10 +126,9 @@ class GeneratorController
         ]);
 
         $generator = $this->registry->resolve($request->input('generator'));
+        $inputValues = $this->resolveGeneratorData($request, $generator);
 
-        [$schemaContexts, $inputValues] = $this->resolveGeneratorData($request, $generator);
-
-        $generatedFiles = $this->runner->run($generator, $schemaContexts, $inputValues);
+        $generatedFiles = $this->runner->run($generator, $inputValues);
 
         $files = array_map(fn ($file) => [
             'path' => $file->path,
@@ -138,10 +150,9 @@ class GeneratorController
 
         $generator = $this->registry->resolve($request->input('generator'));
         $force = (bool) $request->input('force', false);
+        $inputValues = $this->resolveGeneratorData($request, $generator);
 
-        [$schemaContexts, $inputValues] = $this->resolveGeneratorData($request, $generator);
-
-        $generatedFiles = $this->runner->run($generator, $schemaContexts, $inputValues);
+        $generatedFiles = $this->runner->run($generator, $inputValues);
 
         $resultFiles = [];
         $createdCount = 0;
@@ -177,48 +188,52 @@ class GeneratorController
     }
 
     /**
-     * Build schema contexts and resolve input values from the request.
+     * Resolve input values from the request, building GeneratorSchemaContext
+     * for schemaSelector inputs and resolving schemaColumn references.
      *
-     * @return array{0: array<string, GeneratorSchemaContext>, 1: array<string, mixed>}
+     * @return array<string, mixed>
      */
     private function resolveGeneratorData(Request $request, $generator): array
     {
-        $schemaContexts = [];
-        $schemasInput = $request->input('schemas', []);
-
-        foreach ($generator->schemas() as $slotKey) {
-            $slotData = $schemasInput[$slotKey] ?? null;
-
-            if (! $slotData || empty($slotData['class'])) {
-                continue;
-            }
-
-            $schemaClass = $slotData['class'];
-
-            if (! class_exists($schemaClass)) {
-                continue;
-            }
-
-            $table = (new SchemaScanner($schemaClass))->scan();
-            $selectedColumns = $slotData['selectedColumns'] ?? [];
-            $schemaContexts[$slotKey] = new GeneratorSchemaContext($table, $selectedColumns);
-        }
-
-        // Resolve input values
         $rawInputs = $request->input('inputs', []);
         $inputValues = [];
+        $schemaContexts = []; // Track schema contexts for schemaColumn resolution
 
+        // First pass: resolve schemaSelector inputs to GeneratorSchemaContext
         foreach ($generator->inputs() as $inputDef) {
+            if ($inputDef->type !== 'schemaSelector') {
+                continue;
+            }
+
+            $selectorData = $rawInputs[$inputDef->key] ?? null;
+
+            if (! $selectorData || empty($selectorData['class']) || ! class_exists($selectorData['class'])) {
+                continue;
+            }
+
+            $table = (new SchemaScanner($selectorData['class']))->scan();
+            $selectedColumns = $selectorData['selectedColumns'] ?? [];
+            $selectedRelationships = $selectorData['selectedRelationships'] ?? [];
+
+            $context = new GeneratorSchemaContext($table, $selectedColumns, $selectedRelationships);
+            $inputValues[$inputDef->key] = $context;
+            $schemaContexts[$inputDef->key] = $context;
+        }
+
+        // Second pass: resolve all other inputs
+        foreach ($generator->inputs() as $inputDef) {
+            if ($inputDef->type === 'schemaSelector') {
+                continue; // Already handled
+            }
+
             $value = $rawInputs[$inputDef->key] ?? $inputDef->default;
 
             if ($inputDef->type === 'schemaColumn') {
-                // Resolve column name string to GeneratorColumn
-                $value = $this->resolveColumnValue($value, $schemaContexts, $inputDef->schemaKey);
+                $value = $this->resolveColumnValue($value, $schemaContexts, $inputDef->selectorKey);
             } elseif ($inputDef->type === 'schemaColumns') {
-                // Resolve array of column names to GeneratorColumn[]
                 $value = is_array($value)
                     ? array_filter(array_map(
-                        fn ($name) => $this->resolveColumnValue($name, $schemaContexts, $inputDef->schemaKey),
+                        fn ($name) => $this->resolveColumnValue($name, $schemaContexts, $inputDef->selectorKey),
                         $value,
                     ))
                     : [];
@@ -227,19 +242,19 @@ class GeneratorController
             $inputValues[$inputDef->key] = $value;
         }
 
-        return [$schemaContexts, $inputValues];
+        return $inputValues;
     }
 
     /**
-     * Resolve a column name string to a GeneratorColumn from the given schema slot.
+     * Resolve a column name string to a GeneratorColumn from a schema context.
      */
-    private function resolveColumnValue(mixed $columnName, array $schemaContexts, ?string $schemaKey): ?GeneratorColumn
+    private function resolveColumnValue(mixed $columnName, array $schemaContexts, ?string $selectorKey): ?GeneratorColumn
     {
         if (! is_string($columnName) || empty($columnName)) {
             return null;
         }
 
-        $context = $schemaContexts[$schemaKey ?? 'schema'] ?? null;
+        $context = $schemaContexts[$selectorKey ?? 'schema'] ?? null;
 
         if ($context === null) {
             return null;

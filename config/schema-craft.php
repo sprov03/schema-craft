@@ -48,6 +48,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Resource Directories
+    |--------------------------------------------------------------------------
+    |
+    | Additional Filament resource directories for the generator system.
+    | These are merged with directories auto-discovered from PanelProviders.
+    |
+    | Format: 'Label' => 'relative/path/from/base'
+    |
+    */
+
+    'resource_directories' => [
+        // 'Admin' => 'app/Filament/Admin/Resources',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | API Configurations
     |--------------------------------------------------------------------------
     |

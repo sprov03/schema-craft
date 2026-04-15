@@ -16,6 +16,7 @@ class SampleGenerator extends SchemaCraftGenerator
     public function inputs(): array
     {
         return [
+            Input::schemaSelector('schema', 'Schema'),
             Input::text('class_name', 'Class Name'),
         ];
     }
@@ -23,7 +24,7 @@ class SampleGenerator extends SchemaCraftGenerator
     public function templates(): array
     {
         return [
-            Template::file('generators.sample', 'app/[class_name].php'),
+            Template::file('app/[class_name].php', 'generators.sample'),
         ];
     }
 }

@@ -10,6 +10,11 @@ class InputDefinition
         public readonly string $type,
         public readonly mixed $default = null,
         public readonly array $options = [],
-        public readonly ?string $schemaKey = null,
+        /** Whether this schemaSelector input should show column checkboxes. */
+        public readonly bool $selectColumns = false,
+        /** Whether this schemaSelector input should show relationship checkboxes. */
+        public readonly bool $selectRelationships = false,
+        /** The schemaSelector key that schemaColumn/schemaColumns reference. */
+        public readonly ?string $selectorKey = null,
     ) {}
 }

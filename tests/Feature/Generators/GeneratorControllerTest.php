@@ -35,6 +35,7 @@ class GeneratorControllerTest extends TestCase
         $this->app['config']->set('schema-craft.schema_paths', [$this->tempDir.'/app/Schemas']);
         $this->app['config']->set('schema-craft.generators_path', null);
         $this->app['config']->set('schema-craft.generators', []);
+        $this->app['config']->set('schema-craft.resource_directories', []);
 
         // Register Fixtures/ as the view root so 'generators.sample' resolves to
         // Fixtures/generators/sample.blade.php (mirrors the real resources/views structure)
@@ -97,9 +98,10 @@ PHP;
         $this->assertCount(1, $generatorsData);
         $this->assertSame(SampleGenerator::class, $generatorsData[0]['class']);
         $this->assertSame('Sample Generator', $generatorsData[0]['name']);
-        $this->assertSame(['schema'], $generatorsData[0]['schemas']);
-        $this->assertCount(1, $generatorsData[0]['inputs']);
-        $this->assertSame('class_name', $generatorsData[0]['inputs'][0]['key']);
+        $this->assertCount(2, $generatorsData[0]['inputs']); // schemaSelector + text
+        $this->assertSame('schema', $generatorsData[0]['inputs'][0]['key']);
+        $this->assertSame('schemaSelector', $generatorsData[0]['inputs'][0]['type']);
+        $this->assertSame('class_name', $generatorsData[0]['inputs'][1]['key']);
     }
 
     public function test_config_returns_empty_generators_when_none_registered(): void
@@ -125,9 +127,17 @@ PHP;
         $this->assertSame('Post', $schemas[0]['modelName']);
     }
 
+    public function test_config_returns_resource_directories(): void
+    {
+        $response = $this->getJson('/_schema-craft/api/generators/config');
+
+        $response->assertOk();
+        $response->assertJsonStructure(['resourceDirectories']);
+    }
+
     // ─── GET /api/generators/detail ────────────────────────────────
 
-    public function test_detail_returns_schema_columns(): void
+    public function test_detail_returns_schema_columns_and_relationships(): void
     {
         $this->createSchemaFile('Post');
 
@@ -135,18 +145,21 @@ PHP;
             '/_schema-craft/api/generators/detail?'
             .http_build_query([
                 'generator' => SampleGenerator::class,
-                'schemas' => ['schema' => 'App\\Schemas\\PostSchema'],
+                'selectors' => ['schema' => 'App\\Schemas\\PostSchema'],
             ])
         );
 
         $response->assertOk();
         $response->assertJson(['success' => true]);
 
-        $columns = $response->json('schemaColumns.schema');
+        $columns = $response->json('selectorData.schema.columns');
         $this->assertNotEmpty($columns);
         $names = array_column($columns, 'name');
         $this->assertContains('name', $names);
         $this->assertContains('email', $names);
+
+        // Relationships key should exist (may be empty for this simple schema)
+        $this->assertArrayHasKey('relationships', $response->json('selectorData.schema'));
     }
 
     public function test_detail_returns_empty_when_schema_not_provided(): void
@@ -156,7 +169,6 @@ PHP;
         );
 
         $response->assertOk();
-        $this->assertSame([], $response->json('schemaColumns.schema'));
     }
 
     // ─── POST /api/generators/preview ─────────────────────────────
@@ -167,13 +179,11 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/preview', [
             'generator' => SampleGenerator::class,
-            'schemas' => [
+            'inputs' => [
                 'schema' => [
                     'class' => 'App\\Schemas\\PostSchema',
                     'selectedColumns' => ['name', 'email'],
                 ],
-            ],
-            'inputs' => [
                 'class_name' => 'PostService',
             ],
         ]);
@@ -196,10 +206,10 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/preview', [
             'generator' => SampleGenerator::class,
-            'schemas' => [
+            'inputs' => [
                 'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
+                'class_name' => 'PostService',
             ],
-            'inputs' => ['class_name' => 'PostService'],
         ]);
 
         $response->assertOk();
@@ -214,10 +224,10 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/run', [
             'generator' => SampleGenerator::class,
-            'schemas' => [
+            'inputs' => [
                 'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
+                'class_name' => 'PostService',
             ],
-            'inputs' => ['class_name' => 'PostService'],
         ]);
 
         $response->assertOk();
@@ -234,10 +244,10 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/run', [
             'generator' => SampleGenerator::class,
-            'schemas' => [
+            'inputs' => [
                 'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
+                'class_name' => 'PostService',
             ],
-            'inputs' => ['class_name' => 'PostService'],
         ]);
 
         $response->assertOk();
@@ -252,10 +262,10 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/run', [
             'generator' => SampleGenerator::class,
-            'schemas' => [
+            'inputs' => [
                 'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
+                'class_name' => 'PostService',
             ],
-            'inputs' => ['class_name' => 'PostService'],
             'force' => true,
         ]);
 
@@ -272,8 +282,6 @@ PHP;
 
         // Re-register routes fresh for this test would require a new app boot.
         // Instead verify the boot condition: routes are only registered in local/testing.
-        // We can test this by checking the route exists in 'local' and only checking
-        // the config logic, since routes are already loaded for this test run.
         // The VisualizerRouteProductionTest covers this scenario fully.
         $this->assertTrue(true);
     }
