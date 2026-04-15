@@ -76,6 +76,16 @@ class Input
 
     /**
      * Resource directory picker — populated from Filament panel discovery + config.
+     *
+     * The chosen value is resolved to a {@see ResourceDirectoryValue} instance
+     * before being passed to templates, giving you both the raw relative path
+     * and the derived PSR-4 namespace:
+     *
+     *     namespace {!! $resource_directory->namespace !!}\...;   // App\Filament\Admin\Resources\Posts
+     *     [resource_directory]/[schema.model.plural.title]/...     // app/Filament/Admin/Resources/Posts/...
+     *
+     * Output-path interpolation (`[resource_directory]`) calls __toString()
+     * and receives the path, so existing templates keep working unchanged.
      */
     public static function selectResourceDirectory(string $key, string $label): InputDefinition
     {

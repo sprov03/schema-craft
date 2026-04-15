@@ -6,6 +6,8 @@ use PHPUnit\Framework\TestCase;
 use SchemaCraft\Generator\FakerMethodMapper;
 use SchemaCraft\Generators\GeneratorColumn;
 use SchemaCraft\Scanner\ColumnDefinition;
+use SchemaCraft\Tests\Fixtures\Casts\RenderableCast;
+use SchemaCraft\Tests\Fixtures\Enums\PostStatus;
 
 class GeneratorColumnTest extends TestCase
 {
@@ -299,5 +301,114 @@ class GeneratorColumnTest extends TestCase
         $result = $col->asFilamentColumn();
 
         $this->assertSame(ltrim($result), $result);
+    }
+
+    // ─── Enum detection ───────────────────────────────────────────
+
+    public function test_is_enum_true_for_backed_enum_cast(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(
+            name: 'status',
+            columnType: 'string',
+            castType: PostStatus::class,
+        ));
+
+        $this->assertTrue($col->isEnum());
+        $this->assertSame(PostStatus::class, $col->enumClass());
+    }
+
+    public function test_is_enum_false_for_null_cast(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'status', columnType: 'string'));
+
+        $this->assertFalse($col->isEnum());
+        $this->assertNull($col->enumClass());
+    }
+
+    public function test_is_enum_false_for_builtin_cast(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(
+            name: 'data',
+            columnType: 'json',
+            castType: 'array',
+        ));
+
+        $this->assertFalse($col->isEnum());
+        $this->assertNull($col->enumClass());
+    }
+
+    public function test_is_enum_false_for_non_enum_cast_class(): void
+    {
+        // RenderableCast is a real class but not a BackedEnum.
+        $col = new GeneratorColumn(new ColumnDefinition(
+            name: 'custom',
+            columnType: 'json',
+            castType: RenderableCast::class,
+        ));
+
+        $this->assertFalse($col->isEnum());
+    }
+
+    // ─── FilamentRenderable dispatch ──────────────────────────────
+
+    public function test_as_filament_column_delegates_to_filament_renderable_cast(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(
+            name: 'widgets',
+            columnType: 'json',
+            castType: RenderableCast::class,
+        ));
+
+        $this->assertSame("CustomColumn::make('widgets')->customised()", $col->asFilamentColumn());
+    }
+
+    public function test_as_filament_entry_delegates_to_filament_renderable_cast(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(
+            name: 'widgets',
+            columnType: 'json',
+            castType: RenderableCast::class,
+        ));
+
+        $this->assertSame("CustomEntry::make('widgets')->customised()", $col->asFilamentEntry());
+    }
+
+    public function test_as_filament_field_delegates_to_filament_renderable_cast(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(
+            name: 'widgets',
+            columnType: 'json',
+            castType: RenderableCast::class,
+        ));
+
+        $this->assertSame("CustomField::make('widgets')->customised()", $col->asFilamentField());
+    }
+
+    // ─── asFilamentEntry fallback to mapper ───────────────────────
+
+    public function test_as_filament_entry_returns_non_empty_string(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'name', columnType: 'string'));
+
+        $result = $col->asFilamentEntry();
+
+        $this->assertNotEmpty($result);
+        $this->assertStringContainsString('make(', $result);
+    }
+
+    public function test_as_filament_entry_has_no_leading_whitespace(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'name', columnType: 'string'));
+
+        $result = $col->asFilamentEntry();
+
+        $this->assertSame(ltrim($result), $result);
+    }
+
+    public function test_as_filament_entry_uses_text_entry_namespace(): void
+    {
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'name', columnType: 'string'));
+
+        $this->assertStringContainsString('Infolists\\Components\\TextEntry', $col->asFilamentEntry());
     }
 }

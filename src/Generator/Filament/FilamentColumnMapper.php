@@ -10,6 +10,8 @@ use SchemaCraft\Scanner\RelationshipDefinition;
  */
 class FilamentColumnMapper
 {
+    use FilamentTypeDetection;
+
     /**
      * Map a column to its Filament table column code.
      */
@@ -144,26 +146,5 @@ class FilamentColumnMapper
         $col .= "\n                    ->copyable()";
 
         return $col;
-    }
-
-    private function isEnumCast(ColumnDefinition $column): bool
-    {
-        if ($column->castType === null) {
-            return false;
-        }
-
-        $builtInCasts = ['string', 'integer', 'int', 'float', 'double', 'boolean', 'bool', 'array', 'json', 'object', 'datetime', 'date', 'timestamp', 'collection', 'encrypted'];
-
-        return ! in_array($column->castType, $builtInCasts, true)
-            && ! str_starts_with($column->castType, 'decimal:');
-    }
-
-    private function isNumericType(string $columnType): bool
-    {
-        return in_array($columnType, [
-            'integer', 'bigInteger', 'smallInteger', 'tinyInteger',
-            'unsignedBigInteger', 'unsignedInteger', 'unsignedSmallInteger', 'unsignedTinyInteger',
-            'decimal', 'float', 'double', 'year',
-        ], true);
     }
 }

@@ -32,6 +32,7 @@ use SchemaCraft\Scanner\TableDefinition;
  * ## Schema metadata (from TableDefinition)
  *
  *     $schema->schemaClass   // "App\\Schemas\\PostSchema"
+ *     $schema->modelClass    // "App\\Models\\Post" (derived from schema class)
  *     $schema->connection    // DB connection name or null
  *     $schema->fillable      // string[] of fillable attribute names
  *     $schema->hidden        // string[] of hidden attribute names
@@ -67,6 +68,9 @@ class GeneratorSchemaContext
 
     /** FQCN of the scanned schema class, e.g. 'App\Schemas\PostSchema'. */
     public readonly string $schemaClass;
+
+    /** FQCN of the Eloquent model, derived from the schema class. */
+    public readonly string $modelClass;
 
     /** DB connection name, or null for default. */
     public readonly ?string $connection;
@@ -123,6 +127,7 @@ class GeneratorSchemaContext
 
         // Schema metadata
         $this->schemaClass = $table->schemaClass;
+        $this->modelClass = $this->resolveModelClass($table->schemaClass);
         $this->connection = $table->connection;
         $this->fillable = $table->fillable;
         $this->hidden = $table->hidden;
@@ -252,6 +257,37 @@ class GeneratorSchemaContext
             $this->allColumns,
             fn (GeneratorColumn $col) => in_array($col->name, $this->fillable, true),
         ));
+    }
+
+    /**
+     * Resolve the Eloquent model FQCN from the schema class.
+     *
+     * 1. If the schema class is loadable and declares a `public static string $model`,
+     *    use that — this is the SchemaModel convention and is authoritative.
+     * 2. Otherwise fall back to naming convention: strip a trailing `Schema` from
+     *    the class name and swap a `Schemas` namespace segment for `Models`.
+     *    e.g. `App\X\Schemas\FooSchema` → `App\X\Models\Foo`.
+     */
+    private function resolveModelClass(string $schemaClass): string
+    {
+        if (class_exists($schemaClass)) {
+            $refl = new \ReflectionClass($schemaClass);
+            if ($refl->hasProperty('model')) {
+                $prop = $refl->getProperty('model');
+                if ($prop->isStatic() && $prop->isPublic()) {
+                    $value = $prop->getDefaultValue();
+                    if (is_string($value) && $value !== '') {
+                        return $value;
+                    }
+                }
+            }
+        }
+
+        $parts = explode('\\', $schemaClass);
+        $class = (string) preg_replace('/Schema$/', '', array_pop($parts));
+        $parts = array_map(fn ($segment) => $segment === 'Schemas' ? 'Models' : $segment, $parts);
+
+        return implode('\\', [...$parts, $class]);
     }
 
     /**

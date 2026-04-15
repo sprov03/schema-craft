@@ -3,8 +3,10 @@
 namespace SchemaCraft\Generators;
 
 use Illuminate\Support\Str;
+use SchemaCraft\Contracts\FilamentRenderable;
 use SchemaCraft\Generator\FakerMethodMapper;
 use SchemaCraft\Generator\Filament\FilamentColumnMapper;
+use SchemaCraft\Generator\Filament\FilamentEntryMapper;
 use SchemaCraft\Generator\Filament\FilamentFieldMapper;
 use SchemaCraft\Scanner\ColumnDefinition;
 
@@ -21,6 +23,8 @@ class GeneratorColumn
     private static ?FilamentFieldMapper $fieldMapperInstance = null;
 
     private static ?FilamentColumnMapper $columnMapperInstance = null;
+
+    private static ?FilamentEntryMapper $entryMapperInstance = null;
 
     public function __construct(public readonly ColumnDefinition $definition) {}
 
@@ -162,6 +166,31 @@ class GeneratorColumn
         return Str::camel(substr($this->definition->name, 0, -3));
     }
 
+    /**
+     * Returns true if this column's cast is a backed enum class.
+     *
+     * Used by templates/partials to opt into `->badge()` rendering without
+     * having to reach into `$column->definition->castType`.
+     */
+    public function isEnum(): bool
+    {
+        $cast = $this->definition->castType;
+
+        if ($cast === null || ! class_exists($cast)) {
+            return false;
+        }
+
+        return is_subclass_of($cast, \BackedEnum::class);
+    }
+
+    /**
+     * Returns the backed-enum FQCN when `isEnum()` is true, otherwise null.
+     */
+    public function enumClass(): ?string
+    {
+        return $this->isEnum() ? $this->definition->castType : null;
+    }
+
     // ─── Mapper delegation ───────────────────────────────────────
 
     /**
@@ -176,9 +205,16 @@ class GeneratorColumn
 
     /**
      * Returns a trimmed Filament form field component string for this column.
+     *
+     * Custom cast classes that implement `SchemaCraft\Contracts\FilamentRenderable`
+     * get first chance to render. Otherwise the built-in mapper is used.
      */
     public function asFilamentField(): string
     {
+        if ($custom = $this->customRenderableClass()) {
+            return trim($custom::asFilamentField($this));
+        }
+
         self::$fieldMapperInstance ??= new FilamentFieldMapper;
 
         return trim(self::$fieldMapperInstance->map($this->definition, ''));
@@ -186,11 +222,53 @@ class GeneratorColumn
 
     /**
      * Returns a trimmed Filament table column component string for this column.
+     *
+     * Custom cast classes that implement `SchemaCraft\Contracts\FilamentRenderable`
+     * get first chance to render. Otherwise the built-in mapper is used.
      */
     public function asFilamentColumn(): string
     {
+        if ($custom = $this->customRenderableClass()) {
+            return trim($custom::asFilamentColumn($this));
+        }
+
         self::$columnMapperInstance ??= new FilamentColumnMapper;
 
         return trim(self::$columnMapperInstance->map($this->definition, ''));
+    }
+
+    /**
+     * Returns a trimmed Filament infolist entry component string for this column.
+     *
+     * Custom cast classes that implement `SchemaCraft\Contracts\FilamentRenderable`
+     * get first chance to render. Otherwise the built-in entry mapper is used.
+     */
+    public function asFilamentEntry(): string
+    {
+        if ($custom = $this->customRenderableClass()) {
+            return trim($custom::asFilamentEntry($this));
+        }
+
+        self::$entryMapperInstance ??= new FilamentEntryMapper;
+
+        return trim(self::$entryMapperInstance->map($this->definition, ''));
+    }
+
+    /**
+     * Returns the cast class FQCN when it implements FilamentRenderable, else null.
+     *
+     * This is the extensibility hook: custom column types (bitmasks, JSON DTOs,
+     * collection columns) can opt into rendering their own Filament output by
+     * implementing the contract on the cast class.
+     */
+    private function customRenderableClass(): ?string
+    {
+        $cast = $this->definition->castType;
+
+        if ($cast === null || ! class_exists($cast)) {
+            return null;
+        }
+
+        return is_subclass_of($cast, FilamentRenderable::class) ? $cast : null;
     }
 }

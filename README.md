@@ -243,6 +243,7 @@ $schema->model->plural->kebab   // "user-profiles"
   - [GeneratorRelationship Helpers](#generatorrelationship-helpers)
   - [Template Data Hook](#template-data-hook)
   - [Writing Blade Templates](#writing-blade-templates)
+  - [Customizing Filament Rendering per Column Type](#customizing-filament-rendering-per-column-type)
   - [Composable Templates with `@include`](#composable-templates-with-include)
   - [Complete Generator Example](#complete-generator-example)
 - [Full Example](#full-example)
@@ -2859,6 +2860,29 @@ Input::schemaColumn('group_by', 'Group By Column', 'schema'),
 Input::schemaColumns('visible_cols', 'Visible Columns', 'schema'),
 ```
 
+#### Resource Directory — ResourceDirectoryValue
+
+`Input::selectResourceDirectory()` is populated from discovered Filament panels (via `FilamentPanelDiscovery`) plus any `schema-craft.resource_directories` config entries. The chosen value is resolved to a **`ResourceDirectoryValue`** object before being passed to templates, exposing both the relative filesystem path and the derived PSR-4 namespace:
+
+```php
+Input::selectResourceDirectory('resource_directory', 'Resource Directory'),
+```
+
+```blade
+{!! $phpOpenTag !!}
+
+namespace {!! $resource_directory->namespace !!}\{!! $schema->model->plural->title !!};
+// → namespace App\Filament\Admin\Resources\Posts;
+```
+
+| Access | Value | Example |
+|--------|-------|---------|
+| `$resource_directory->path` | Relative filesystem path | `app/Filament/Admin/Resources` |
+| `$resource_directory->namespace` | PSR-4 namespace derived from the path | `App\Filament\Admin\Resources` |
+| `{{ $resource_directory }}` / `[resource_directory]` | Stringifies to the path (via `__toString`) | `app/Filament/Admin/Resources` |
+
+The namespace derivation follows the Laravel convention: the first path segment is capitalized (`app` → `App`) and subsequent segments are joined with `\` as-is, since Filament directory names are already PascalCase (`Filament`, `Admin`, `Resources`). Output-path interpolation (`[resource_directory]/[schema.model.plural.title]/...`) keeps working unchanged because the object stringifies to the raw path.
+
 ### NameChain — Model Name Helper
 
 When a schema is selected, the `$schema->model` property is a `NameChain` — an immutable, chainable name helper. Modifiers are **independent flags**, so order does not matter.
@@ -2971,6 +2995,7 @@ Pulled straight from the scanned `TableDefinition`:
 | Property | Type | Description |
 |----------|------|-------------|
 | `$schema->schemaClass` | `string` | FQCN of the scanned schema class, e.g. `'App\Schemas\PostSchema'` |
+| `$schema->modelClass` | `string` | FQCN of the Eloquent model, derived from the schema class. Reads `public static string $model` on the schema class via reflection if present, otherwise falls back to naming convention (`App\X\Schemas\FooSchema` → `App\X\Models\Foo`). Templates can emit `use {!! $schema->modelClass !!};` without stitching the path themselves. |
 | `$schema->connection` | `?string` | DB connection name, or null for default |
 | `$schema->fillable` | `string[]` | Fillable attribute names |
 | `$schema->hidden` | `string[]` | Hidden attribute names |
@@ -3010,14 +3035,17 @@ Each column in `$schema->columns` provides:
 | `$col->studlyName()` | `'FirstName'` |
 | `$col->humanName()` | `'First Name'` |
 | `$col->fakerValue()` | `'$faker->safeEmail()'` |
-| `$col->asFilamentField()` | Filament form field component string |
-| `$col->asFilamentColumn()` | Filament table column component string |
+| `$col->asFilamentField()` | Filament form field component string (honors `FilamentRenderable` custom types) |
+| `$col->asFilamentColumn()` | Filament table column component string (honors `FilamentRenderable` custom types) |
+| `$col->asFilamentEntry()` | Filament infolist entry component string (honors `FilamentRenderable` custom types) |
 | `$col->asMethodParam()` | `'string $firstName'` or `'?string $firstName = null'` |
 | `$col->asAssignment('$model')` | `'$model->first_name = $firstName;'` |
 | `$col->isFK()` | `true` if column ends with `_id` |
 | `$col->isPrimary()` | `true` if column is marked `#[Primary]` |
 | `$col->isTimestamp()` | `true` for `created_at` or `updated_at` |
 | `$col->isSoftDelete()` | `true` for `deleted_at` |
+| `$col->isEnum()` | `true` if the column's cast is a backed enum class |
+| `$col->enumClass()` | Returns the enum FQCN when `isEnum()` is true, else `null` |
 | `$col->relationshipName()` | `'owner'` (strips `_id`, camelCase) |
 
 ### GeneratorRelationship Helpers
@@ -3072,6 +3100,37 @@ class {!! $class_name !!}
 ```
 
 The `$phpOpenTag` variable (`<?php`) is always available — use it instead of a raw PHP tag which would confuse Blade.
+
+### Customizing Filament Rendering per Column Type
+
+`$col->asFilamentColumn()`, `$col->asFilamentEntry()`, and `$col->asFilamentField()` use a built-in mapper that handles strings, numerics, booleans, dates, JSON, UUID/ULID, and backed enums out of the box. **Backed enums automatically render as `->badge()`** — no interface is required on the enum class. If the enum also implements Filament's `HasLabel` / `HasColor` / `HasIcon` contracts, Filament will pick those up at runtime.
+
+For domain-specific custom types (bitmasks, collection/JSON DTOs, rich value objects) the built-in mapper can't guess the right component. Implement `SchemaCraft\Contracts\FilamentRenderable` on your cast class and the generator will delegate to it:
+
+```php
+use SchemaCraft\Contracts\FilamentRenderable;
+use SchemaCraft\Generators\GeneratorColumn;
+
+class TinyBitmaskColumn extends AbstractBitmaskHandler implements FilamentRenderable
+{
+    public static function asFilamentColumn(GeneratorColumn $column): string
+    {
+        return "Tables\\Columns\\TextColumn::make('{$column->name}')->badge()->separator(',')";
+    }
+
+    public static function asFilamentEntry(GeneratorColumn $column): string
+    {
+        return "Infolists\\Components\\TextEntry::make('{$column->name}')->badge()";
+    }
+
+    public static function asFilamentField(GeneratorColumn $column): string
+    {
+        return "Forms\\Components\\CheckboxList::make('{$column->name}')->columns(2)";
+    }
+}
+```
+
+The hook fires when `$column->definition->castType` is a class that implements `FilamentRenderable`. Enums may also implement it to override the default `->badge()` rendering for specific domains. Return a single component expression without leading whitespace or a trailing comma — the caller handles indentation.
 
 ### Composable Templates with `@include`
 

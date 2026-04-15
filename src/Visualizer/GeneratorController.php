@@ -12,6 +12,7 @@ use SchemaCraft\Generators\GeneratorColumn;
 use SchemaCraft\Generators\GeneratorRegistry;
 use SchemaCraft\Generators\GeneratorRunner;
 use SchemaCraft\Generators\GeneratorSchemaContext;
+use SchemaCraft\Generators\ResourceDirectoryValue;
 use SchemaCraft\Migration\SchemaDiscovery;
 use SchemaCraft\Scanner\SchemaScanner;
 
@@ -237,6 +238,10 @@ class GeneratorController
                         $value,
                     ))
                     : [];
+            } elseif ($inputDef->type === 'selectResourceDirectory') {
+                $value = is_string($value) && $value !== ''
+                    ? new ResourceDirectoryValue($value)
+                    : null;
             }
 
             $inputValues[$inputDef->key] = $value;

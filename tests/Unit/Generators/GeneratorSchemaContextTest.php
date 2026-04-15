@@ -210,6 +210,47 @@ class GeneratorSchemaContextTest extends TestCase
         $this->assertSame('App\\Schemas\\UserProfileSchema', $ctx->schemaClass);
     }
 
+    public function test_model_class_uses_convention_when_schema_class_not_loadable(): void
+    {
+        // The fake FQCN isn't autoloadable — resolver must fall back to the
+        // `Schemas → Models`, strip-`Schema`-suffix convention.
+        $ctx = new GeneratorSchemaContext($this->makeTable());
+
+        $this->assertSame('App\\Models\\UserProfile', $ctx->modelClass);
+    }
+
+    public function test_model_class_handles_nested_namespace_convention(): void
+    {
+        $table = new TableDefinition(
+            tableName: 'strikes',
+            schemaClass: 'App\\DroneStrike\\Schemas\\DroneStrikeSchema',
+            columns: [
+                new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true),
+            ],
+        );
+
+        $ctx = new GeneratorSchemaContext($table);
+
+        $this->assertSame('App\\DroneStrike\\Models\\DroneStrike', $ctx->modelClass);
+    }
+
+    public function test_model_class_reads_explicit_model_property_via_reflection(): void
+    {
+        // ModelOverrideSchema declares `public static string $model`.
+        // Reflection path must win over the convention fallback.
+        $table = new TableDefinition(
+            tableName: 'overridden',
+            schemaClass: \SchemaCraft\Tests\Fixtures\Schemas\ModelOverrideSchema::class,
+            columns: [
+                new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true),
+            ],
+        );
+
+        $ctx = new GeneratorSchemaContext($table);
+
+        $this->assertSame('Custom\\Namespace\\OverriddenModel', $ctx->modelClass);
+    }
+
     public function test_connection_is_exposed(): void
     {
         $ctx = new GeneratorSchemaContext($this->makeTable());
