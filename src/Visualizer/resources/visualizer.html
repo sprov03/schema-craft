@@ -10555,13 +10555,25 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                         schemaOpts + '</select>';
                     if (input.selectColumns) {
                         inputsHtml += '<div class="genr-selector-cols" id="genr-selector-cols-' + escapeAttr(input.key) + '" style="display:none;margin-top:8px;">' +
-                            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Columns (leave all unchecked to include all)</div>' +
+                            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">' +
+                                '<span style="font-size:11px;color:var(--text-muted);">Columns</span>' +
+                                '<span style="display:flex;gap:6px;">' +
+                                    '<button type="button" class="genr-select-all-cols" data-selector="' + escapeAttr(input.key) + '" style="font-size:10px;padding:1px 6px;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border);border-radius:3px;color:var(--text-muted);">Select All</button>' +
+                                    '<button type="button" class="genr-deselect-all-cols" data-selector="' + escapeAttr(input.key) + '" style="font-size:10px;padding:1px 6px;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border);border-radius:3px;color:var(--text-muted);">Deselect All</button>' +
+                                '</span>' +
+                            '</div>' +
                             '<div class="genr-columns-list" id="genr-selector-cols-list-' + escapeAttr(input.key) + '"></div>' +
                         '</div>';
                     }
                     if (input.selectRelationships) {
                         inputsHtml += '<div class="genr-selector-rels" id="genr-selector-rels-' + escapeAttr(input.key) + '" style="display:none;margin-top:8px;">' +
-                            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Relationships (leave all unchecked to include all)</div>' +
+                            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">' +
+                                '<span style="font-size:11px;color:var(--text-muted);">Relationships</span>' +
+                                '<span style="display:flex;gap:6px;">' +
+                                    '<button type="button" class="genr-select-all-rels" data-selector="' + escapeAttr(input.key) + '" style="font-size:10px;padding:1px 6px;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border);border-radius:3px;color:var(--text-muted);">Select All</button>' +
+                                    '<button type="button" class="genr-deselect-all-rels" data-selector="' + escapeAttr(input.key) + '" style="font-size:10px;padding:1px 6px;cursor:pointer;background:var(--bg-secondary);border:1px solid var(--border);border-radius:3px;color:var(--text-muted);">Deselect All</button>' +
+                                '</span>' +
+                            '</div>' +
                             '<div class="genr-relationships-list" id="genr-selector-rels-list-' + escapeAttr(input.key) + '"></div>' +
                         '</div>';
                     }
@@ -10651,26 +10663,50 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                         var colHtml = '';
                         columns.forEach(function(col) {
                             colHtml += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px;">' +
-                                '<input type="checkbox" class="genr-col-check" data-selector="' + escapeAttr(selectorKey) + '" data-col="' + escapeAttr(col.name) + '">' +
+                                '<input type="checkbox" class="genr-col-check" data-selector="' + escapeAttr(selectorKey) + '" data-col="' + escapeAttr(col.name) + '" checked>' +
                                 '<span style="font-size:12px;font-family:monospace;">' + escapeHtml(col.name) + '</span>' +
                                 '<span style="font-size:11px;color:var(--text-muted);">' + escapeHtml(col.type) + '</span>' +
                             '</label>';
                         });
                         colList.innerHTML = colHtml || '<div style="font-size:12px;color:var(--text-muted);">No columns found</div>';
                         colSection.style.display = columns.length ? 'block' : 'none';
+
+                        // Wire select all / deselect all buttons
+                        colSection.querySelectorAll('.genr-select-all-cols').forEach(function(btn) {
+                            btn.addEventListener('click', function() {
+                                colList.querySelectorAll('.genr-col-check').forEach(function(cb) { cb.checked = true; });
+                            });
+                        });
+                        colSection.querySelectorAll('.genr-deselect-all-cols').forEach(function(btn) {
+                            btn.addEventListener('click', function() {
+                                colList.querySelectorAll('.genr-col-check').forEach(function(cb) { cb.checked = false; });
+                            });
+                        });
                     }
 
                     if (loadRelationships && relList) {
                         var relHtml = '';
                         relationships.forEach(function(rel) {
                             relHtml += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:2px;">' +
-                                '<input type="checkbox" class="genr-rel-check" data-selector="' + escapeAttr(selectorKey) + '" data-rel="' + escapeAttr(rel.name) + '">' +
+                                '<input type="checkbox" class="genr-rel-check" data-selector="' + escapeAttr(selectorKey) + '" data-rel="' + escapeAttr(rel.name) + '" checked>' +
                                 '<span style="font-size:12px;font-family:monospace;">' + escapeHtml(rel.name) + '</span>' +
                                 '<span style="font-size:11px;color:var(--text-muted);">' + escapeHtml(rel.type) + ' → ' + escapeHtml(rel.relatedModel) + '</span>' +
                             '</label>';
                         });
                         relList.innerHTML = relHtml || '<div style="font-size:12px;color:var(--text-muted);">No relationships found</div>';
                         relSection.style.display = relationships.length ? 'block' : 'none';
+
+                        // Wire select all / deselect all buttons
+                        relSection.querySelectorAll('.genr-select-all-rels').forEach(function(btn) {
+                            btn.addEventListener('click', function() {
+                                relList.querySelectorAll('.genr-rel-check').forEach(function(cb) { cb.checked = true; });
+                            });
+                        });
+                        relSection.querySelectorAll('.genr-deselect-all-rels').forEach(function(btn) {
+                            btn.addEventListener('click', function() {
+                                relList.querySelectorAll('.genr-rel-check').forEach(function(cb) { cb.checked = false; });
+                            });
+                        });
                     }
 
                     genUpdateColumnPickers(generatorDef, selectorKey, columns);

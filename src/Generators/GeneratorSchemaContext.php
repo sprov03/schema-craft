@@ -112,13 +112,13 @@ class GeneratorSchemaContext
     public readonly ?GeneratorColumn $titleColumn;
 
     /**
-     * @param  string[]  $selectedColumnNames  Column names to include in $columns. Empty = all.
-     * @param  string[]  $selectedRelationshipNames  Relationship names to include. Empty = all.
+     * @param  string[]|null  $selectedColumnNames  Column names to include in $columns. Null = all, [] = none.
+     * @param  string[]|null  $selectedRelationshipNames  Relationship names to include. Null = all, [] = none.
      */
     public function __construct(
         TableDefinition $table,
-        array $selectedColumnNames = [],
-        array $selectedRelationshipNames = [],
+        ?array $selectedColumnNames = null,
+        ?array $selectedRelationshipNames = null,
     ) {
         $singular = Str::singular($table->tableName);
 
@@ -149,7 +149,7 @@ class GeneratorSchemaContext
         }
         $this->hasSoftDeletes = $table->hasSoftDeletes || $hasDeletedAtColumn;
 
-        if (empty($selectedColumnNames)) {
+        if ($selectedColumnNames === null) {
             $this->columns = $allCols;
         } else {
             $selected = array_filter($allCols, fn ($col) => in_array($col->name, $selectedColumnNames));
@@ -160,7 +160,7 @@ class GeneratorSchemaContext
         $allRels = array_map(fn ($rel) => new GeneratorRelationship($rel), $table->relationships);
         $this->allRelationships = $allRels;
 
-        if (empty($selectedRelationshipNames)) {
+        if ($selectedRelationshipNames === null) {
             $this->relationships = $allRels;
         } else {
             $selected = array_filter($allRels, fn ($rel) => in_array($rel->definition->name, $selectedRelationshipNames));

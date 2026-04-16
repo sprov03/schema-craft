@@ -149,6 +149,21 @@ class GeneratorSchemaContextTest extends TestCase
         $this->assertSame('first_name', $ctx->columns[0]->name);
     }
 
+    public function test_null_column_selection_means_all(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null);
+
+        $this->assertCount(8, $ctx->columns);
+        $this->assertSame($ctx->allColumns, $ctx->columns);
+    }
+
+    public function test_empty_array_column_selection_means_none(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable(), []);
+
+        $this->assertCount(0, $ctx->columns);
+    }
+
     // ─── Relationship selection ───────────────────────────────────
 
     public function test_all_relationships_contains_all(): void
@@ -167,9 +182,24 @@ class GeneratorSchemaContextTest extends TestCase
         $this->assertSame($ctx->allRelationships, $ctx->relationships);
     }
 
+    public function test_null_relationship_selection_means_all(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
+
+        $this->assertCount(3, $ctx->relationships);
+        $this->assertSame($ctx->allRelationships, $ctx->relationships);
+    }
+
+    public function test_empty_array_relationship_selection_means_none(): void
+    {
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, []);
+
+        $this->assertCount(0, $ctx->relationships);
+    }
+
     public function test_selected_relationships_filters_correctly(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable(), [], ['posts', 'tags']);
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, ['posts', 'tags']);
 
         $this->assertCount(2, $ctx->relationships);
         $this->assertSame('post', (string) $ctx->relationships[0]->name);
@@ -178,7 +208,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_all_relationships_still_contains_all_when_filtered(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable(), [], ['posts']);
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, ['posts']);
 
         $this->assertCount(3, $ctx->allRelationships);
         $this->assertCount(1, $ctx->relationships);

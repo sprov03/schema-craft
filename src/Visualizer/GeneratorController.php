@@ -213,8 +213,14 @@ class GeneratorController
             }
 
             $table = (new SchemaScanner($selectorData['class']))->scan();
-            $selectedColumns = $selectorData['selectedColumns'] ?? [];
-            $selectedRelationships = $selectorData['selectedRelationships'] ?? [];
+
+            // null = "no selection UI, include all"; [] = "user selected nothing"
+            $selectedColumns = $inputDef->selectColumns
+                ? ($selectorData['selectedColumns'] ?? [])
+                : null;
+            $selectedRelationships = $inputDef->selectRelationships
+                ? ($selectorData['selectedRelationships'] ?? [])
+                : null;
 
             $context = new GeneratorSchemaContext($table, $selectedColumns, $selectedRelationships);
             $inputValues[$inputDef->key] = $context;
