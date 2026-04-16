@@ -6022,10 +6022,27 @@
             loadSharedConnections(function() {
                 schemasDbConnection = sharedFilterState.dbConnection;
                 renderSharedConnectionDropdown('sc-db-connection');
-                // If tables already loaded by health tab, just render
+                // If tables already loaded by health tab, enrich with status before rendering
                 if (sharedFilterState.tables) {
                     schemasState.tables = sharedFilterState.tables;
-                    renderTableList();
+                    if (schemaStatusData) {
+                        // Already enriched on a previous visit — just render
+                        renderTableList();
+                    } else {
+                        // Tables pre-loaded by health tab without enrichment — fetch status now
+                        fetch('/_schema-craft/api/status')
+                            .then(handleResponse)
+                            .then(function(data) {
+                                schemaStatusData = data;
+                                enrichTablesWithStatus();
+                                renderTableList();
+                                syncSharedFiltersToUI();
+                            })
+                            .catch(function() {
+                                renderTableList();
+                                syncSharedFiltersToUI();
+                            });
+                    }
                 } else {
                     loadDatabaseTables();
                 }
