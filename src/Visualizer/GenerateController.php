@@ -865,6 +865,7 @@ class GenerateController
             'resourceName' => ['required', 'string', 'regex:/^[A-Za-z][A-Za-z0-9]*Resource$/'],
             'columns' => ['sometimes', 'array'],
             'relationships' => ['sometimes', 'array'],
+            'relationshipResources' => ['sometimes', 'array'],
         ]);
 
         [$relativePath, $content] = $this->buildResourceFileContent($request);
@@ -890,6 +891,7 @@ class GenerateController
             'resourceName' => ['required', 'string', 'regex:/^[A-Za-z][A-Za-z0-9]*Resource$/'],
             'columns' => ['sometimes', 'array'],
             'relationships' => ['sometimes', 'array'],
+            'relationshipResources' => ['sometimes', 'array'],
             'force' => ['sometimes', 'boolean'],
         ]);
 
@@ -936,10 +938,14 @@ class GenerateController
             $table = $this->filterTableColumns($table, $selectedColumns, $selectedRelationships);
         }
 
+        // Map relationship name → selected resource short class name (e.g. 'assignments' → 'AsteriskDidAssignmentLightResource')
+        $relationshipResourceOverrides = $request->input('relationshipResources', []);
+
         $content = (new ResourceGenerator)->generate(
             table: $table,
             resourceNamespace: $apiConfig->resourceNamespace,
             resourceName: $resourceName,
+            relationshipResourceOverrides: $relationshipResourceOverrides,
         );
 
         return [$relativePath, $content];

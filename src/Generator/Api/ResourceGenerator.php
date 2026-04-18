@@ -26,19 +26,25 @@ class ResourceGenerator
      * @param  string  $resourceName  Explicit class name, e.g. "CampaignFullResource".
      *                                Defaults to "{ModelName}Resource" when null.
      */
+    /**
+     * @param  array<string, string>  $relationshipResourceOverrides  Maps relationship name → resource short class name.
+     *                                                                e.g. ['assignments' => 'AsteriskDidAssignmentLightResource']
+     *                                                                Defaults to "{RelatedModel}Resource" when omitted.
+     */
     public function generate(
         TableDefinition $table,
         string $resourceNamespace = 'App\\Resources',
         string $modelNamespace = 'App\\Models',
         ?string $resourceName = null,
+        array $relationshipResourceOverrides = [],
     ): string {
         $modelName = $this->resolveModelName($table);
         $resolvedResourceName = $resourceName ?? $modelName.'Resource';
         $modelFqcn = $this->resolveModelFqcn($table, $modelNamespace);
         $schemaClass = class_basename($table->schemaClass);
 
-        $imports = $this->buildImports($table, $resourceNamespace, $modelFqcn);
-        $properties = $this->buildProperties($table);
+        $imports = $this->buildImports($table, $resourceNamespace, $modelFqcn, $relationshipResourceOverrides);
+        $properties = $this->buildProperties($table, $relationshipResourceOverrides);
 
         return $this->render(
             namespace: $resourceNamespace,
@@ -52,9 +58,10 @@ class ResourceGenerator
     }
 
     /**
+     * @param  array<string, string>  $overrides
      * @return string[]
      */
-    private function buildImports(TableDefinition $table, string $resourceNamespace, ?string $modelFqcn): array
+    private function buildImports(TableDefinition $table, string $resourceNamespace, ?string $modelFqcn, array $overrides = []): array
     {
         $imports = [
             'Illuminate\Support\Collection',
@@ -66,23 +73,19 @@ class ResourceGenerator
             $imports[] = $modelFqcn;
         }
 
-        $hasRelationships = false;
-
         foreach ($table->relationships as $rel) {
             if ($rel->type === 'belongsTo') {
                 continue;
             }
 
             if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
-                $hasRelationships = true;
                 $imports[] = 'SchemaCraft\Attributes\Resources\HasMany';
             } elseif (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
-                $hasRelationships = true;
                 $imports[] = 'SchemaCraft\Attributes\Resources\HasOne';
             }
 
-            $relatedModelName = class_basename($rel->relatedModel);
-            $relatedResourceFqcn = $resourceNamespace.'\\'.$relatedModelName.'Resource';
+            $relatedResourceName = $overrides[$rel->name] ?? (class_basename($rel->relatedModel).'Resource');
+            $relatedResourceFqcn = $resourceNamespace.'\\'.$relatedResourceName;
 
             if (! in_array($relatedResourceFqcn, $imports)) {
                 $imports[] = $relatedResourceFqcn;
@@ -99,9 +102,10 @@ class ResourceGenerator
     /**
      * Build the typed property declarations for the resource class body.
      *
+     * @param  array<string, string>  $overrides
      * @return string[]
      */
-    private function buildProperties(TableDefinition $table): array
+    private function buildProperties(TableDefinition $table, array $overrides = []): array
     {
         $lines = [];
 
@@ -148,8 +152,7 @@ class ResourceGenerator
                 continue;
             }
 
-            $relatedModelName = class_basename($rel->relatedModel);
-            $relatedResourceName = $relatedModelName.'Resource';
+            $relatedResourceName = $overrides[$rel->name] ?? (class_basename($rel->relatedModel).'Resource');
 
             if (! empty($lines)) {
                 $lines[] = '';

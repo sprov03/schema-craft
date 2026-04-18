@@ -7951,8 +7951,14 @@
                 });
 
                 var relationships = [];
+                var relationshipResources = {};
                 overlay.querySelectorAll('.res-ov-rel-cb:checked').forEach(function(cb) {
-                    relationships.push(cb.dataset.rel);
+                    var relName = cb.dataset.rel;
+                    relationships.push(relName);
+                    var select = overlay.querySelector('.res-ov-rel-resource[data-rel="' + relName + '"]');
+                    if (select && select.value) {
+                        relationshipResources[relName] = select.value;
+                    }
                 });
 
                 var payload = {
@@ -7961,6 +7967,7 @@
                     resourceName: name,
                     columns: columns,
                     relationships: relationships,
+                    relationshipResources: relationshipResources,
                 };
 
                 var btn = overlay.querySelector('#res-overlay-save');
@@ -7980,7 +7987,8 @@
                         btn.textContent = 'Preview & Create';
                         return;
                     }
-                    overlay.remove();
+                    btn.disabled = false;
+                    btn.textContent = 'Preview & Create';
                     showFilePreviewModal(resp.files, 'Create Resource', function() {
                         fetch('/_schema-craft/api/create-resource', {
                             method: 'POST',
@@ -7991,6 +7999,7 @@
                         .then(function(writeResp) {
                             if (writeResp.success) {
                                 showToast(writeResp.message, 'success');
+                                overlay.remove();
                                 showResourcesView();
                             } else {
                                 showToast(writeResp.message || 'Failed to create resource.', 'error');
@@ -8010,11 +8019,9 @@
         function buildResOverlayColumns(group) {
             var html = '';
             (group.columns || []).forEach(function(col) {
-                var isSystem = ['id', 'created_at', 'updated_at', 'deleted_at'].indexOf(col.name) !== -1;
                 html +=
                     '<label class="gen-import-field-item">' +
-                        '<input type="checkbox" class="res-ov-col-cb" data-col="' + escapeAttr(col.name) + '" ' +
-                            (isSystem ? 'checked disabled' : 'checked') + '>' +
+                        '<input type="checkbox" class="res-ov-col-cb" data-col="' + escapeAttr(col.name) + '" checked>' +
                         '<span>' + escapeHtml(col.name) + '</span>' +
                         '<span class="gen-import-field-type">' + escapeHtml(col.type) + '</span>' +
                     '</label>';
@@ -8025,18 +8032,34 @@
         function buildResOverlayRelationships(group, data) {
             var html = '';
             (group.relationships || []).forEach(function(rel) {
-                // Check if the related schema already has resources
                 var relatedSchema = rel.relatedSchema;
                 var relatedGroup = relatedSchema && data.groups
                     ? data.groups.find(function(g) { return g.schema === relatedSchema; })
                     : null;
-                var relatedHasResources = relatedGroup && relatedGroup.resources && relatedGroup.resources.length > 0;
+                var relatedResources = relatedGroup ? (relatedGroup.resources || []).filter(function(r) { return !r.isManual; }) : [];
+                var relatedHasResources = relatedResources.length > 0;
 
-                var createChildBtn = '';
-                if (relatedGroup && !relatedHasResources) {
-                    createChildBtn = ' <button type="button" class="sc-btn" style="padding:2px 8px;font-size:11px;" ' +
-                        'data-create-child-schema="' + escapeAttr(relatedSchema) + '" ' +
-                        'data-create-child-model="' + escapeAttr(relatedGroup.modelName) + '">' +
+                var resourceControl = '';
+                if (relatedHasResources) {
+                    // Dropdown to select which existing resource to use
+                    resourceControl =
+                        '<select class="res-ov-rel-resource" data-rel="' + escapeAttr(rel.name) + '" ' +
+                            'style="padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;">';
+                    relatedResources.forEach(function(res) {
+                        resourceControl += '<option value="' + escapeAttr(res.name) + '">' + escapeHtml(res.name) + '</option>';
+                    });
+                    resourceControl += '</select>';
+                    if (relatedGroup) {
+                        resourceControl +=
+                            ' <button type="button" class="sc-btn" style="padding:2px 8px;font-size:11px;" ' +
+                            'data-create-child-schema="' + escapeAttr(relatedSchema) + '">' +
+                            '+ New' +
+                            '</button>';
+                    }
+                } else if (relatedGroup) {
+                    resourceControl =
+                        '<button type="button" class="sc-btn" style="padding:2px 8px;font-size:11px;" ' +
+                        'data-create-child-schema="' + escapeAttr(relatedSchema) + '">' +
                         '+ Create Resource' +
                         '</button>';
                 }
@@ -8048,7 +8071,7 @@
                             '<span>' + escapeHtml(rel.name) + '</span>' +
                             '<span class="gen-import-field-type">' + escapeHtml(rel.type) + ' \u2192 ' + escapeHtml(rel.relatedModel) + '</span>' +
                         '</label>' +
-                        createChildBtn +
+                        resourceControl +
                     '</div>';
             });
 
