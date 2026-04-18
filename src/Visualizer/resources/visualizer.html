@@ -7878,9 +7878,10 @@
                 html += '<div class="gen-import-resource-title" style="margin-bottom:6px;">Properties</div>';
                 html += '<div class="gen-import-field-grid" style="margin-bottom:12px;">';
                 res.properties.forEach(function(prop) {
+                    var shortType = prop.type ? prop.type.split('\\').pop() : prop.type;
                     html += '<div class="gen-import-field-item" style="cursor:default;">' +
-                        '<span style="color:var(--accent);font-family:monospace;font-size:11px;">' + escapeHtml(prop.type) + '</span>' +
-                        '<span style="margin-left:6px;">' + escapeHtml(prop.name) + '</span>' +
+                        '<span class="gen-import-field-type">' + escapeHtml(shortType) + '</span>' +
+                        '<span style="margin-left:4px;">' + escapeHtml(prop.name) + '</span>' +
                     '</div>';
                 });
                 html += '</div>';
@@ -7890,10 +7891,11 @@
                 html += '<div class="gen-import-resource-title" style="margin-bottom:6px;">Relationships</div>';
                 html += '<div class="gen-import-field-grid" style="margin-bottom:12px;">';
                 res.relationships.forEach(function(rel) {
+                    var shortResource = rel.resource ? rel.resource.split('\\').pop() : '';
                     html += '<div class="gen-import-field-item" style="cursor:default;">' +
                         '<span class="gen-import-field-type">' + escapeHtml(rel.type) + '</span>' +
-                        '<span style="margin-left:6px;">' + escapeHtml(rel.name) + '</span>' +
-                        '<span style="margin-left:4px;color:var(--text-muted);font-size:11px;">\u2192 ' + escapeHtml(rel.resource ? rel.resource.split('\\').pop() : '') + '</span>' +
+                        '<span style="margin-left:4px;">' + escapeHtml(rel.name) + '</span>' +
+                        '<span style="margin-left:4px;color:var(--text-muted);font-size:11px;">\u2192 ' + escapeHtml(shortResource) + '</span>' +
                     '</div>';
                 });
                 html += '</div>';
@@ -7903,9 +7905,11 @@
                 html += '<div class="gen-import-resource-title" style="margin-bottom:6px;">Computed</div>';
                 html += '<div class="gen-import-field-grid" style="margin-bottom:12px;">';
                 res.computed.forEach(function(method) {
+                    var name = typeof method === 'string' ? method : method.name;
+                    var returnType = typeof method === 'object' && method.returnType ? method.returnType.split('\\').pop() : null;
                     html += '<div class="gen-import-field-item" style="cursor:default;">' +
-                        '<span style="color:var(--accent);font-family:monospace;font-size:11px;">#[Computed]</span>' +
-                        '<span style="margin-left:6px;">' + escapeHtml(method) + '()</span>' +
+                        (returnType ? '<span class="gen-import-field-type">' + escapeHtml(returnType) + '</span>' : '') +
+                        '<span style="margin-left:4px;">' + escapeHtml(name) + '()</span>' +
                     '</div>';
                 });
                 html += '</div>';

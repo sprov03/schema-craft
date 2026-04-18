@@ -124,7 +124,12 @@ class ResourceScanner
             }
 
             if (! empty($method->getAttributes(Computed::class))) {
-                $computed[] = $method->getName();
+                $returnType = $method->getReturnType();
+                $returnTypeName = $returnType instanceof \ReflectionNamedType ? $returnType->getName() : null;
+                $computed[] = [
+                    'name' => $method->getName(),
+                    'returnType' => $returnTypeName,
+                ];
             }
         }
 

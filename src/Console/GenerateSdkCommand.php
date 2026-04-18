@@ -209,6 +209,7 @@ class GenerateSdkCommand extends Command
             $schemas[$modelName] = new SdkSchemaContext(
                 table: $table,
                 customActions: $customActions,
+                endpoints: $endpoints,
             );
             $discoveredSchemaClasses[$schemaClass] = true;
         }

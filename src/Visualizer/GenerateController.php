@@ -1989,6 +1989,7 @@ class GenerateController
             $schemas[$modelName] = new SdkSchemaContext(
                 table: $table,
                 customActions: $customActions,
+                endpoints: $endpoints,
             );
             $discoveredSchemaClasses[$schemaClass] = true;
         }

@@ -70,6 +70,7 @@ class SdkGenerator
                         $dataNamespace,
                         $modelName,
                         $context->customActions,
+                        $context->endpoints,
                     ),
                 );
             }
