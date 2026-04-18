@@ -27,6 +27,7 @@ use SchemaCraft\Generator\Sdk\SdkGenerator;
 use SchemaCraft\Generator\Sdk\SdkSchemaContext;
 use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Migration\SchemaDiscovery;
+use SchemaCraft\Scanner\ResourceScanner;
 use SchemaCraft\Scanner\SchemaScanner;
 
 class GenerateController
@@ -636,19 +637,24 @@ class GenerateController
     // ─── Action Import Endpoints ─────────────────────────────────────────
 
     /**
-     * List all available Actions grouped by schema, with their current import status for an API.
+     * List all schemas with their resources and actions for the given API.
+     *
+     * All schemas are returned — not just those with actions. Resources are
+     * discovered via ResourceScanner (reflection-based, no metadata drift).
+     * Each schema's resources include an action indicator when wired via ->endpoint().
      */
     public function availableActions(Request $request): JsonResponse
     {
         $apiConfig = ConfigResolver::resolve($request->query('api'));
 
-        // Discover all Action classes across all model namespaces
+        // Discover all schemas
         $directories = ConfigResolver::schemaDirectories();
         $discovery = new SchemaDiscovery;
         $schemaClasses = $discovery->discover($directories);
 
         // Detect imported actions via runtime route introspection
         $importedActions = [];
+        $resourceActionMap = []; // resourceClass => actionClass
         $routeScanner = new RuntimeRouteScanner;
         $registeredRoutes = $routeScanner->scanAll(
             controllerNamespace: $apiConfig->controllerNamespace,
@@ -660,6 +666,9 @@ class GenerateController
             foreach ($schemaEndpoints as $ep) {
                 if ($ep['source'] === 'action' && $ep['actionClass'] !== null) {
                     $importedActions[] = class_basename($ep['actionClass']);
+                    if (isset($ep['resourceClass'])) {
+                        $resourceActionMap[$ep['resourceClass']] = $ep['actionClass'];
+                    }
                 }
             }
         }
@@ -667,137 +676,168 @@ class GenerateController
         foreach ($registeredRoutes['unassigned'] as $ep) {
             if ($ep['source'] === 'action' && $ep['actionClass'] !== null) {
                 $importedActions[] = class_basename($ep['actionClass']);
+                if (isset($ep['resourceClass'])) {
+                    $resourceActionMap[$ep['resourceClass']] = $ep['actionClass'];
+                }
             }
         }
+
+        // Scan all resources for this API grouped by schema
+        $resourceDir = base_path($this->namespaceToDirectory($apiConfig->resourceNamespace));
+        $resourceScanner = new ResourceScanner;
+        $resourcesBySchema = $resourceScanner->scanDirectory($apiConfig->resourceNamespace, $resourceDir);
 
         $groups = [];
 
         foreach ($schemaClasses as $schemaClass) {
             $modelName = $this->resolveModelName($schemaClass);
 
-            // Resolve connection config by schema namespace (not by DB connection)
             try {
                 $connectionConfig = ConfigResolver::resolveForSchema($schemaClass);
             } catch (\Throwable) {
                 continue;
             }
 
-            // Discover Action classes for this model
+            // Discover Action classes for this schema
             $actionsNs = $connectionConfig->actionNamespaceForModel($modelName);
             $actionsDir = base_path(ConnectionConfig::namespaceToDirectory($actionsNs));
+            $actions = [];
 
-            if (! is_dir($actionsDir)) {
-                continue;
+            if (is_dir($actionsDir)) {
+                foreach (glob($actionsDir.'/*Action.php') as $file) {
+                    $className = pathinfo($file, PATHINFO_FILENAME);
+                    $fqcn = $actionsNs.'\\'.$className;
+
+                    if (! class_exists($fqcn) || ! is_subclass_of($fqcn, \SchemaCraft\Action::class)) {
+                        continue;
+                    }
+
+                    $definition = (new \SchemaCraft\Scanner\ActionScanner($fqcn))->scan();
+                    $meta = $fqcn::meta();
+
+                    $actionRelationships = [];
+                    foreach ($definition->nestedParameters() as $nested) {
+                        $nr = $nested->nestedRelationship;
+                        if ($nr) {
+                            $actionRelationships[] = [
+                                'name' => $nr->name,
+                                'type' => $nr->relationshipType,
+                                'relatedModel' => class_basename($nr->relatedModel),
+                                'isCollection' => $nr->isCollection,
+                            ];
+                        }
+                    }
+
+                    $actionRules = [];
+                    try {
+                        $actionInstance = new $fqcn;
+                        $actionRules = $actionInstance->rules();
+                    } catch (\Throwable) {
+                    }
+
+                    $detailedParams = array_map(fn ($p) => [
+                        'name' => $p->name,
+                        'type' => $p->type,
+                        'nullable' => $p->nullable,
+                        'isModel' => $p->isModel,
+                        'hasDefault' => $p->hasDefault,
+                        'default' => $p->default,
+                        'columnName' => $p->columnName,
+                        'columnType' => $p->columnType,
+                        'foreignKeyColumn' => $p->foreignKeyColumn,
+                        'isNestedRelationship' => $p->isNestedRelationship,
+                    ], $definition->parameters);
+
+                    $httpMethod = $meta?->method ?? 'post';
+
+                    $actions[] = [
+                        'class' => $fqcn,
+                        'shortName' => $className,
+                        'serviceMethod' => $definition->serviceMethod,
+                        'httpMethod' => $httpMethod,
+                        'label' => $meta?->label ?? Str::headline($definition->serviceMethod),
+                        'description' => $definition->description,
+                        'imported' => in_array($className, $importedActions),
+                        'relationships' => $actionRelationships,
+                        'routeSegment' => Str::kebab($definition->serviceMethod),
+                        'rules' => $actionRules,
+                        'parameters' => $detailedParams,
+                    ];
+                }
             }
 
-            $actions = [];
-            foreach (glob($actionsDir.'/*Action.php') as $file) {
-                $className = pathinfo($file, PATHINFO_FILENAME);
-                $fqcn = $actionsNs.'\\'.$className;
+            // Scan schema columns and relationships
+            $columns = [];
+            $relationships = [];
 
-                if (! class_exists($fqcn) || ! is_subclass_of($fqcn, \SchemaCraft\Action::class)) {
-                    continue;
+            try {
+                $scanner = new SchemaScanner($schemaClass);
+                $table = $scanner->scan();
+
+                foreach ($table->columns as $col) {
+                    $columns[] = [
+                        'name' => $col->name,
+                        'type' => $col->columnType,
+                        'nullable' => $col->nullable,
+                    ];
                 }
 
-                $definition = (new \SchemaCraft\Scanner\ActionScanner($fqcn))->scan();
-                $meta = $fqcn::meta();
-
-                // Extract relationships this action needs loaded
-                $actionRelationships = [];
-                foreach ($definition->nestedParameters() as $nested) {
-                    $nr = $nested->nestedRelationship;
-                    if ($nr) {
-                        $actionRelationships[] = [
-                            'name' => $nr->name,
-                            'type' => $nr->relationshipType,
-                            'relatedModel' => class_basename($nr->relatedModel),
-                            'isCollection' => $nr->isCollection,
-                        ];
+                foreach ($table->relationships as $rel) {
+                    if ($rel->type === 'belongsTo') {
+                        continue;
                     }
+                    $relationships[] = [
+                        'name' => $rel->name,
+                        'type' => $rel->type,
+                        'relatedModel' => class_basename($rel->relatedModel),
+                        'relatedSchema' => $this->guessSchemaForModel($rel->relatedModel),
+                    ];
                 }
+            } catch (\Throwable) {
+            }
 
-                // Build validation rules for docs
-                $actionRules = [];
-                try {
-                    $actionInstance = new $fqcn;
-                    $actionRules = $actionInstance->rules();
-                } catch (\Throwable) {
-                    // Skip if rules fail
-                }
-
-                // Build detailed parameter info for docs
-                $detailedParams = array_map(fn ($p) => [
-                    'name' => $p->name,
-                    'type' => $p->type,
-                    'nullable' => $p->nullable,
-                    'isModel' => $p->isModel,
-                    'hasDefault' => $p->hasDefault,
-                    'default' => $p->default,
-                    'columnName' => $p->columnName,
-                    'columnType' => $p->columnType,
-                    'foreignKeyColumn' => $p->foreignKeyColumn,
-                    'isNestedRelationship' => $p->isNestedRelationship,
-                ], $definition->parameters);
-
-                $httpMethod = $meta?->method ?? 'post';
-                $routeSegment = Str::kebab($definition->serviceMethod);
-
-                $actions[] = [
-                    'class' => $fqcn,
-                    'shortName' => $className,
-                    'serviceMethod' => $definition->serviceMethod,
-                    'httpMethod' => $httpMethod,
-                    'label' => $meta?->label ?? Str::headline($definition->serviceMethod),
-                    'description' => $definition->description,
-                    'imported' => in_array($className, $importedActions),
-                    'relationships' => $actionRelationships,
-                    'routeSegment' => $routeSegment,
-                    'rules' => $actionRules,
-                    'parameters' => $detailedParams,
+            // Build resources list for this schema
+            $schemaResources = [];
+            foreach ($resourcesBySchema[$schemaClass] ?? [] as $resourceDef) {
+                $schemaResources[] = [
+                    'class' => $resourceDef->class,
+                    'name' => $resourceDef->name,
+                    'isManual' => $resourceDef->isManual,
+                    'properties' => $resourceDef->properties,
+                    'relationships' => $resourceDef->relationships,
+                    'computed' => $resourceDef->computed,
+                    'fileContents' => $resourceDef->fileContents,
+                    'action' => $resourceActionMap[$resourceDef->class] ?? null,
                 ];
             }
 
-            if (! empty($actions)) {
-                // Scan schema for columns and relationships (deferred until we know actions exist)
-                $columns = [];
-                $relationships = [];
-
-                try {
-                    $scanner = new SchemaScanner($schemaClass);
-                    $table = $scanner->scan();
-
-                    foreach ($table->columns as $col) {
-                        $columns[] = [
-                            'name' => $col->name,
-                            'type' => $col->columnType,
-                            'nullable' => $col->nullable,
-                        ];
-                    }
-
-                    foreach ($table->relationships as $rel) {
-                        if ($rel->type === 'belongsTo') {
-                            continue;
-                        }
-
-                        $relationships[] = [
-                            'name' => $rel->name,
-                            'type' => $rel->type,
-                            'relatedModel' => class_basename($rel->relatedModel),
-                        ];
-                    }
-                } catch (\Throwable) {
-                    // Skip if schema scan fails
+            // Also include manual resources that couldn't be schema-associated
+            foreach ($resourcesBySchema['manual'] ?? [] as $resourceDef) {
+                if (str_starts_with($resourceDef->name, $modelName)) {
+                    $schemaResources[] = [
+                        'class' => $resourceDef->class,
+                        'name' => $resourceDef->name,
+                        'isManual' => true,
+                        'properties' => [],
+                        'relationships' => [],
+                        'computed' => [],
+                        'fileContents' => $resourceDef->fileContents,
+                        'action' => $resourceActionMap[$resourceDef->class] ?? null,
+                    ];
                 }
+            }
 
+            // Include schema in groups even when there are no actions
+            if (! empty($actions) || ! empty($schemaResources) || true) {
                 $groups[] = [
                     'schema' => $schemaClass,
                     'modelName' => $modelName,
                     'actions' => $actions,
                     'columns' => $columns,
                     'relationships' => $relationships,
-                    'hasResource' => file_exists(
-                        base_path($this->namespaceToDirectory($apiConfig->resourceNamespace).'/'.$modelName.'Resource.php')
-                    ),
+                    'resources' => $schemaResources,
+                    // Legacy field for backward compat
+                    'hasResource' => ! empty($schemaResources),
                 ];
             }
         }
@@ -808,6 +848,59 @@ class GenerateController
             'resourceNamespace' => $apiConfig->resourceNamespace,
             'routeFile' => $apiConfig->routeFile,
             'routePrefix' => $apiConfig->routePrefix,
+        ]);
+    }
+
+    /**
+     * Create a new named resource for a schema, independent of any action.
+     */
+    public function createResource(Request $request, Filesystem $fs): JsonResponse
+    {
+        $request->validate([
+            'api' => ['required', 'string'],
+            'schema' => ['required', 'string'],
+            'resourceName' => ['required', 'string', 'regex:/^[A-Za-z][A-Za-z0-9]*Resource$/'],
+            'columns' => ['sometimes', 'array'],
+            'relationships' => ['sometimes', 'array'],
+        ]);
+
+        $apiConfig = ConfigResolver::resolve($request->input('api'));
+        $schemaClass = $this->resolveSchemaClass($request->input('schema'));
+        $resourceName = $request->input('resourceName');
+        $resourceDir = base_path($this->namespaceToDirectory($apiConfig->resourceNamespace));
+        $resourcePath = $resourceDir.'/'.$resourceName.'.php';
+
+        if ($fs->exists($resourcePath)) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => "{$resourceName} already exists.",
+            ], 422);
+        }
+
+        $scanner = new SchemaScanner($schemaClass);
+        $table = $scanner->scan();
+
+        $selectedColumns = $request->input('columns');
+        $selectedRelationships = $request->input('relationships', []);
+
+        if ($selectedColumns !== null) {
+            $table = $this->filterTableColumns($table, $selectedColumns, $selectedRelationships);
+        }
+
+        $generator = new ResourceGenerator;
+        $content = $generator->generate(
+            table: $table,
+            resourceNamespace: $apiConfig->resourceNamespace,
+            resourceName: $resourceName,
+        );
+
+        $fs->ensureDirectoryExists($resourceDir);
+        $fs->put($resourcePath, $content);
+
+        return new JsonResponse([
+            'success' => true,
+            'message' => "{$resourceName} created.",
+            'file' => str_replace(base_path().'/', '', $resourcePath),
         ]);
     }
 
@@ -1047,7 +1140,10 @@ class GenerateController
     }
 
     /**
-     * Import selected Actions into an API — generates Resource and adds route registration.
+     * Import selected Actions into an API — wires them to a selected resource and adds route registration.
+     *
+     * If resourceClass is provided, that existing resource is used for ->endpoint().
+     * If not provided and no resources exist for the schema, a new default resource is auto-generated.
      */
     public function importActions(Request $request, Filesystem $fs): JsonResponse
     {
@@ -1056,6 +1152,7 @@ class GenerateController
             'actions' => ['required', 'array'],
             'actions.*' => ['string'],
             'schema' => ['required', 'string'],
+            'resourceClass' => ['sometimes', 'nullable', 'string'],
             'resource_columns' => ['sometimes', 'array'],
             'resource_relationships' => ['sometimes', 'array'],
         ]);
@@ -1066,6 +1163,7 @@ class GenerateController
         $actionClasses = $request->input('actions');
         $selectedColumns = $request->input('resource_columns');
         $selectedRelationships = $request->input('resource_relationships');
+        $requestedResourceClass = $request->input('resourceClass');
 
         $routeFilePath = base_path($apiConfig->routeFile);
         if (! $fs->exists($routeFilePath)) {
@@ -1076,29 +1174,37 @@ class GenerateController
         }
 
         $createdFiles = [];
-
-        // Generate Resource if it doesn't exist
         $resourceDir = base_path($this->namespaceToDirectory($apiConfig->resourceNamespace));
-        $resourcePath = $resourceDir.'/'.$modelName.'Resource.php';
 
-        if (! $fs->exists($resourcePath)) {
-            $scanner = new SchemaScanner($schemaClass);
-            $table = $scanner->scan();
+        // Determine the resource FQCN to use for ->endpoint()
+        if ($requestedResourceClass && class_exists($requestedResourceClass)) {
+            // User selected an existing resource from the dropdown
+            $resourceFqcn = $requestedResourceClass;
+            $resourceShortName = class_basename($resourceFqcn);
+        } else {
+            // Fall back: auto-generate default resource if none exists
+            $resourceShortName = $modelName.'Resource';
+            $resourceFqcn = $apiConfig->resourceNamespace.'\\'.$resourceShortName;
+            $resourcePath = $resourceDir.'/'.$resourceShortName.'.php';
 
-            // Filter columns/relationships if the user selected specific ones
-            if ($selectedColumns !== null) {
-                $table = $this->filterTableColumns($table, $selectedColumns, $selectedRelationships ?? []);
+            if (! $fs->exists($resourcePath)) {
+                $scanner = new SchemaScanner($schemaClass);
+                $table = $scanner->scan();
+
+                if ($selectedColumns !== null) {
+                    $table = $this->filterTableColumns($table, $selectedColumns, $selectedRelationships ?? []);
+                }
+
+                $resourceGenerator = new ResourceGenerator;
+                $resourceContent = $resourceGenerator->generate(
+                    table: $table,
+                    resourceNamespace: $apiConfig->resourceNamespace,
+                );
+
+                $fs->ensureDirectoryExists($resourceDir);
+                $fs->put($resourcePath, $resourceContent);
+                $createdFiles[] = str_replace(base_path().'/', '', $resourcePath);
             }
-
-            $resourceGenerator = new ResourceGenerator;
-            $resourceContent = $resourceGenerator->generate(
-                table: $table,
-                resourceNamespace: $apiConfig->resourceNamespace,
-            );
-
-            $fs->ensureDirectoryExists($resourceDir);
-            $fs->put($resourcePath, $resourceContent);
-            $createdFiles[] = str_replace(base_path().'/', '', $resourcePath);
         }
 
         // Add route registrations for each Action
@@ -1113,20 +1219,14 @@ class GenerateController
 
             $shortName = class_basename($actionClass);
 
-            // Skip if already imported
             if (str_contains($routeContent, $shortName.'())->endpoint(')) {
                 continue;
             }
 
-            // Add use import
             $routeContent = $writer->addImport($routeContent, $actionClass);
-
-            // Also import the Resource class
-            $resourceFqcn = $apiConfig->resourceNamespace.'\\'.$modelName.'Resource';
             $routeContent = $writer->addImport($routeContent, $resourceFqcn);
 
-            // Add endpoint registration inside the Route::group closure
-            $endpointLine = "    (new {$shortName}())->endpoint({$modelName}Resource::class);";
+            $endpointLine = "    (new {$shortName}())->endpoint({$resourceShortName}::class);";
             $routeContent = $this->insertIntoRouteGroup($routeContent, $endpointLine);
 
             $addedActions[] = $shortName;
@@ -1146,6 +1246,8 @@ class GenerateController
 
     /**
      * Generate Resources for selected schemas (without importing actions).
+     *
+     * Accepts an explicit resourceName per schema to support multiple resources per schema.
      */
     public function generateResources(Request $request, Filesystem $fs): JsonResponse
     {
@@ -1153,6 +1255,7 @@ class GenerateController
             'api' => ['required', 'string'],
             'schemas' => ['required', 'array'],
             'schemas.*.class' => ['required', 'string'],
+            'schemas.*.resourceName' => ['sometimes', 'string'],
             'schemas.*.columns' => ['sometimes', 'array'],
             'schemas.*.relationships' => ['sometimes', 'array'],
         ]);
@@ -1165,10 +1268,11 @@ class GenerateController
         foreach ($request->input('schemas') as $schemaInput) {
             $schemaClass = $this->resolveSchemaClass($schemaInput['class']);
             $modelName = $this->resolveModelName($schemaClass);
-            $resourcePath = $resourceDir.'/'.$modelName.'Resource.php';
+            $resourceName = $schemaInput['resourceName'] ?? $modelName.'Resource';
+            $resourcePath = $resourceDir.'/'.$resourceName.'.php';
 
             if ($fs->exists($resourcePath)) {
-                $skipped[] = $modelName;
+                $skipped[] = $resourceName;
 
                 continue;
             }
@@ -1187,11 +1291,12 @@ class GenerateController
             $resourceContent = $resourceGenerator->generate(
                 table: $table,
                 resourceNamespace: $apiConfig->resourceNamespace,
+                resourceName: $resourceName,
             );
 
             $fs->ensureDirectoryExists($resourceDir);
             $fs->put($resourcePath, $resourceContent);
-            $createdFiles[] = $modelName.'Resource.php';
+            $createdFiles[] = $resourceName.'.php';
         }
 
         $message = 'Generated '.count($createdFiles).' resource(s).';
@@ -1264,6 +1369,20 @@ class GenerateController
             hidden: $table->hidden,
             with: $table->with,
         );
+    }
+
+    /**
+     * Guess the schema FQCN for a related model class.
+     * e.g., App\Models\CampaignCost → App\Schemas\CampaignCostSchema
+     */
+    private function guessSchemaForModel(string $modelFqcn): ?string
+    {
+        $namespace = Str::beforeLast($modelFqcn, '\\');
+        $modelName = class_basename($modelFqcn);
+        $schemaNamespace = preg_replace('/\\\\Models$/', '\\Schemas', $namespace);
+        $candidate = $schemaNamespace.'\\'.$modelName.'Schema';
+
+        return class_exists($candidate) ? $candidate : null;
     }
 
     /**
@@ -1637,12 +1756,15 @@ class GenerateController
             $description,
         );
 
+        $eagerRelationships = $this->detectResourceRelationships($apiConfig, $schemaClass);
+
         $renderedServiceMethod = $generator->renderActionServiceMethod(
             $httpMethod,
             $actionName,
             $modelName,
             $modelVariable,
             $table,
+            $eagerRelationships,
         );
 
         // Build patched controller content
@@ -1950,6 +2072,37 @@ class GenerateController
         }
 
         return null;
+    }
+
+    /**
+     * Detect eager-loadable relationship names from the resource associated with a schema.
+     *
+     * Scans the API's resource directory for resources linked to the given schema.
+     * If exactly one typed SchemaCraftResource is found, returns its relationship property names.
+     * Returns an empty array when ambiguous (multiple resources) or none found.
+     *
+     * @return string[]
+     */
+    private function detectResourceRelationships(ApiConfig $apiConfig, string $schemaClass): array
+    {
+        $resourceDir = base_path($this->namespaceToDirectory($apiConfig->resourceNamespace));
+
+        if (! is_dir($resourceDir)) {
+            return [];
+        }
+
+        $scanner = new ResourceScanner;
+        $grouped = $scanner->scanDirectory($apiConfig->resourceNamespace, $resourceDir);
+        $resources = $grouped[$schemaClass] ?? [];
+
+        // Only auto-inject eager loading when exactly one typed resource exists
+        $typed = array_filter($resources, fn ($r) => ! $r->isManual);
+
+        if (count($typed) !== 1) {
+            return [];
+        }
+
+        return array_values($typed)[0]->relationshipNames();
     }
 
     /**

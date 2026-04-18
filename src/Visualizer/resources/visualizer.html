@@ -7687,67 +7687,46 @@
             var content = document.getElementById('gen-content');
 
             if (!data.groups || data.groups.length === 0) {
-                content.innerHTML =
-                    '<div class="gen-import">' +
-                        '<div class="gen-import-title">Resources</div>' +
-                        '<div class="gen-import-subtitle">No schemas with Actions found. Create Actions first via the Actions tab.</div>' +
-                    '</div>';
+                content.innerHTML = '<div class="gen-empty-state">No schemas found.</div>';
                 return;
             }
 
             var listHtml = '';
-            var needsGeneration = 0;
 
             data.groups.forEach(function(group, idx) {
+                var resourceCount = (group.resources || []).length;
                 var actionCount = group.actions.length;
-                var importedCount = group.actions.filter(function(a) { return a.imported; }).length;
 
                 listHtml +=
                     '<div class="gen-import-group" data-res-idx="' + idx + '">' +
                         '<div class="gen-import-group-header" data-res-toggle="' + idx + '">' +
-                            '<input type="checkbox" class="res-schema-cb" data-res-idx="' + idx + '" ' +
-                                'data-schema="' + escapeAttr(group.schema) + '" ' +
-                                (group.hasResource ? 'disabled checked' : '') + ' ' +
-                                'onclick="event.stopPropagation();">' +
                             '<span class="gen-import-group-toggle">&#9654;</span>' +
                             '<span class="gen-import-group-name">' + escapeHtml(group.modelName) + '</span>' +
-                            (group.hasResource
-                                ? '<span class="gen-import-action-imported-badge" style="background:var(--success-dim);color:var(--success);">Resource exists</span>'
-                                : '<span class="gen-import-action-imported-badge" style="background:var(--warning-dim);color:var(--warning);">No resource</span>') +
-                            '<span class="gen-import-group-count">' + actionCount + ' action' + (actionCount !== 1 ? 's' : '') +
-                                (importedCount > 0 ? ' (' + importedCount + ' imported)' : '') + '</span>' +
+                            '<span class="gen-import-group-count">' +
+                                resourceCount + ' resource' + (resourceCount !== 1 ? 's' : '') +
+                                (actionCount > 0 ? ' &bull; ' + actionCount + ' action' + (actionCount !== 1 ? 's' : '') : '') +
+                            '</span>' +
                         '</div>' +
                         '<div class="gen-import-group-body" data-res-body="' + idx + '">' +
-                            buildResourceColumnsHtml(group, idx) +
+                            buildSchemaResourcesHtml(group, idx, data) +
                         '</div>' +
                     '</div>';
-
-                if (!group.hasResource) needsGeneration++;
             });
 
             content.innerHTML =
                 '<div class="gen-import">' +
                     '<div class="gen-import-title">Resources</div>' +
-                    '<div class="gen-import-subtitle">Schemas with Actions for the <strong>' + escapeHtml(data.apiName) + '</strong> API. ' +
-                        'Generate resources before importing actions.</div>' +
+                    '<div class="gen-import-subtitle">All schemas for the <strong>' + escapeHtml(data.apiName) + '</strong> API, grouped with their resources. Resources are typed classes — the class definition is the source of truth.</div>' +
                     '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">' +
-                        '<div class="gen-sidebar-search" style="padding:0;flex:1;">' +
-                            '<input type="search" id="gen-res-search" placeholder="Filter schemas..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;">' +
-                        '</div>' +
-                        '<button class="sc-btn" id="gen-res-select-all" style="white-space:nowrap;">Select All Missing</button>' +
-                        '<button class="sc-btn" id="gen-res-deselect-all" style="white-space:nowrap;">Deselect All</button>' +
+                        '<input type="search" id="gen-res-search" placeholder="Filter schemas..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;">' +
                     '</div>' +
                     listHtml +
-                    '<div class="gen-import-footer">' +
-                        '<span class="gen-import-selected-count" id="gen-res-count">' + needsGeneration + ' schema(s) without resources</span>' +
-                        '<button class="sc-btn primary" id="gen-res-generate-btn" ' + (needsGeneration === 0 ? 'disabled' : '') + '>Generate Resources</button>' +
-                    '</div>' +
                 '</div>';
 
-            // Toggle group expand/collapse
+            // Toggle expand/collapse
             content.querySelectorAll('[data-res-toggle]').forEach(function(header) {
                 header.addEventListener('click', function(e) {
-                    if (e.target.tagName === 'INPUT') return;
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
                     var idx = header.dataset.resToggle;
                     var body = content.querySelector('[data-res-body="' + idx + '"]');
                     var toggle = header.querySelector('.gen-import-group-toggle');
@@ -7756,155 +7735,301 @@
                 });
             });
 
+            // Resource card expand/collapse
+            content.querySelectorAll('[data-resource-toggle]').forEach(function(card) {
+                card.addEventListener('click', function(e) {
+                    if (e.target.tagName === 'BUTTON') return;
+                    var key = card.dataset.resourceToggle;
+                    var body = content.querySelector('[data-resource-body="' + key + '"]');
+                    var toggle = card.querySelector('.res-card-toggle');
+                    if (body) {
+                        body.classList.toggle('open');
+                        if (toggle) toggle.classList.toggle('open');
+                    }
+                });
+            });
+
             // Search filter
             document.getElementById('gen-res-search').addEventListener('input', function(e) {
                 var query = e.target.value.toLowerCase();
                 content.querySelectorAll('.gen-import-group[data-res-idx]').forEach(function(group) {
                     var name = group.querySelector('.gen-import-group-name');
-                    if (name) {
-                        group.style.display = (!query || name.textContent.toLowerCase().indexOf(query) !== -1) ? '' : 'none';
-                    }
+                    group.style.display = (!query || (name && name.textContent.toLowerCase().indexOf(query) !== -1)) ? '' : 'none';
                 });
             });
 
-            // Select All Missing
-            document.getElementById('gen-res-select-all').addEventListener('click', function() {
-                content.querySelectorAll('.res-schema-cb:not(:disabled)').forEach(function(cb) { cb.checked = true; });
-                updateResCount();
+            // New Resource buttons
+            content.querySelectorAll('[data-new-resource-schema]').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var idx = parseInt(btn.dataset.newResourceSchema, 10);
+                    var group = resourcesData.groups[idx];
+                    openCreateResourceOverlay(group, idx, data);
+                });
             });
-
-            // Deselect All
-            document.getElementById('gen-res-deselect-all').addEventListener('click', function() {
-                content.querySelectorAll('.res-schema-cb:not(:disabled)').forEach(function(cb) { cb.checked = false; });
-                updateResCount();
-            });
-
-            // Checkbox change updates count
-            content.querySelectorAll('.res-schema-cb').forEach(function(cb) {
-                cb.addEventListener('change', updateResCount);
-            });
-
-            // Generate button
-            document.getElementById('gen-res-generate-btn').addEventListener('click', doGenerateResources);
         }
 
-        function buildResourceColumnsHtml(group, gIdx) {
-            var html = '';
+        function buildSchemaResourcesHtml(group, gIdx, data) {
+            var html = '<div style="padding:8px 12px 12px 12px;">';
 
-            // Columns
-            if (group.columns && group.columns.length > 0) {
-                html += '<div class="gen-import-resource-section">' +
-                    '<div class="gen-import-resource-title">Columns' +
-                        (group.hasResource ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">(Resource already exists)</span>' : '') +
-                    '</div>' +
-                    '<div class="gen-import-field-grid">';
+            // Existing resource cards
+            var resources = group.resources || [];
+            resources.forEach(function(res, rIdx) {
+                var key = gIdx + '-' + rIdx;
+                var isManual = res.isManual;
 
-                group.columns.forEach(function(col, cIdx) {
-                    var isSystem = ['id', 'created_at', 'updated_at', 'deleted_at'].indexOf(col.name) !== -1;
-                    html +=
-                        '<label class="gen-import-field-item">' +
-                            '<input type="checkbox" class="res-col-cb" ' +
-                                'data-group="' + gIdx + '" data-col-name="' + escapeAttr(col.name) + '" ' +
-                                (isSystem || group.hasResource ? 'checked disabled' : 'checked') + '>' +
-                            '<span>' + escapeHtml(col.name) + '</span>' +
-                            '<span class="gen-import-field-type">' + escapeHtml(col.type) + '</span>' +
-                        '</label>';
-                });
+                var actionBadge = '';
+                if (res.action) {
+                    actionBadge = '<span class="gen-import-action-imported-badge" style="background:var(--success-dim);color:var(--success);">&#x25CF; ' + escapeHtml(res.action.split('\\').pop()) + '</span>';
+                } else if (!isManual) {
+                    actionBadge = '<span class="gen-import-action-imported-badge" style="background:var(--bg-secondary);color:var(--text-muted);">&#x25CB; no action</span>';
+                }
 
-                html += '</div></div>';
-            }
+                var manualBadge = isManual
+                    ? '<span class="gen-import-action-imported-badge" style="background:var(--warning-dim);color:var(--warning);">&#9888; manual</span>'
+                    : '';
 
-            // Relationships
-            if (group.relationships && group.relationships.length > 0) {
-                html += '<div class="gen-import-resource-section">' +
-                    '<div class="gen-import-resource-title">Relationships' +
-                        (group.hasResource ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">(Resource already exists)</span>' : '') +
-                    '</div>' +
-                    '<div class="gen-import-field-grid">';
+                html +=
+                    '<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden;">' +
+                        '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;background:var(--bg-secondary);" data-resource-toggle="' + key + '">' +
+                            '<span class="gen-import-group-toggle res-card-toggle" style="font-size:10px;">&#9654;</span>' +
+                            '<span style="font-weight:500;font-size:13px;">' + escapeHtml(res.name) + '</span>' +
+                            actionBadge + manualBadge +
+                        '</div>' +
+                        '<div class="gen-import-group-body" data-resource-body="' + key + '">' +
+                            buildResourceDetailHtml(res, isManual) +
+                        '</div>' +
+                    '</div>';
+            });
 
-                group.relationships.forEach(function(rel, rIdx) {
-                    html +=
-                        '<label class="gen-import-field-item">' +
-                            '<input type="checkbox" class="res-rel-cb" ' +
-                                'data-group="' + gIdx + '" data-rel-name="' + escapeAttr(rel.name) + '" ' +
-                                (group.hasResource ? 'disabled' : '') + '>' +
-                            '<span>' + escapeHtml(rel.name) + '</span>' +
-                            '<span class="gen-import-field-type">' + escapeHtml(rel.type) + ' \u2192 ' + escapeHtml(rel.relatedModel) + '</span>' +
-                        '</label>';
-                });
+            // "+ New Resource" button
+            html +=
+                '<button class="sc-btn" data-new-resource-schema="' + gIdx + '" style="margin-top:4px;">' +
+                    '+ New Resource' +
+                '</button>';
 
-                html += '</div></div>';
-            }
-
+            html += '</div>';
             return html;
         }
 
-        function updateResCount() {
-            var checked = document.querySelectorAll('.res-schema-cb:not(:disabled):checked').length;
-            var countEl = document.getElementById('gen-res-count');
-            var btn = document.getElementById('gen-res-generate-btn');
-            if (countEl) countEl.textContent = checked + ' schema(s) selected for generation';
-            if (btn) btn.disabled = checked === 0;
-        }
-
-        function doGenerateResources() {
-            var btn = document.getElementById('gen-res-generate-btn');
-            btn.disabled = true;
-            btn.textContent = 'Generating...';
-
-            var schemas = [];
-            document.querySelectorAll('.res-schema-cb:not(:disabled):checked').forEach(function(cb) {
-                var idx = parseInt(cb.dataset.resIdx, 10);
-                var group = resourcesData.groups[idx];
-
-                // Gather selected columns
-                var columns = [];
-                document.querySelectorAll('.res-col-cb[data-group="' + idx + '"]:checked').forEach(function(colCb) {
-                    columns.push(colCb.dataset.colName);
-                });
-
-                // Gather selected relationships
-                var relationships = [];
-                document.querySelectorAll('.res-rel-cb[data-group="' + idx + '"]:checked').forEach(function(relCb) {
-                    relationships.push(relCb.dataset.relName);
-                });
-
-                schemas.push({
-                    class: group.schema,
-                    columns: columns.length > 0 ? columns : undefined,
-                    relationships: relationships.length > 0 ? relationships : undefined,
-                });
-            });
-
-            if (schemas.length === 0) {
-                showToast('No schemas selected.', 'warning');
-                btn.disabled = false;
-                btn.textContent = 'Generate Resources';
-                return;
+        function buildResourceDetailHtml(res, isManual) {
+            if (isManual) {
+                return '<div style="padding:12px;">' +
+                    '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">This resource extends JsonResource directly. Edit the file to modify it.</div>' +
+                    '<pre style="font-size:11px;background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;padding:10px;overflow:auto;max-height:300px;margin:0;">' +
+                        escapeHtml(res.fileContents || '') +
+                    '</pre>' +
+                '</div>';
             }
 
-            fetch('/_schema-craft/api/generate-resources', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ api: genSelectedApi, schemas: schemas }),
-            })
-            .then(handleResponse)
-            .then(function(data) {
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    // Refresh the resources view
-                    showResourcesView();
-                } else {
-                    showToast(data.message || 'Generation failed.', 'error');
-                    btn.disabled = false;
-                    btn.textContent = 'Generate Resources';
+            var html = '<div style="padding:12px;">';
+
+            if (res.properties && res.properties.length > 0) {
+                html += '<div class="gen-import-resource-title" style="margin-bottom:6px;">Properties</div>';
+                html += '<div class="gen-import-field-grid" style="margin-bottom:12px;">';
+                res.properties.forEach(function(prop) {
+                    html += '<div class="gen-import-field-item" style="cursor:default;">' +
+                        '<span style="color:var(--accent);font-family:monospace;font-size:11px;">' + escapeHtml(prop.type) + '</span>' +
+                        '<span style="margin-left:6px;">' + escapeHtml(prop.name) + '</span>' +
+                    '</div>';
+                });
+                html += '</div>';
+            }
+
+            if (res.relationships && res.relationships.length > 0) {
+                html += '<div class="gen-import-resource-title" style="margin-bottom:6px;">Relationships</div>';
+                html += '<div class="gen-import-field-grid" style="margin-bottom:12px;">';
+                res.relationships.forEach(function(rel) {
+                    html += '<div class="gen-import-field-item" style="cursor:default;">' +
+                        '<span class="gen-import-field-type">' + escapeHtml(rel.type) + '</span>' +
+                        '<span style="margin-left:6px;">' + escapeHtml(rel.name) + '</span>' +
+                        '<span style="margin-left:4px;color:var(--text-muted);font-size:11px;">\u2192 ' + escapeHtml(rel.resource ? rel.resource.split('\\').pop() : '') + '</span>' +
+                    '</div>';
+                });
+                html += '</div>';
+            }
+
+            if (res.computed && res.computed.length > 0) {
+                html += '<div class="gen-import-resource-title" style="margin-bottom:6px;">Computed</div>';
+                html += '<div class="gen-import-field-grid" style="margin-bottom:12px;">';
+                res.computed.forEach(function(method) {
+                    html += '<div class="gen-import-field-item" style="cursor:default;">' +
+                        '<span style="color:var(--accent);font-family:monospace;font-size:11px;">#[Computed]</span>' +
+                        '<span style="margin-left:6px;">' + escapeHtml(method) + '()</span>' +
+                    '</div>';
+                });
+                html += '</div>';
+            }
+
+            if (!res.properties.length && !res.relationships.length && !res.computed.length) {
+                html += '<div style="font-size:12px;color:var(--text-muted);">No properties defined yet.</div>';
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        // ── Create Resource Overlay ──────────────────────
+        function openCreateResourceOverlay(group, gIdx, data) {
+            var overlay = document.createElement('div');
+            overlay.className = 'act-overlay-backdrop';
+            overlay.innerHTML =
+                '<div class="act-overlay-panel" style="max-width:560px;width:100%;">' +
+                    '<div class="act-overlay-header">' +
+                        '<span class="act-overlay-title">New Resource &mdash; ' + escapeHtml(group.modelName) + '</span>' +
+                        '<button class="act-overlay-close" id="res-overlay-close">&times;</button>' +
+                    '</div>' +
+                    '<div class="act-overlay-body" style="padding:20px;">' +
+                        '<div style="margin-bottom:14px;">' +
+                            '<label style="display:block;font-size:12px;font-weight:600;margin-bottom:5px;">Resource Name</label>' +
+                            '<input type="text" id="res-overlay-name" placeholder="e.g. ' + escapeAttr(group.modelName) + 'FullResource" ' +
+                                'style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:5px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;box-sizing:border-box;" />' +
+                        '</div>' +
+                        '<div style="margin-bottom:14px;">' +
+                            '<div class="gen-import-resource-title" style="margin-bottom:8px;">Columns</div>' +
+                            '<div class="gen-import-field-grid" id="res-overlay-cols">' +
+                                buildResOverlayColumns(group) +
+                            '</div>' +
+                        '</div>' +
+                        '<div style="margin-bottom:14px;">' +
+                            '<div class="gen-import-resource-title" style="margin-bottom:8px;">Relationships</div>' +
+                            '<div id="res-overlay-rels">' +
+                                buildResOverlayRelationships(group, data) +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="act-overlay-footer">' +
+                        '<button class="sc-btn" id="res-overlay-cancel">Cancel</button>' +
+                        '<button class="sc-btn primary" id="res-overlay-save">Create Resource</button>' +
+                    '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            overlay.querySelector('#res-overlay-close').addEventListener('click', function() { overlay.remove(); });
+            overlay.querySelector('#res-overlay-cancel').addEventListener('click', function() { overlay.remove(); });
+
+            overlay.querySelector('#res-overlay-save').addEventListener('click', function() {
+                var nameInput = overlay.querySelector('#res-overlay-name');
+                var name = nameInput.value.trim();
+
+                if (!name || !name.endsWith('Resource')) {
+                    showToast('Resource name must end with "Resource".', 'warning');
+                    return;
                 }
-            })
-            .catch(function(e) {
-                showToast('Error: ' + e.message, 'error');
-                btn.disabled = false;
-                btn.textContent = 'Generate Resources';
+
+                var columns = [];
+                overlay.querySelectorAll('.res-ov-col-cb:checked').forEach(function(cb) {
+                    columns.push(cb.dataset.col);
+                });
+
+                var relationships = [];
+                overlay.querySelectorAll('.res-ov-rel-cb:checked').forEach(function(cb) {
+                    relationships.push(cb.dataset.rel);
+                });
+
+                var btn = overlay.querySelector('#res-overlay-save');
+                btn.disabled = true;
+                btn.textContent = 'Creating...';
+
+                fetch('/_schema-craft/api/create-resource', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        api: genSelectedApi,
+                        schema: group.schema,
+                        resourceName: name,
+                        columns: columns,
+                        relationships: relationships,
+                    }),
+                })
+                .then(handleResponse)
+                .then(function(resp) {
+                    if (resp.success) {
+                        showToast(resp.message, 'success');
+                        overlay.remove();
+                        showResourcesView();
+                    } else {
+                        showToast(resp.message || 'Failed to create resource.', 'error');
+                        btn.disabled = false;
+                        btn.textContent = 'Create Resource';
+                    }
+                })
+                .catch(function(e) {
+                    showToast('Error: ' + e.message, 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Create Resource';
+                });
             });
+        }
+
+        function buildResOverlayColumns(group) {
+            var html = '';
+            (group.columns || []).forEach(function(col) {
+                var isSystem = ['id', 'created_at', 'updated_at', 'deleted_at'].indexOf(col.name) !== -1;
+                html +=
+                    '<label class="gen-import-field-item">' +
+                        '<input type="checkbox" class="res-ov-col-cb" data-col="' + escapeAttr(col.name) + '" ' +
+                            (isSystem ? 'checked disabled' : 'checked') + '>' +
+                        '<span>' + escapeHtml(col.name) + '</span>' +
+                        '<span class="gen-import-field-type">' + escapeHtml(col.type) + '</span>' +
+                    '</label>';
+            });
+            return html || '<span style="font-size:12px;color:var(--text-muted);">No columns found.</span>';
+        }
+
+        function buildResOverlayRelationships(group, data) {
+            var html = '';
+            (group.relationships || []).forEach(function(rel) {
+                // Check if the related schema already has resources
+                var relatedSchema = rel.relatedSchema;
+                var relatedGroup = relatedSchema && data.groups
+                    ? data.groups.find(function(g) { return g.schema === relatedSchema; })
+                    : null;
+                var relatedHasResources = relatedGroup && relatedGroup.resources && relatedGroup.resources.length > 0;
+
+                var createChildBtn = '';
+                if (relatedGroup && !relatedHasResources) {
+                    createChildBtn = ' <button type="button" class="sc-btn" style="padding:2px 8px;font-size:11px;" ' +
+                        'data-create-child-schema="' + escapeAttr(relatedSchema) + '" ' +
+                        'data-create-child-model="' + escapeAttr(relatedGroup.modelName) + '">' +
+                        '+ Create Resource' +
+                        '</button>';
+                }
+
+                html +=
+                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+                        '<label class="gen-import-field-item" style="flex:1;margin:0;">' +
+                            '<input type="checkbox" class="res-ov-rel-cb" data-rel="' + escapeAttr(rel.name) + '">' +
+                            '<span>' + escapeHtml(rel.name) + '</span>' +
+                            '<span class="gen-import-field-type">' + escapeHtml(rel.type) + ' \u2192 ' + escapeHtml(rel.relatedModel) + '</span>' +
+                        '</label>' +
+                        createChildBtn +
+                    '</div>';
+            });
+
+            if (!html) {
+                html = '<span style="font-size:12px;color:var(--text-muted);">No relationships found.</span>';
+            }
+
+            // Attach child creation handlers after insertion — done via event delegation below
+            setTimeout(function() {
+                document.querySelectorAll('[data-create-child-schema]').forEach(function(btn) {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        var childSchema = btn.dataset.createChildSchema;
+                        var childModel = btn.dataset.createChildModel;
+                        var childGroup = data.groups
+                            ? data.groups.find(function(g) { return g.schema === childSchema; })
+                            : null;
+                        if (childGroup) {
+                            openCreateResourceOverlay(childGroup, data.groups.indexOf(childGroup), data);
+                        }
+                    });
+                });
+            }, 50);
+
+            return html;
         }
 
         // ── Import Actions View ────────────────────────
@@ -7929,23 +8054,8 @@
             var data = importActionsData;
             var content = document.getElementById('gen-content');
 
-            // Filter to only schemas that have a resource
-            var eligibleGroups = data.groups.filter(function(g) { return g.hasResource; });
-            var noResourceGroups = data.groups.filter(function(g) { return !g.hasResource; });
-
-            if (eligibleGroups.length === 0 && data.groups.length > 0) {
-                content.innerHTML =
-                    '<div class="gen-import">' +
-                        '<div class="gen-import-title">Import Actions</div>' +
-                        '<div class="gen-import-subtitle">' + data.groups.length + ' schema(s) have Actions but no Resources yet. ' +
-                            '<a href="#" id="gen-import-goto-res" style="color:var(--accent);text-decoration:underline;">Generate Resources first</a>.</div>' +
-                    '</div>';
-                document.getElementById('gen-import-goto-res').addEventListener('click', function(e) {
-                    e.preventDefault();
-                    switchGenView('resources');
-                });
-                return;
-            }
+            // Show schemas that have actions (resources optional — can be created inline)
+            var eligibleGroups = data.groups.filter(function(g) { return g.actions && g.actions.length > 0; });
 
             if (eligibleGroups.length === 0) {
                 content.innerHTML =
@@ -7963,8 +8073,29 @@
             eligibleGroups.forEach(function(group, gIdx) {
                 var unimported = group.actions.filter(function(a) { return !a.imported; });
                 var imported = group.actions.filter(function(a) { return a.imported; });
+                var resources = group.resources || [];
 
                 if (group.actions.length === 0) return;
+
+                // Resource dropdown
+                var resourceDropdown = '';
+                if (resources.length > 0) {
+                    resourceDropdown = '<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">' +
+                        '<span style="font-size:12px;color:var(--text-muted);white-space:nowrap;">Use resource:</span>' +
+                        '<select class="import-resource-select" data-import-group-idx="' + gIdx + '" data-schema="' + escapeAttr(group.schema) + '" ' +
+                            'style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg-primary);color:var(--text-primary);font-size:12px;">';
+                    resources.forEach(function(res) {
+                        resourceDropdown += '<option value="' + escapeAttr(res.class) + '">' + escapeHtml(res.name) + (res.action ? ' (wired)' : '') + '</option>';
+                    });
+                    resourceDropdown += '</select>' +
+                        '<button type="button" class="sc-btn import-new-res-btn" data-import-group-idx="' + gIdx + '" style="white-space:nowrap;padding:3px 10px;font-size:11px;">+ New</button>' +
+                    '</div>';
+                } else {
+                    resourceDropdown = '<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">' +
+                        '<span style="font-size:12px;color:var(--warning);">No resources yet — a default resource will be auto-generated on import.</span>' +
+                        '<button type="button" class="sc-btn import-new-res-btn" data-import-group-idx="' + gIdx + '" style="white-space:nowrap;padding:3px 10px;font-size:11px;">+ Create Resource</button>' +
+                    '</div>';
+                }
 
                 actionsHtml += '<div class="gen-import-group" data-import-group="' + gIdx + '">' +
                     '<div class="gen-import-group-header" data-import-toggle="' + gIdx + '">' +
@@ -7978,13 +8109,13 @@
                             (imported.length > 0 ? ', ' + imported.length + ' imported' : '') +
                         '</span>' +
                     '</div>' +
-                    '<div class="gen-import-group-body open" data-import-body="' + gIdx + '">';
+                    '<div class="gen-import-group-body open" data-import-body="' + gIdx + '">' +
+                        resourceDropdown;
 
                 group.actions.forEach(function(action, aIdx) {
                     var isImported = action.imported;
                     if (!isImported) totalAvailable++;
 
-                    // Build relationship tags for this action
                     var relTags = '';
                     if (action.relationships && action.relationships.length > 0) {
                         action.relationships.forEach(function(rel) {
@@ -8014,22 +8145,11 @@
                 actionsHtml += '</div></div>';
             });
 
-            // No-resource warning
-            var warningHtml = '';
-            if (noResourceGroups.length > 0) {
-                var names = noResourceGroups.map(function(g) { return g.modelName; }).join(', ');
-                warningHtml = '<div style="background:var(--warning-dim);color:var(--warning);padding:10px 16px;border-radius:6px;font-size:12px;margin-bottom:16px;">' +
-                    '<strong>' + noResourceGroups.length + ' schema(s) need Resources first:</strong> ' + escapeHtml(names) + '. ' +
-                    '<a href="#" id="gen-import-res-link" style="color:var(--warning);text-decoration:underline;">Generate Resources</a>' +
-                '</div>';
-            }
-
             content.innerHTML =
                 '<div class="gen-import">' +
                     '<div class="gen-import-title">Import Actions</div>' +
                     '<div class="gen-import-subtitle">Import Actions into the <strong>' + escapeHtml(data.apiName) + '</strong> API route file ' +
-                        '<code>' + escapeHtml(data.routeFile) + '</code>.</div>' +
-                    warningHtml +
+                        '<code>' + escapeHtml(data.routeFile) + '</code>. Select a resource for each schema using the dropdown.</div>' +
                     '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">' +
                         '<div style="flex:1;">' +
                             '<input type="search" id="gen-import-search" placeholder="Filter actions..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;">' +
@@ -8044,14 +8164,20 @@
                     '</div>' +
                 '</div>';
 
-            // Link to resources view
-            var resLink = document.getElementById('gen-import-res-link');
-            if (resLink) {
-                resLink.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    switchGenView('resources');
+            // "+ New Resource" buttons in import view
+            content.querySelectorAll('.import-new-res-btn').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var idx = parseInt(btn.dataset.importGroupIdx, 10);
+                    var group = importActionsData.groups.find(function(g, i) {
+                        var eligibles = importActionsData.groups.filter(function(g2) { return g2.actions && g2.actions.length > 0; });
+                        return eligibles[idx] === g;
+                    }) || eligibleGroups[idx];
+                    if (group) {
+                        openCreateResourceOverlay(group, importActionsData.groups.indexOf(group), importActionsData);
+                    }
                 });
-            }
+            });
 
             // Toggle group expand/collapse
             content.querySelectorAll('[data-import-toggle]').forEach(function(header) {
@@ -8154,10 +8280,14 @@
             var errors = [];
 
             schemas.forEach(function(schema) {
+                var resourceSelect = document.querySelector('.import-resource-select[data-schema="' + schema + '"]');
+                var resourceClass = resourceSelect ? resourceSelect.value : null;
+
                 var payload = {
                     api: genSelectedApi,
                     actions: schemaActions[schema],
                     schema: schema,
+                    resourceClass: resourceClass || undefined,
                 };
 
                 fetch('/_schema-craft/api/import-actions', {

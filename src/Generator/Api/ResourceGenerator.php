@@ -3,44 +3,51 @@
 namespace SchemaCraft\Generator\Api;
 
 use Illuminate\Support\Str;
-use SchemaCraft\Scanner\RelationshipDefinition;
 use SchemaCraft\Scanner\TableDefinition;
 
 /**
- * Generates an Eloquent API Resource class from a TableDefinition.
+ * Generates a typed SchemaCraftResource class from a TableDefinition.
+ *
+ * Generated resources extend SchemaCraftResource and declare typed properties
+ * for scalar fields and relationship attributes for nested resources.
+ * The base class handles toArray() via reflection — no manual array needed.
  */
 class ResourceGenerator
 {
-    private const TIMESTAMP_COLUMNS = ['created_at', 'updated_at'];
-
-    private const SOFT_DELETE_COLUMNS = ['deleted_at'];
-
     private const COLLECTION_RELATIONSHIPS = ['hasMany', 'belongsToMany', 'morphMany', 'morphToMany'];
 
     private const SINGULAR_RELATIONSHIPS = ['hasOne', 'morphOne'];
 
+    private const BELONGS_TO_RELATIONSHIPS = ['belongsTo'];
+
     /**
      * Generate the resource class PHP code.
+     *
+     * @param  string  $resourceName  Explicit class name, e.g. "CampaignFullResource".
+     *                                Defaults to "{ModelName}Resource" when null.
      */
     public function generate(
         TableDefinition $table,
         string $resourceNamespace = 'App\\Resources',
-        string $resourceSuffix = 'Resource',
         string $modelNamespace = 'App\\Models',
+        ?string $resourceName = null,
     ): string {
         $modelName = $this->resolveModelName($table);
-        $resourceName = $modelName.$resourceSuffix;
+        $resolvedResourceName = $resourceName ?? $modelName.'Resource';
         $modelFqcn = $this->resolveModelFqcn($table, $modelNamespace);
+        $schemaClass = class_basename($table->schemaClass);
 
         $imports = $this->buildImports($table, $resourceNamespace, $modelFqcn);
-        $fields = $this->buildFields($table);
+        $properties = $this->buildProperties($table);
 
         return $this->render(
             namespace: $resourceNamespace,
-            resourceName: $resourceName,
+            resourceName: $resolvedResourceName,
             modelClass: $modelName,
+            schemaFqcn: $table->schemaClass,
+            schemaClass: $schemaClass,
             imports: $imports,
-            fields: $fields,
+            properties: $properties,
         );
     }
 
@@ -50,77 +57,88 @@ class ResourceGenerator
     private function buildImports(TableDefinition $table, string $resourceNamespace, ?string $modelFqcn): array
     {
         $imports = [
-            'Illuminate\Http\Request',
-            'Illuminate\Http\Resources\Json\JsonResource',
+            'Illuminate\Support\Collection',
+            'SchemaCraft\Attributes\Resources\ResourceSchema',
+            'SchemaCraft\SchemaCraftResource',
         ];
 
         if ($modelFqcn !== null) {
             $imports[] = $modelFqcn;
         }
 
+        $hasRelationships = false;
+
         foreach ($table->relationships as $rel) {
             if ($rel->type === 'belongsTo') {
                 continue;
             }
 
-            if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS) || in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
-                $relatedModelName = class_basename($rel->relatedModel);
-                $relatedResourceFqcn = $resourceNamespace.'\\'.$relatedModelName.'Resource';
+            if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
+                $hasRelationships = true;
+                $imports[] = 'SchemaCraft\Attributes\Resources\HasMany';
+            } elseif (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
+                $hasRelationships = true;
+                $imports[] = 'SchemaCraft\Attributes\Resources\HasOne';
+            }
 
-                if (! in_array($relatedResourceFqcn, $imports)) {
-                    $imports[] = $relatedResourceFqcn;
-                }
+            $relatedModelName = class_basename($rel->relatedModel);
+            $relatedResourceFqcn = $resourceNamespace.'\\'.$relatedModelName.'Resource';
+
+            if (! in_array($relatedResourceFqcn, $imports)) {
+                $imports[] = $relatedResourceFqcn;
             }
         }
 
+        // Remove duplicates and sort
+        $imports = array_unique($imports);
         sort($imports);
 
         return $imports;
     }
 
     /**
+     * Build the typed property declarations for the resource class body.
+     *
      * @return string[]
      */
-    private function buildFields(TableDefinition $table): array
+    private function buildProperties(TableDefinition $table): array
     {
-        $fields = [];
+        $lines = [];
 
-        // Hidden columns to exclude from resource
         $hiddenSet = array_flip($table->hidden);
-
-        // Build skip set for managed columns (added separately below)
         $managedColumns = [];
+
         if ($table->hasTimestamps) {
-            $managedColumns = array_merge($managedColumns, self::TIMESTAMP_COLUMNS);
+            $managedColumns = array_merge($managedColumns, ['created_at', 'updated_at']);
         }
         if ($table->hasSoftDeletes) {
-            $managedColumns = array_merge($managedColumns, self::SOFT_DELETE_COLUMNS);
+            $managedColumns[] = 'deleted_at';
         }
         $managedSet = array_flip($managedColumns);
 
-        // Regular columns (including FK IDs, excluding managed columns)
+        // Scalar columns
         foreach ($table->columns as $column) {
-            if (isset($hiddenSet[$column->name])) {
+            if (isset($hiddenSet[$column->name]) || isset($managedSet[$column->name])) {
                 continue;
             }
 
-            if (isset($managedSet[$column->name])) {
-                continue;
-            }
-
-            $fields[] = "            '{$column->name}' => \$this->{$column->name},";
+            $phpType = $this->resolvePhpType($column->columnType, $column->nullable);
+            $lines[] = "    public {$phpType} \${$column->name};";
         }
 
-        // Timestamps
+        // Managed timestamp/soft-delete columns
         if ($table->hasTimestamps) {
-            foreach (self::TIMESTAMP_COLUMNS as $col) {
+            foreach (['created_at', 'updated_at'] as $col) {
                 if (! isset($hiddenSet[$col])) {
-                    $fields[] = "            '{$col}' => \$this->{$col},";
+                    $lines[] = "    public ?\\Carbon\\Carbon \${$col};";
                 }
             }
         }
+        if ($table->hasSoftDeletes && ! isset($hiddenSet['deleted_at'])) {
+            $lines[] = '    public ?\\Carbon\\Carbon $deleted_at;';
+        }
 
-        // Child relationships (non-BelongsTo) with whenLoaded
+        // Relationship properties
         foreach ($table->relationships as $rel) {
             if ($rel->type === 'belongsTo') {
                 continue;
@@ -133,55 +151,50 @@ class ResourceGenerator
             $relatedModelName = class_basename($rel->relatedModel);
             $relatedResourceName = $relatedModelName.'Resource';
 
+            if (! empty($lines)) {
+                $lines[] = '';
+            }
+
             if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
-                if ($this->hasPivotColumns($rel)) {
-                    $fields = array_merge($fields, $this->buildPivotField($rel, $relatedResourceName));
-                } else {
-                    $fields[] = "            '{$rel->name}' => {$relatedResourceName}::collection(\$this->whenLoaded('{$rel->name}')),";
-                }
+                $lines[] = "    #[HasMany({$relatedResourceName}::class)]";
+                $lines[] = "    public Collection \${$rel->name};";
             } elseif (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
-                $fields[] = "            '{$rel->name}' => new {$relatedResourceName}(\$this->whenLoaded('{$rel->name}')),";
+                $lines[] = "    #[HasOne({$relatedResourceName}::class)]";
+                $lines[] = "    public ?{$relatedResourceName} \${$rel->name};";
             }
         }
 
-        return $fields;
-    }
-
-    private function hasPivotColumns(RelationshipDefinition $rel): bool
-    {
-        return ! empty($rel->pivotColumns);
+        return $lines;
     }
 
     /**
-     * @return string[]
+     * Map a schema column type to a PHP type hint.
      */
-    private function buildPivotField(RelationshipDefinition $rel, string $relatedResourceName): array
+    private function resolvePhpType(string $columnType, bool $nullable): string
     {
-        $pivotCols = array_keys($rel->pivotColumns);
-        $pivotColsList = implode("', '", $pivotCols);
+        $base = match (true) {
+            in_array($columnType, ['int', 'integer', 'bigInteger', 'unsignedBigInteger', 'unsignedInteger', 'smallInteger', 'tinyInteger', 'mediumInteger']) => 'int',
+            in_array($columnType, ['float', 'double', 'decimal']) => 'float',
+            $columnType === 'boolean' => 'bool',
+            in_array($columnType, ['date', 'datetime', 'timestamp']) => '\\Carbon\\Carbon',
+            default => 'string',
+        };
 
-        return [
-            "            '{$rel->name}' => \$this->whenLoaded('{$rel->name}', function () {",
-            "                return \$this->{$rel->name}->map(function (\$item) {",
-            '                    return [',
-            "                        ...{$relatedResourceName}::make(\$item)->resolve(),",
-            "                        'pivot' => \$item->pivot->only(['{$pivotColsList}']),",
-            '                    ];',
-            '                });',
-            '            }),',
-        ];
+        return $nullable ? "?{$base}" : $base;
     }
 
     /**
      * @param  string[]  $imports
-     * @param  string[]  $fields
+     * @param  string[]  $properties
      */
     private function render(
         string $namespace,
         string $resourceName,
         string $modelClass,
+        string $schemaFqcn,
+        string $schemaClass,
         array $imports,
-        array $fields,
+        array $properties,
     ): string {
         $lines = [];
         $lines[] = '<?php';
@@ -197,18 +210,17 @@ class ResourceGenerator
         $lines[] = '/**';
         $lines[] = " * @mixin {$modelClass}";
         $lines[] = ' */';
-        $lines[] = "class {$resourceName} extends JsonResource";
+        $lines[] = "#[ResourceSchema({$schemaClass}::class)]";
+        $lines[] = "class {$resourceName} extends SchemaCraftResource";
         $lines[] = '{';
-        $lines[] = '    public function toArray(Request $request): array';
-        $lines[] = '    {';
-        $lines[] = '        return [';
 
-        foreach ($fields as $field) {
-            $lines[] = $field;
+        if (! empty($properties)) {
+            foreach ($properties as $property) {
+                $lines[] = $property;
+            }
+            $lines[] = '';
         }
 
-        $lines[] = '        ];';
-        $lines[] = '    }';
         $lines[] = '}';
         $lines[] = '';
 
@@ -220,11 +232,7 @@ class ResourceGenerator
         $className = class_basename($table->schemaClass);
         $baseName = Str::beforeLast($className, 'Schema');
 
-        if ($baseName === $className) {
-            return $className;
-        }
-
-        return $baseName;
+        return $baseName === $className ? $className : $baseName;
     }
 
     /**
@@ -243,7 +251,6 @@ class ResourceGenerator
             return null;
         }
 
-        // Try convention: replace Schemas namespace with Models
         $modelNs = preg_replace('/\\\\Schemas$/', '\\Models', $namespace);
 
         if ($modelNs !== $namespace) {
@@ -254,7 +261,6 @@ class ResourceGenerator
             }
         }
 
-        // Fall back to the provided model namespace
         return $modelNamespace.'\\'.$modelName;
     }
 }

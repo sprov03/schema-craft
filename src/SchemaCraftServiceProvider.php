@@ -240,6 +240,8 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 ->withoutMiddleware($noCsrf);
             Route::post('/api/generate-resources', [GenerateController::class, 'generateResources'])
                 ->withoutMiddleware($noCsrf);
+            Route::post('/api/create-resource', [GenerateController::class, 'createResource'])
+                ->withoutMiddleware($noCsrf);
             Route::get('/api/sdk/config', [GenerateController::class, 'sdkConfig']);
             Route::post('/api/sdk/preview', [GenerateController::class, 'sdkPreview'])
                 ->withoutMiddleware($noCsrf);

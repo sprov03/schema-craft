@@ -230,6 +230,9 @@ class ApiCodeGenerator
      * Render the action service method from a per-HTTP-method stub.
      *
      * Loads action-service-method-{$httpMethod}.stub and processes it.
+     *
+     * @param  string[]  $relationships  Relationship names to eager load (e.g. ['costs', 'tags']).
+     *                                   When provided, `return $this->{$model}` becomes `return $this->{$model}->load([...])`.
      */
     public function renderActionServiceMethod(
         string $httpMethod,
@@ -237,6 +240,7 @@ class ApiCodeGenerator
         string $modelName,
         string $modelVariable,
         ?TableDefinition $table = null,
+        array $relationships = [],
     ): string {
         $stubFile = "/api/action-service-method-{$httpMethod}.stub";
         $stub = file_get_contents($this->stubsPath.$stubFile);
@@ -252,7 +256,32 @@ class ApiCodeGenerator
             $context['serviceMethodAssignments'] = $this->buildServiceMethodAssignments($table, $modelVariable);
         }
 
-        return $this->processTemplate($stub, $context);
+        $rendered = $this->processTemplate($stub, $context);
+
+        if (! empty($relationships)) {
+            $rendered = $this->injectEagerLoad($rendered, $modelVariable, $relationships);
+        }
+
+        return $rendered;
+    }
+
+    /**
+     * Replace `return $this->{$modelVariable};` with `return $this->{$modelVariable}->load([...]);`
+     * in a rendered service method stub.
+     *
+     * @param  string[]  $relationships
+     */
+    private function injectEagerLoad(string $rendered, string $modelVariable, array $relationships): string
+    {
+        $quoted = implode(', ', array_map(fn ($r) => "'{$r}'", $relationships));
+        $loadCall = "->load([{$quoted}])";
+
+        // Match both `return $this->model;` and `return $model;` patterns
+        return preg_replace(
+            '/(\breturn\b\s+(?:\$this->)?\b'.preg_quote($modelVariable, '/').'\b)\s*;/',
+            '$1'.$loadCall.';',
+            $rendered,
+        );
     }
 
     /**
