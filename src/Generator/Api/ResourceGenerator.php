@@ -57,6 +57,9 @@ class ResourceGenerator
         );
     }
 
+    /** Primitive PHP types that need no import. */
+    private const PRIMITIVE_TYPES = ['string', 'int', 'float', 'bool', 'array', 'mixed', 'null', 'void', 'object'];
+
     /**
      * @param  array<string, string>  $overrides
      * @return string[]
@@ -70,15 +73,16 @@ class ResourceGenerator
             $table->schemaClass,
         ];
 
-        $hasDateColumn = $table->hasTimestamps || $table->hasSoftDeletes
-            || collect($table->columns)->contains(fn ($c) => in_array($c->columnType, ['date', 'datetime', 'timestamp']));
-
-        if ($hasDateColumn) {
-            $imports[] = 'Carbon\CarbonInterface';
-        }
-
         if ($modelFqcn !== null) {
             $imports[] = $modelFqcn;
+        }
+
+        // Import any non-primitive class types declared on schema columns
+        foreach ($table->columns as $column) {
+            $phpType = $column->phpType;
+            if ($phpType !== null && ! in_array($phpType, self::PRIMITIVE_TYPES) && str_contains($phpType, '\\')) {
+                $imports[] = $phpType;
+            }
         }
 
         foreach ($table->relationships as $rel) {
@@ -128,26 +132,30 @@ class ResourceGenerator
         }
         $managedSet = array_flip($managedColumns);
 
-        // Scalar columns
+        // Scalar columns — use the phpType the schema declared directly
         foreach ($table->columns as $column) {
             if (isset($hiddenSet[$column->name]) || isset($managedSet[$column->name])) {
                 continue;
             }
 
-            $phpType = $this->resolvePhpType($column->columnType, $column->nullable);
+            $phpType = $this->columnPropertyType($column->phpType, $column->nullable);
             $lines[] = "    public {$phpType} \${$column->name};";
         }
 
-        // Managed timestamp/soft-delete columns
-        if ($table->hasTimestamps) {
-            foreach (['created_at', 'updated_at'] as $col) {
-                if (! isset($hiddenSet[$col])) {
-                    $lines[] = "    public ?\\Carbon\\Carbon \${$col};";
-                }
+        // Managed timestamp/soft-delete columns — look up from columns array to get declared type
+        $columnsByName = array_column($table->columns, null, 'name');
+
+        foreach ($managedColumns as $colName) {
+            if (isset($hiddenSet[$colName])) {
+                continue;
             }
-        }
-        if ($table->hasSoftDeletes && ! isset($hiddenSet['deleted_at'])) {
-            $lines[] = '    public ?\\Carbon\\Carbon $deleted_at;';
+
+            $col = $columnsByName[$colName] ?? null;
+            $phpType = $col !== null
+                ? $this->columnPropertyType($col->phpType, $col->nullable)
+                : '?\\Carbon\\CarbonInterface';
+
+            $lines[] = "    public {$phpType} \${$colName};";
         }
 
         // Relationship properties
@@ -179,17 +187,19 @@ class ResourceGenerator
     }
 
     /**
-     * Map a schema column type to a PHP type hint.
+     * Convert a schema-declared phpType into a resource property type hint.
+     *
+     * Class types use their short name (imported via use statement).
+     * Primitive types are used as-is.
      */
-    private function resolvePhpType(string $columnType, bool $nullable): string
+    private function columnPropertyType(?string $phpType, bool $nullable): string
     {
-        $base = match (true) {
-            in_array($columnType, ['int', 'integer', 'bigInteger', 'unsignedBigInteger', 'unsignedInteger', 'smallInteger', 'tinyInteger', 'mediumInteger']) => 'int',
-            in_array($columnType, ['float', 'double', 'decimal']) => 'float',
-            $columnType === 'boolean' => 'bool',
-            in_array($columnType, ['date', 'datetime', 'timestamp']) => '\\Carbon\\CarbonInterface',
-            default => 'string',
-        };
+        if ($phpType === null) {
+            return $nullable ? '?string' : 'string';
+        }
+
+        // Use the short class name — the full FQCN is handled in buildImports()
+        $base = str_contains($phpType, '\\') ? class_basename($phpType) : $phpType;
 
         return $nullable ? "?{$base}" : $base;
     }

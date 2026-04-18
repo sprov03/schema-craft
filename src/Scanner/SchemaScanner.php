@@ -363,6 +363,7 @@ class SchemaScanner
             attributes: $rawAttributes,
             renamedFrom: $renamedFrom,
             expressionDefault: $expressionDefault,
+            phpType: $typeName,
         );
     }
 

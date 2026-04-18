@@ -25,5 +25,6 @@ class ColumnDefinition
         public array $attributes = [],
         public ?string $renamedFrom = null,
         public ?string $expressionDefault = null,
+        public ?string $phpType = null,
     ) {}
 }
