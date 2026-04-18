@@ -117,8 +117,8 @@ class GeneratorSchemaContext
      */
     public function __construct(
         TableDefinition $table,
-        ?array $selectedColumnNames = null,
-        ?array $selectedRelationshipNames = null,
+        ?array $selectedColumnNames,
+        ?array $selectedRelationshipNames,
     ) {
         $singular = Str::singular($table->tableName);
 

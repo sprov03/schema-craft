@@ -166,7 +166,7 @@ class ActionsController
         $request->validate([
             'schema' => ['required', 'string'],
             'actionName' => ['required', 'string'],
-            'selectedColumns' => ['required', 'array', 'min:1'],
+            'selectedColumns' => ['required', 'array'],
             'selectedColumns.*' => ['string'],
             'httpMethod' => ['sometimes', 'string', 'in:get,post,put,delete'],
             'nullableOverrides' => ['sometimes', 'array'],
@@ -185,7 +185,7 @@ class ActionsController
         $request->validate([
             'schema' => ['required', 'string'],
             'actionName' => ['required', 'string'],
-            'selectedColumns' => ['required', 'array', 'min:1'],
+            'selectedColumns' => ['required', 'array'],
             'selectedColumns.*' => ['string'],
             'httpMethod' => ['sometimes', 'string', 'in:get,post,put,delete'],
             'nullableOverrides' => ['sometimes', 'array'],
@@ -267,7 +267,7 @@ class ActionsController
         $request->validate([
             'schema' => ['required', 'string'],
             'actionName' => ['required', 'string'],
-            'selectedColumns' => ['required', 'array', 'min:1'],
+            'selectedColumns' => ['required', 'array'],
             'selectedColumns.*' => ['string'],
             'httpMethod' => ['sometimes', 'string', 'in:get,post,put,delete'],
             'nullableOverrides' => ['sometimes', 'array'],
@@ -286,7 +286,7 @@ class ActionsController
         $request->validate([
             'schema' => ['required', 'string'],
             'actionName' => ['required', 'string'],
-            'selectedColumns' => ['required', 'array', 'min:1'],
+            'selectedColumns' => ['required', 'array'],
             'selectedColumns.*' => ['string'],
             'httpMethod' => ['sometimes', 'string', 'in:get,post,put,delete'],
             'nullableOverrides' => ['sometimes', 'array'],

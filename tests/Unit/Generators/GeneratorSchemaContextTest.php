@@ -59,49 +59,49 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_model_is_name_chain(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertInstanceOf(NameChain::class, $ctx->model);
     }
 
     public function test_model_title_is_studly_singular(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('UserProfile', (string) $ctx->model->title);
     }
 
     public function test_model_camel_is_camel_singular(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('userProfile', (string) $ctx->model->camel);
     }
 
     public function test_model_snake_is_snake_singular(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('user_profile', (string) $ctx->model->snake);
     }
 
     public function test_model_plural_snake(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('user_profiles', (string) $ctx->model->plural->snake);
     }
 
     public function test_model_plural_title(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('UserProfiles', (string) $ctx->model->plural->title);
     }
 
     public function test_table_name_is_raw(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('user_profiles', $ctx->tableName);
     }
@@ -110,7 +110,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_all_columns_contains_all_columns(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertCount(8, $ctx->allColumns);
         $this->assertContainsOnlyInstancesOf(GeneratorColumn::class, $ctx->allColumns);
@@ -118,7 +118,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_empty_selection_means_columns_equals_all_columns(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertCount(8, $ctx->columns);
         $this->assertSame($ctx->allColumns, $ctx->columns);
@@ -126,7 +126,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_selected_columns_filters_correctly(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable(), ['first_name', 'email']);
+        $ctx = new GeneratorSchemaContext($this->makeTable(), ['first_name', 'email'], null);
 
         $this->assertCount(2, $ctx->columns);
         $this->assertSame('first_name', $ctx->columns[0]->name);
@@ -135,7 +135,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_all_columns_still_contains_all_when_filtered(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable(), ['first_name']);
+        $ctx = new GeneratorSchemaContext($this->makeTable(), ['first_name'], null);
 
         $this->assertCount(8, $ctx->allColumns);
         $this->assertCount(1, $ctx->columns);
@@ -143,7 +143,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_unknown_column_names_are_silently_excluded(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable(), ['first_name', 'nonexistent']);
+        $ctx = new GeneratorSchemaContext($this->makeTable(), ['first_name', 'nonexistent'], null);
 
         $this->assertCount(1, $ctx->columns);
         $this->assertSame('first_name', $ctx->columns[0]->name);
@@ -151,7 +151,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_null_column_selection_means_all(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable(), null);
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertCount(8, $ctx->columns);
         $this->assertSame($ctx->allColumns, $ctx->columns);
@@ -159,7 +159,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_empty_array_column_selection_means_none(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable(), []);
+        $ctx = new GeneratorSchemaContext($this->makeTable(), [], null);
 
         $this->assertCount(0, $ctx->columns);
     }
@@ -168,7 +168,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_all_relationships_contains_all(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertCount(3, $ctx->allRelationships);
         $this->assertContainsOnlyInstancesOf(GeneratorRelationship::class, $ctx->allRelationships);
@@ -176,7 +176,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_empty_relationship_selection_means_all(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertCount(3, $ctx->relationships);
         $this->assertSame($ctx->allRelationships, $ctx->relationships);
@@ -216,7 +216,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_relationships_have_name_chains(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('User', (string) $ctx->relationships[0]->name->title);
         $this->assertSame('Posts', (string) $ctx->relationships[1]->name->plural->title);
@@ -224,7 +224,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_relationships_report_cardinality(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertTrue($ctx->relationships[0]->isSingular());  // belongsTo
         $this->assertTrue($ctx->relationships[1]->isCollection()); // hasMany
@@ -235,7 +235,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_schema_class_is_exposed(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('App\\Schemas\\UserProfileSchema', $ctx->schemaClass);
     }
@@ -244,7 +244,7 @@ class GeneratorSchemaContextTest extends TestCase
     {
         // The fake FQCN isn't autoloadable — resolver must fall back to the
         // `Schemas → Models`, strip-`Schema`-suffix convention.
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('App\\Models\\UserProfile', $ctx->modelClass);
     }
@@ -259,7 +259,7 @@ class GeneratorSchemaContextTest extends TestCase
             ],
         );
 
-        $ctx = new GeneratorSchemaContext($table);
+        $ctx = new GeneratorSchemaContext($table, null, null);
 
         $this->assertSame('App\\DroneStrike\\Models\\DroneStrike', $ctx->modelClass);
     }
@@ -276,49 +276,49 @@ class GeneratorSchemaContextTest extends TestCase
             ],
         );
 
-        $ctx = new GeneratorSchemaContext($table);
+        $ctx = new GeneratorSchemaContext($table, null, null);
 
         $this->assertSame('Custom\\Namespace\\OverriddenModel', $ctx->modelClass);
     }
 
     public function test_connection_is_exposed(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame('testing', $ctx->connection);
     }
 
     public function test_connection_is_null_when_default(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata(), null, null);
 
         $this->assertNull($ctx->connection);
     }
 
     public function test_fillable_is_exposed(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame(['first_name', 'email', 'age'], $ctx->fillable);
     }
 
     public function test_hidden_is_exposed(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame(['email'], $ctx->hidden);
     }
 
     public function test_default_with_is_exposed(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame(['user'], $ctx->defaultWith);
     }
 
     public function test_title_columns_is_exposed(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertSame(['first_name'], $ctx->titleColumns);
     }
@@ -327,21 +327,21 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_has_timestamps_reflects_table_definition(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertTrue($ctx->hasTimestamps);
     }
 
     public function test_has_timestamps_is_false_when_not_set(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata(), null, null);
 
         $this->assertFalse($ctx->hasTimestamps);
     }
 
     public function test_has_soft_deletes_true_via_flag(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertTrue($ctx->hasSoftDeletes);
     }
@@ -358,14 +358,14 @@ class GeneratorSchemaContextTest extends TestCase
             // hasSoftDeletes flag is NOT set — should still detect via column
         );
 
-        $ctx = new GeneratorSchemaContext($table);
+        $ctx = new GeneratorSchemaContext($table, null, null);
 
         $this->assertTrue($ctx->hasSoftDeletes);
     }
 
     public function test_has_soft_deletes_is_false_when_no_trait_or_column(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata(), null, null);
 
         $this->assertFalse($ctx->hasSoftDeletes);
     }
@@ -374,7 +374,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_primary_key_picks_first_primary_column(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertNotNull($ctx->primaryKey);
         $this->assertSame('id', $ctx->primaryKey->name);
@@ -391,14 +391,14 @@ class GeneratorSchemaContextTest extends TestCase
             ],
         );
 
-        $ctx = new GeneratorSchemaContext($table);
+        $ctx = new GeneratorSchemaContext($table, null, null);
 
         $this->assertNull($ctx->primaryKey);
     }
 
     public function test_title_column_uses_title_columns_first(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertNotNull($ctx->titleColumn);
         $this->assertSame('first_name', $ctx->titleColumn->name);
@@ -406,7 +406,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_title_column_falls_back_to_primary_key(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata(), null, null);
 
         $this->assertNotNull($ctx->titleColumn);
         $this->assertSame('id', $ctx->titleColumn->name);
@@ -414,7 +414,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_column_finds_by_name(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $col = $ctx->column('email');
         $this->assertNotNull($col);
@@ -423,14 +423,14 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_column_returns_null_when_missing(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertNull($ctx->column('does_not_exist'));
     }
 
     public function test_has_column_checks_existence(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertTrue($ctx->hasColumn('email'));
         $this->assertFalse($ctx->hasColumn('missing'));
@@ -438,7 +438,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_relationship_finds_by_name(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $rel = $ctx->relationship('posts');
         $this->assertNotNull($rel);
@@ -447,7 +447,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_relationship_returns_null_when_missing(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $this->assertNull($ctx->relationship('nonexistent'));
     }
@@ -456,7 +456,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_foreign_key_columns_returns_only_fk_columns(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $fks = $ctx->foreignKeyColumns();
 
@@ -466,7 +466,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_searchable_columns_excludes_fks_pks_timestamps_soft_delete(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $searchable = $ctx->searchableColumns();
         $names = array_map(fn ($c) => $c->name, $searchable);
@@ -486,14 +486,14 @@ class GeneratorSchemaContextTest extends TestCase
             ],
         );
 
-        $ctx = new GeneratorSchemaContext($table);
+        $ctx = new GeneratorSchemaContext($table, null, null);
 
         $this->assertSame([], $ctx->searchableColumns());
     }
 
     public function test_fillable_columns_intersects_all_columns_with_fillable(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTable());
+        $ctx = new GeneratorSchemaContext($this->makeTable(), null, null);
 
         $fillable = $ctx->fillableColumns();
         $names = array_map(fn ($c) => $c->name, $fillable);
@@ -503,7 +503,7 @@ class GeneratorSchemaContextTest extends TestCase
 
     public function test_fillable_columns_returns_empty_when_fillable_unset(): void
     {
-        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata());
+        $ctx = new GeneratorSchemaContext($this->makeTableWithoutMetadata(), null, null);
 
         $this->assertSame([], $ctx->fillableColumns());
     }

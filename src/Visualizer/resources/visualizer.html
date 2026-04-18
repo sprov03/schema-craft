@@ -10032,8 +10032,6 @@
                     }
                 });
 
-                if (selectedColumns.length === 0 && currentHttpMethod !== 'delete') { showToast('Select at least one field.', 'warning'); return null; }
-
                 var descInput = overlay.querySelector('#act-fp-description');
                 var description = descInput ? descInput.value.trim() : '';
 

@@ -69,7 +69,7 @@ class GeneratorRunnerTest extends TestCase
             columns: $columns,
         );
 
-        return new GeneratorSchemaContext($table);
+        return new GeneratorSchemaContext($table, null, null);
     }
 
     private function makeSchemaContextWithRelationships(): GeneratorSchemaContext
@@ -87,7 +87,7 @@ class GeneratorRunnerTest extends TestCase
             ],
         );
 
-        return new GeneratorSchemaContext($table);
+        return new GeneratorSchemaContext($table, null, null);
     }
 
     // ─── Basic rendering ──────────────────────────────────────────
@@ -142,7 +142,7 @@ class GeneratorRunnerTest extends TestCase
             tableName: 'user_profiles',
             schemaClass: 'App\\Schemas\\UserProfileSchema',
             columns: [new ColumnDefinition(name: 'name', columnType: 'string')],
-        ));
+        ), null, null);
 
         $files = $this->runner->run(
             generator: $generator,
