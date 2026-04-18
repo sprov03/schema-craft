@@ -7927,7 +7927,7 @@
                     '</div>' +
                     '<div class="act-overlay-footer">' +
                         '<button class="sc-btn" id="res-overlay-cancel">Cancel</button>' +
-                        '<button class="sc-btn primary" id="res-overlay-save">Create Resource</button>' +
+                        '<button class="sc-btn primary" id="res-overlay-save">Preview &amp; Create</button>' +
                     '</div>' +
                 '</div>';
 
@@ -7955,37 +7955,54 @@
                     relationships.push(cb.dataset.rel);
                 });
 
+                var payload = {
+                    api: genSelectedApi,
+                    schema: group.schema,
+                    resourceName: name,
+                    columns: columns,
+                    relationships: relationships,
+                };
+
                 var btn = overlay.querySelector('#res-overlay-save');
                 btn.disabled = true;
-                btn.textContent = 'Creating...';
+                btn.textContent = 'Previewing...';
 
-                fetch('/_schema-craft/api/create-resource', {
+                fetch('/_schema-craft/api/create-resource/preview', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body: JSON.stringify({
-                        api: genSelectedApi,
-                        schema: group.schema,
-                        resourceName: name,
-                        columns: columns,
-                        relationships: relationships,
-                    }),
+                    body: JSON.stringify(payload),
                 })
                 .then(handleResponse)
                 .then(function(resp) {
-                    if (resp.success) {
-                        showToast(resp.message, 'success');
-                        overlay.remove();
-                        showResourcesView();
-                    } else {
-                        showToast(resp.message || 'Failed to create resource.', 'error');
+                    if (!resp.success) {
+                        showToast(resp.message || 'Preview failed.', 'error');
                         btn.disabled = false;
-                        btn.textContent = 'Create Resource';
+                        btn.textContent = 'Preview & Create';
+                        return;
                     }
+                    overlay.remove();
+                    showFilePreviewModal(resp.files, 'Create Resource', function() {
+                        fetch('/_schema-craft/api/create-resource', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify(Object.assign({}, payload, { force: true })),
+                        })
+                        .then(handleResponse)
+                        .then(function(writeResp) {
+                            if (writeResp.success) {
+                                showToast(writeResp.message, 'success');
+                                showResourcesView();
+                            } else {
+                                showToast(writeResp.message || 'Failed to create resource.', 'error');
+                            }
+                        })
+                        .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                    });
                 })
                 .catch(function(e) {
                     showToast('Error: ' + e.message, 'error');
                     btn.disabled = false;
-                    btn.textContent = 'Create Resource';
+                    btn.textContent = 'Preview & Create';
                 });
             });
         }

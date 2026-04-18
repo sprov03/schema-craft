@@ -854,7 +854,10 @@ class GenerateController
     /**
      * Create a new named resource for a schema, independent of any action.
      */
-    public function createResource(Request $request, Filesystem $fs): JsonResponse
+    /**
+     * Preview resource generation without writing to disk.
+     */
+    public function createResourcePreview(Request $request): JsonResponse
     {
         $request->validate([
             'api' => ['required', 'string'],
@@ -864,18 +867,64 @@ class GenerateController
             'relationships' => ['sometimes', 'array'],
         ]);
 
+        [$relativePath, $content] = $this->buildResourceFileContent($request);
+
+        return new JsonResponse([
+            'success' => true,
+            'files' => [[
+                'path' => $relativePath,
+                'content' => $content,
+                'exists' => file_exists(base_path($relativePath)),
+            ]],
+        ]);
+    }
+
+    /**
+     * Write a new resource class to disk.
+     */
+    public function createResource(Request $request, Filesystem $fs): JsonResponse
+    {
+        $request->validate([
+            'api' => ['required', 'string'],
+            'schema' => ['required', 'string'],
+            'resourceName' => ['required', 'string', 'regex:/^[A-Za-z][A-Za-z0-9]*Resource$/'],
+            'columns' => ['sometimes', 'array'],
+            'relationships' => ['sometimes', 'array'],
+            'force' => ['sometimes', 'boolean'],
+        ]);
+
+        [$relativePath, $content] = $this->buildResourceFileContent($request);
+        $absolutePath = base_path($relativePath);
+
+        if (! $request->boolean('force') && $fs->exists($absolutePath)) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => basename($relativePath, '.php').' already exists. Use force to overwrite.',
+            ], 422);
+        }
+
+        $fs->ensureDirectoryExists(dirname($absolutePath));
+        $fs->put($absolutePath, $content);
+
+        return new JsonResponse([
+            'success' => true,
+            'message' => basename($relativePath, '.php').' created.',
+            'file' => $relativePath,
+        ]);
+    }
+
+    /**
+     * Build the resource file content and relative path from the request.
+     *
+     * @return array{string, string} [relativePath, content]
+     */
+    private function buildResourceFileContent(Request $request): array
+    {
         $apiConfig = ConfigResolver::resolve($request->input('api'));
         $schemaClass = $this->resolveSchemaClass($request->input('schema'));
         $resourceName = $request->input('resourceName');
-        $resourceDir = base_path($this->namespaceToDirectory($apiConfig->resourceNamespace));
-        $resourcePath = $resourceDir.'/'.$resourceName.'.php';
-
-        if ($fs->exists($resourcePath)) {
-            return new JsonResponse([
-                'success' => false,
-                'message' => "{$resourceName} already exists.",
-            ], 422);
-        }
+        $resourceDir = $this->namespaceToDirectory($apiConfig->resourceNamespace);
+        $relativePath = $resourceDir.'/'.$resourceName.'.php';
 
         $scanner = new SchemaScanner($schemaClass);
         $table = $scanner->scan();
@@ -887,21 +936,13 @@ class GenerateController
             $table = $this->filterTableColumns($table, $selectedColumns, $selectedRelationships);
         }
 
-        $generator = new ResourceGenerator;
-        $content = $generator->generate(
+        $content = (new ResourceGenerator)->generate(
             table: $table,
             resourceNamespace: $apiConfig->resourceNamespace,
             resourceName: $resourceName,
         );
 
-        $fs->ensureDirectoryExists($resourceDir);
-        $fs->put($resourcePath, $content);
-
-        return new JsonResponse([
-            'success' => true,
-            'message' => "{$resourceName} created.",
-            'file' => str_replace(base_path().'/', '', $resourcePath),
-        ]);
+        return [$relativePath, $content];
     }
 
     /**
