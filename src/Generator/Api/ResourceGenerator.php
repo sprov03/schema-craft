@@ -70,6 +70,13 @@ class ResourceGenerator
             $table->schemaClass,
         ];
 
+        $hasDateColumn = $table->hasTimestamps || $table->hasSoftDeletes
+            || collect($table->columns)->contains(fn ($c) => in_array($c->columnType, ['date', 'datetime', 'timestamp']));
+
+        if ($hasDateColumn) {
+            $imports[] = 'Carbon\CarbonInterface';
+        }
+
         if ($modelFqcn !== null) {
             $imports[] = $modelFqcn;
         }
@@ -180,7 +187,7 @@ class ResourceGenerator
             in_array($columnType, ['int', 'integer', 'bigInteger', 'unsignedBigInteger', 'unsignedInteger', 'smallInteger', 'tinyInteger', 'mediumInteger']) => 'int',
             in_array($columnType, ['float', 'double', 'decimal']) => 'float',
             $columnType === 'boolean' => 'bool',
-            in_array($columnType, ['date', 'datetime', 'timestamp']) => '\\Carbon\\Carbon',
+            in_array($columnType, ['date', 'datetime', 'timestamp']) => '\\Carbon\\CarbonInterface',
             default => 'string',
         };
 
