@@ -7721,11 +7721,15 @@
             var listHtml = '';
 
             data.groups.forEach(function(group, idx) {
-                var resourceCount = (group.resources || []).length;
+                var resources = group.resources || [];
+                var resourceCount = resources.length;
                 var actionCount = group.actions.length;
+                var hasManual = resources.some(function(r) { return r.isManual; });
 
                 listHtml +=
-                    '<div class="gen-import-group" data-res-idx="' + idx + '">' +
+                    '<div class="gen-import-group" data-res-idx="' + idx + '" ' +
+                        'data-res-has-action="' + (actionCount > 0 ? '1' : '0') + '" ' +
+                        'data-res-has-manual="' + (hasManual ? '1' : '0') + '">' +
                         '<div class="gen-import-group-header" data-res-toggle="' + idx + '">' +
                             '<span class="gen-import-group-toggle">&#9654;</span>' +
                             '<span class="gen-import-group-name">' + escapeHtml(group.modelName) + '</span>' +
@@ -7744,8 +7748,14 @@
                 '<div class="gen-import">' +
                     '<div class="gen-import-title">Resources</div>' +
                     '<div class="gen-import-subtitle">All schemas for the <strong>' + escapeHtml(data.apiName) + '</strong> API, grouped with their resources. Resources are typed classes — the class definition is the source of truth.</div>' +
-                    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">' +
+                    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">' +
                         '<input type="search" id="gen-res-search" placeholder="Filter schemas..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;">' +
+                        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);white-space:nowrap;cursor:pointer;">' +
+                            '<input type="checkbox" id="gen-res-filter-action" checked> Has action' +
+                        '</label>' +
+                        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);white-space:nowrap;cursor:pointer;">' +
+                            '<input type="checkbox" id="gen-res-filter-manual"> Manual only' +
+                        '</label>' +
                     '</div>' +
                     listHtml +
                 '</div>';
@@ -7776,14 +7786,27 @@
                 });
             });
 
-            // Search filter
-            document.getElementById('gen-res-search').addEventListener('input', function(e) {
-                var query = e.target.value.toLowerCase();
-                content.querySelectorAll('.gen-import-group[data-res-idx]').forEach(function(group) {
-                    var name = group.querySelector('.gen-import-group-name');
-                    group.style.display = (!query || (name && name.textContent.toLowerCase().indexOf(query) !== -1)) ? '' : 'none';
+            // Unified filter function
+            function applyResFilters() {
+                var query = document.getElementById('gen-res-search').value.toLowerCase();
+                var filterAction = document.getElementById('gen-res-filter-action').checked;
+                var filterManual = document.getElementById('gen-res-filter-manual').checked;
+
+                content.querySelectorAll('.gen-import-group[data-res-idx]').forEach(function(el) {
+                    var name = el.querySelector('.gen-import-group-name');
+                    var matchesSearch = !query || (name && name.textContent.toLowerCase().indexOf(query) !== -1);
+                    var matchesAction = !filterAction || el.dataset.resHasAction === '1';
+                    var matchesManual = !filterManual || el.dataset.resHasManual === '1';
+                    el.style.display = (matchesSearch && matchesAction && matchesManual) ? '' : 'none';
                 });
-            });
+            }
+
+            document.getElementById('gen-res-search').addEventListener('input', applyResFilters);
+            document.getElementById('gen-res-filter-action').addEventListener('change', applyResFilters);
+            document.getElementById('gen-res-filter-manual').addEventListener('change', applyResFilters);
+
+            // Apply defaults on load
+            applyResFilters();
 
             // New Resource buttons
             content.querySelectorAll('[data-new-resource-schema]').forEach(function(btn) {
