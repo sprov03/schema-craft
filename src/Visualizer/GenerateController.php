@@ -870,14 +870,20 @@ class GenerateController
 
         [$relativePath, $content] = $this->buildResourceFileContent($request);
 
-        return new JsonResponse([
-            'success' => true,
-            'files' => [[
-                'path' => $relativePath,
-                'content' => $content,
-                'exists' => file_exists(base_path($relativePath)),
-            ]],
-        ]);
+        $absolutePath = base_path($relativePath);
+        $exists = file_exists($absolutePath);
+
+        $file = [
+            'path' => $relativePath,
+            'content' => $content,
+            'exists' => $exists,
+        ];
+
+        if ($exists) {
+            $file['existingContent'] = file_get_contents($absolutePath);
+        }
+
+        return new JsonResponse(['success' => true, 'files' => [$file]]);
     }
 
     /**

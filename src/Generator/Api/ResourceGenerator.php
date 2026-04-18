@@ -67,6 +67,7 @@ class ResourceGenerator
             'Illuminate\Support\Collection',
             'SchemaCraft\Attributes\Resources\ResourceSchema',
             'SchemaCraft\SchemaCraftResource',
+            $table->schemaClass,
         ];
 
         if ($modelFqcn !== null) {
