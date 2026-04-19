@@ -47,6 +47,7 @@ class ActionFileGenerator
         $actionClassName = ucfirst($actionName).$modelName.'Action';
         $schemaClassName = class_basename($schemaClass);
         $label = Str::headline($actionName);
+        $route = Str::kebab($actionName);
         $serviceMethod = $actionName;
 
         // Format description for ActionMeta attribute
@@ -96,6 +97,7 @@ class ActionFileGenerator
             [
                 '{{ actionNamespace }}',
                 '{{ imports }}',
+                '{{ route }}',
                 '{{ httpMethod }}',
                 '{{ label }}',
                 '{{ description }}',
@@ -108,6 +110,7 @@ class ActionFileGenerator
             [
                 $actionNamespace,
                 $imports,
+                $route,
                 $httpMethod,
                 $label,
                 $descriptionSuffix,

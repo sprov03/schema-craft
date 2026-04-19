@@ -9,7 +9,7 @@ use SchemaCraft\Tests\Fixtures\Models\Category;
 use SchemaCraft\Tests\Fixtures\Models\User;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 
-#[ActionMeta(method: 'put', label: 'Update Post')]
+#[ActionMeta(route: 'update-post', method: 'put', label: 'Update Post')]
 class UpdatePostAction extends Action
 {
     protected static string $schema = PostSchema::class;

@@ -19,7 +19,7 @@ use SchemaCraft\Action;
 use SchemaCraft\Attributes\Actions\ActionMeta;
 {{ imports }}
 
-#[ActionMeta(method: '{{ httpMethod }}', label: '{{ label }}'{{ description }})]
+#[ActionMeta(route: '{{ route }}', method: '{{ httpMethod }}', label: '{{ label }}'{{ description }})]
 class {{ actionClass }} extends Action
 {
     protected static string $schema = {{ schemaClass }}::class;

@@ -10,7 +10,7 @@ use SchemaCraft\Attributes\Relations\MorphTo;
 use SchemaCraft\Tests\Fixtures\Models\User;
 use SchemaCraft\Tests\Fixtures\Schemas\CommentSchema;
 
-#[ActionMeta(method: 'post', label: 'Create Comment')]
+#[ActionMeta(route: 'create-comment', method: 'post', label: 'Create Comment')]
 class CreateCommentAction extends Action
 {
     protected static string $schema = CommentSchema::class;

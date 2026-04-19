@@ -38,5 +38,19 @@ class ActionParameter
         public ?string $morphPairName = null,
         /** Whether this is the _type parameter of a morph pair (false = _id parameter). */
         public bool $isMorphType = false,
+        /** String max length (from #[Length]). */
+        public ?int $length = null,
+        /** Whether the column is unsigned (from #[Unsigned]). */
+        public bool $unsigned = false,
+        /** Whether the column has a unique constraint (from #[Unique]). */
+        public bool $unique = false,
+        /** Decimal/float precision (from #[Decimal]). */
+        public ?int $precision = null,
+        /** Decimal scale (from #[Decimal]). */
+        public ?int $scale = null,
+        /** Cast class (from #[Cast]). */
+        public ?string $castType = null,
+        /** Raw attribute instances on the property — used to find #[Rules] and other decorators. */
+        public array $attributes = [],
     ) {}
 }

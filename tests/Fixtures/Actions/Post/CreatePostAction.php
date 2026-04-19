@@ -10,7 +10,7 @@ use SchemaCraft\Tests\Fixtures\Models\Category;
 use SchemaCraft\Tests\Fixtures\Models\User;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 
-#[ActionMeta(method: 'post', label: 'Create Post')]
+#[ActionMeta(route: 'create-post', method: 'post', label: 'Create Post')]
 class CreatePostAction extends Action
 {
     protected static string $schema = PostSchema::class;

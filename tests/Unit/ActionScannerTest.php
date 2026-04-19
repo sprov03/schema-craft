@@ -3,9 +3,11 @@
 namespace SchemaCraft\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use SchemaCraft\Attributes\Rules;
 use SchemaCraft\Scanner\ActionScanner;
 use SchemaCraft\Tests\Fixtures\Actions\Comment\CreateCommentAction;
 use SchemaCraft\Tests\Fixtures\Actions\Comment\CreateNullableCommentAction;
+use SchemaCraft\Tests\Fixtures\Actions\Post\AnnotatedPostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\CreatePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\DeletePostAction;
 use SchemaCraft\Tests\Fixtures\Actions\Post\UpdatePostAction;
@@ -379,6 +381,73 @@ class ActionScannerTest extends TestCase
         }
 
         return null;
+    }
+
+    // ─── Column-shaping attribute tests ──────────────────────────────────────
+
+    public function test_length_attribute_is_read_from_action_property(): void
+    {
+        $definition = (new ActionScanner(AnnotatedPostAction::class))->scan();
+        $param = $this->findParam($definition->parameters, 'slug');
+
+        $this->assertNotNull($param);
+        $this->assertSame(50, $param->length);
+    }
+
+    public function test_medium_text_attribute_sets_column_type(): void
+    {
+        $definition = (new ActionScanner(AnnotatedPostAction::class))->scan();
+        $param = $this->findParam($definition->parameters, 'summary');
+
+        $this->assertNotNull($param);
+        $this->assertSame('mediumText', $param->columnType);
+    }
+
+    public function test_unique_attribute_is_read_from_action_property(): void
+    {
+        $definition = (new ActionScanner(AnnotatedPostAction::class))->scan();
+        $param = $this->findParam($definition->parameters, 'externalId');
+
+        $this->assertNotNull($param);
+        $this->assertTrue($param->unique);
+    }
+
+    public function test_small_int_attribute_sets_column_type(): void
+    {
+        $definition = (new ActionScanner(AnnotatedPostAction::class))->scan();
+        $param = $this->findParam($definition->parameters, 'priority');
+
+        $this->assertNotNull($param);
+        $this->assertSame('smallInteger', $param->columnType);
+    }
+
+    public function test_rules_attribute_is_stored_in_attributes_array(): void
+    {
+        $definition = (new ActionScanner(AnnotatedPostAction::class))->scan();
+        $param = $this->findParam($definition->parameters, 'title');
+
+        $this->assertNotNull($param);
+        $rulesAttr = null;
+        foreach ($param->attributes as $attr) {
+            if ($attr instanceof Rules) {
+                $rulesAttr = $attr;
+                break;
+            }
+        }
+
+        $this->assertNotNull($rulesAttr);
+        $this->assertContains('min:3', $rulesAttr->rules);
+    }
+
+    public function test_unannotated_property_has_empty_attributes(): void
+    {
+        $definition = (new ActionScanner(CreatePostAction::class))->scan();
+        $param = $this->findParam($definition->parameters, 'title');
+
+        $this->assertNotNull($param);
+        $this->assertSame([], $param->attributes);
+        $this->assertNull($param->length);
+        $this->assertFalse($param->unique);
     }
 
     private function findParam(array $parameters, string $name): ?\SchemaCraft\Scanner\ActionParameter

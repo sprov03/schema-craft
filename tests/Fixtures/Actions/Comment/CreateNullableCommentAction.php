@@ -8,7 +8,7 @@ use SchemaCraft\Attributes\Actions\ActionMeta;
 use SchemaCraft\Attributes\Relations\MorphTo;
 use SchemaCraft\Tests\Fixtures\Schemas\CommentSchema;
 
-#[ActionMeta(method: 'post', label: 'Create Nullable Comment')]
+#[ActionMeta(route: 'create-nullable-comment', method: 'post', label: 'Create Nullable Comment')]
 class CreateNullableCommentAction extends Action
 {
     protected static string $schema = CommentSchema::class;

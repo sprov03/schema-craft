@@ -6,7 +6,7 @@ use SchemaCraft\Action;
 use SchemaCraft\Attributes\Actions\ActionMeta;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 
-#[ActionMeta(method: 'delete', label: 'Delete Post')]
+#[ActionMeta(route: 'delete-post', method: 'delete', label: 'Delete Post')]
 class DeletePostAction extends Action
 {
     protected static string $schema = PostSchema::class;

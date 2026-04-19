@@ -10,6 +10,13 @@ use ReflectionNamedType;
 use ReflectionProperty;
 use SchemaCraft\Action;
 use SchemaCraft\Attributes\Actions\ActionMeta;
+use SchemaCraft\Attributes\BigInt;
+use SchemaCraft\Attributes\Cast;
+use SchemaCraft\Attributes\ColumnType;
+use SchemaCraft\Attributes\Date;
+use SchemaCraft\Attributes\Decimal;
+use SchemaCraft\Attributes\FloatColumn;
+use SchemaCraft\Attributes\Length;
 use SchemaCraft\Attributes\LongText;
 use SchemaCraft\Attributes\MediumText;
 use SchemaCraft\Attributes\Pivot;
@@ -21,7 +28,13 @@ use SchemaCraft\Attributes\Relations\MorphMany;
 use SchemaCraft\Attributes\Relations\MorphOne;
 use SchemaCraft\Attributes\Relations\MorphTo;
 use SchemaCraft\Attributes\Relations\MorphToMany;
+use SchemaCraft\Attributes\SmallInt;
 use SchemaCraft\Attributes\Text;
+use SchemaCraft\Attributes\Time;
+use SchemaCraft\Attributes\TinyInt;
+use SchemaCraft\Attributes\Unique;
+use SchemaCraft\Attributes\Unsigned;
+use SchemaCraft\Attributes\Year;
 use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\DataSchema;
 use SchemaCraft\Schema;
@@ -841,7 +854,56 @@ class ActionScanner
         $propName = $prop->getName();
         $columnName = Str::snake($propName);
 
-        $columnType = $this->resolveTextColumnType($prop);
+        // Read all column-shaping attributes — mirrors SchemaScanner::scanColumn()
+        $columnType = null;
+        $length = null;
+        $unsigned = false;
+        $unique = false;
+        $precision = null;
+        $scale = null;
+        $castType = null;
+        $rawAttributes = [];
+
+        foreach ($prop->getAttributes() as $attr) {
+            $instance = $attr->newInstance();
+            $rawAttributes[] = $instance;
+
+            if ($instance instanceof Text) {
+                $columnType = 'text';
+            } elseif ($instance instanceof MediumText) {
+                $columnType = 'mediumText';
+            } elseif ($instance instanceof LongText) {
+                $columnType = 'longText';
+            } elseif ($instance instanceof BigInt) {
+                $columnType = 'bigInteger';
+            } elseif ($instance instanceof SmallInt) {
+                $columnType = 'smallInteger';
+            } elseif ($instance instanceof TinyInt) {
+                $columnType = 'tinyInteger';
+            } elseif ($instance instanceof FloatColumn) {
+                $columnType = 'float';
+            } elseif ($instance instanceof Date) {
+                $columnType = 'date';
+            } elseif ($instance instanceof Time) {
+                $columnType = 'time';
+            } elseif ($instance instanceof Year) {
+                $columnType = 'year';
+            } elseif ($instance instanceof Decimal) {
+                $columnType = 'decimal';
+                $precision = $instance->precision;
+                $scale = $instance->scale;
+            } elseif ($instance instanceof Length) {
+                $length = $instance->length;
+            } elseif ($instance instanceof Unsigned) {
+                $unsigned = true;
+            } elseif ($instance instanceof Unique) {
+                $unique = true;
+            } elseif ($instance instanceof Cast) {
+                $castType = $instance->castClass;
+            } elseif ($instance instanceof ColumnType) {
+                $columnType = $instance->type;
+            }
+        }
 
         return new ActionParameter(
             name: $propName,
@@ -852,27 +914,14 @@ class ActionScanner
             isModel: false,
             columnName: $columnName,
             columnType: $columnType,
+            length: $length,
+            unsigned: $unsigned,
+            unique: $unique,
+            precision: $precision,
+            scale: $scale,
+            castType: $castType,
+            attributes: $rawAttributes,
         );
-    }
-
-    /**
-     * Check for #[Text], #[MediumText], or #[LongText] attributes on a property.
-     */
-    private function resolveTextColumnType(ReflectionProperty $prop): ?string
-    {
-        if (! empty($prop->getAttributes(Text::class))) {
-            return 'text';
-        }
-
-        if (! empty($prop->getAttributes(MediumText::class))) {
-            return 'mediumText';
-        }
-
-        if (! empty($prop->getAttributes(LongText::class))) {
-            return 'longText';
-        }
-
-        return null;
     }
 
     /**

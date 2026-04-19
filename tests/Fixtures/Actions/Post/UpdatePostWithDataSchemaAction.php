@@ -15,7 +15,7 @@ use SchemaCraft\Tests\Fixtures\Schemas\CommentSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\TagSchema;
 
-#[ActionMeta(method: 'put', label: 'Update Post With Action Schema')]
+#[ActionMeta(route: 'update-post-with-action-schema', method: 'put', label: 'Update Post With Action Schema')]
 class UpdatePostWithDataSchemaAction extends Action
 {
     protected static string $schema = PostSchema::class;

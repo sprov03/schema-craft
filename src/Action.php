@@ -17,13 +17,16 @@ use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Route as RouteFacade;
 use Illuminate\Support\Str;
 use SchemaCraft\Attributes\Actions\ActionMeta;
+use SchemaCraft\Attributes\Rules;
 use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Scanner\ActionDefinition;
 use SchemaCraft\Scanner\ActionParameter;
 use SchemaCraft\Scanner\ActionScanner;
+use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Scanner\NestedFieldDefinition;
 use SchemaCraft\Scanner\NestedRelationshipParameter;
 use SchemaCraft\Scanner\SchemaScanner;
+use SchemaCraft\Validation\ValidationRuleMapper;
 
 /**
  * Abstract base class for action definitions.
@@ -148,7 +151,7 @@ abstract class Action
         $columnNames = [];
         foreach ($definition->parameters as $param) {
             if ($param->isNestedRelationship) {
-                continue; // Nested params get their own rules below
+                continue;
             }
 
             if ($param->isModel && $param->foreignKeyColumn !== null) {
@@ -159,6 +162,63 @@ abstract class Action
         }
 
         $rules = $schemaClass::updateRules($columnNames)->toArray();
+
+        // Fallback: generate rules for params the schema didn't know about
+        $schemaBaseName = Str::beforeLast(class_basename($schemaClass), 'Schema');
+        $tableName = $schemaClass::tableName() ?? Str::snake(Str::pluralStudly($schemaBaseName));
+        $modelVariable = Str::camel($schemaBaseName);
+        $mapper = new ValidationRuleMapper($tableName, []);
+
+        foreach ($definition->parameters as $param) {
+            if ($param->isNestedRelationship) {
+                continue;
+            }
+
+            $fieldKey = $param->isModel
+                ? ($param->foreignKeyColumn ?? Str::snake($param->name).'_id')
+                : ($param->columnName ?? $param->name);
+
+            if (isset($rules[$fieldKey])) {
+                continue; // Schema already handled this param
+            }
+
+            $columnType = $param->columnType ?? $this->phpTypeToColumnType($param->type);
+
+            $synthetic = new ColumnDefinition(
+                name: $fieldKey,
+                columnType: $columnType,
+                nullable: $param->nullable,
+                length: $param->length,
+                unsigned: $param->unsigned,
+                unique: $param->unique,
+                precision: $param->precision,
+                scale: $param->scale,
+                castType: $param->castType,
+                attributes: $param->attributes,
+            );
+
+            $rules[$fieldKey] = $mapper->updateRules($synthetic, $modelVariable);
+        }
+
+        // Append #[Rules] from action properties (schema-mapped and fallback params)
+        foreach ($definition->parameters as $param) {
+            if ($param->isNestedRelationship) {
+                continue;
+            }
+
+            $rulesAttr = $this->findRulesAttribute($param->attributes);
+            if ($rulesAttr === null) {
+                continue;
+            }
+
+            $fieldKey = $param->isModel
+                ? ($param->foreignKeyColumn ?? Str::snake($param->name).'_id')
+                : ($param->columnName ?? $param->name);
+
+            if (isset($rules[$fieldKey])) {
+                $rules[$fieldKey] = array_merge($rules[$fieldKey], $rulesAttr->rules);
+            }
+        }
 
         // Add rules for nested relationship parameters
         foreach ($definition->parameters as $param) {
@@ -181,6 +241,27 @@ abstract class Action
         }
 
         return $rules;
+    }
+
+    private function phpTypeToColumnType(string $type): string
+    {
+        return match ($type) {
+            'int' => 'integer',
+            'float' => 'float',
+            'bool' => 'boolean',
+            default => 'string',
+        };
+    }
+
+    private function findRulesAttribute(array $attributes): ?Rules
+    {
+        foreach ($attributes as $attr) {
+            if ($attr instanceof Rules) {
+                return $attr;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -784,8 +865,10 @@ abstract class Action
     /**
      * Register this action as an API endpoint.
      *
-     * Must be called inside a Route group context. Derives HTTP method, path,
-     * and response type from the action definition and meta attributes.
+     * Must be called inside a Route group context. The registered path is
+     * automatically schema-scoped: {schema-kebab}/{route} for POST, or
+     * {schema-kebab}/{id}/{route} for PUT/PATCH/DELETE so the model record
+     * can be resolved via the {id} route parameter.
      *
      * @param  class-string|null  $resourceClass  The API resource class to wrap the response
      */
@@ -793,8 +876,13 @@ abstract class Action
     {
         $definition = static::definition();
         $meta = static::meta();
-        $httpMethod = $meta?->method ?? 'post';
-        $segment = Str::kebab($definition->serviceMethod);
+        $httpMethod = $meta->method;
+
+        $schemaSegment = Str::kebab(Str::beforeLast(class_basename(static::$schema), 'Schema'));
+        $needsId = in_array($httpMethod, ['put', 'patch', 'delete']);
+        $segment = $needsId
+            ? "{$schemaSegment}/{id}/{$meta->route}"
+            : "{$schemaSegment}/{$meta->route}";
 
         $actionClass = static::class;
 
@@ -845,6 +933,9 @@ abstract class Action
 
     /**
      * Resolve the model record for an endpoint request.
+     *
+     * POST returns a fresh model instance. PUT/PATCH/DELETE find the existing
+     * record via the {id} route parameter. Global scopes enforce access control.
      */
     private function resolveEndpointRecord(Request $request, string $httpMethod): Model
     {
@@ -859,10 +950,7 @@ abstract class Action
             return new $modelClass;
         }
 
-        // For PUT/PATCH/DELETE, resolve from route parameter
-        $paramName = Str::snake(class_basename($modelClass));
-
-        return $modelClass::query()->findOrFail($request->route($paramName));
+        return $modelClass::query()->findOrFail($request->route('id'));
     }
 
     /**

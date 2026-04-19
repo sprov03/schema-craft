@@ -3,6 +3,7 @@
 namespace SchemaCraft\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use SchemaCraft\Generator\Sdk\SdkCustomAction;
 use SchemaCraft\Generator\Sdk\SdkResourceGenerator;
 use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Scanner\TableDefinition;
@@ -164,7 +165,10 @@ class SdkResourceGeneratorTest extends TestCase
     {
         $table = $this->makeSimpleTable();
 
-        $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post', ['cancel', 'publish']);
+        $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post', [
+            new SdkCustomAction('cancel', 'put'),
+            new SdkCustomAction('publish', 'put'),
+        ]);
 
         $this->assertStringContainsString('public function cancel($id)', $output);
         $this->assertStringContainsString('posts/{$id}/cancel', $output);
@@ -177,7 +181,9 @@ class SdkResourceGeneratorTest extends TestCase
     {
         $table = $this->makeSimpleTable();
 
-        $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post', ['markAsRead']);
+        $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post', [
+            new SdkCustomAction('markAsRead', 'put'),
+        ]);
 
         $this->assertStringContainsString('posts/{$id}/mark-as-read', $output);
     }

@@ -157,6 +157,7 @@ class RuntimeRouteScanner
         $rules = null;
         $formRequest = null;
         $actionClass = null;
+        $actionParameters = null;
 
         // Check for action endpoint (route defaults)
         $schemaCraftAction = $route->defaults['_schema_craft_action'] ?? null;
@@ -169,13 +170,27 @@ class RuntimeRouteScanner
 
             // Get rich data from the action class
             if ($schemaCraftAction !== null && class_exists($schemaCraftAction)) {
-                $actionInstance = new $schemaCraftAction;
                 $scanner = new ActionScanner($schemaCraftAction);
                 $definition = $scanner->scan();
+                $meta = $schemaCraftAction::meta();
 
-                $action = $definition->serviceMethod;
+                // SDK method name: explicit sdkMethod > camelCase route slug > serviceMethod fallback
+                $action = $meta?->sdkMethod ?? ($meta ? \Illuminate\Support\Str::camel($meta->route) : $definition->serviceMethod);
                 $description = $definition->description;
-                $rules = $actionInstance->rules();
+
+                // Serialize parameters for SDK generation — avoids PHP object serialization issues
+                $actionParameters = array_map(fn ($p) => [
+                    'name' => $p->name,
+                    'type' => $p->type,
+                    'nullable' => $p->nullable,
+                    'hasDefault' => $p->hasDefault,
+                    'default' => is_scalar($p->default) ? $p->default : null,
+                    'isModel' => $p->isModel,
+                    'foreignKeyColumn' => $p->foreignKeyColumn,
+                    'columnName' => $p->columnName,
+                    'isNestedRelationship' => $p->isNestedRelationship,
+                    'morphPairName' => $p->morphPairName,
+                ], $definition->parameters);
             }
         } elseif ($controllerClass !== null && str_starts_with($controllerClass, $controllerNamespace)) {
             // Controller route — derive schema from controller name
@@ -212,6 +227,7 @@ class RuntimeRouteScanner
             'actionClass' => $actionClass,
             'rules' => $rules,
             'formRequest' => $formRequest,
+            'actionParameters' => $actionParameters,
         ];
     }
 

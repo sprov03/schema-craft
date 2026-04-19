@@ -75,7 +75,7 @@ class ActionFileGeneratorTest extends TestCase
         );
 
         $this->assertStringContainsString('use SchemaCraft\\Attributes\\Actions\\ActionMeta;', $file->content);
-        $this->assertStringContainsString("#[ActionMeta(method: 'put', label: 'Update')]", $file->content);
+        $this->assertStringContainsString("#[ActionMeta(route: 'update', method: 'put', label: 'Update')]", $file->content);
     }
 
     public function test_action_has_schema_property(): void
@@ -154,7 +154,7 @@ class ActionFileGeneratorTest extends TestCase
         $this->assertStringContainsString('public User $author;', $file->content);
         $this->assertStringContainsString('#[BelongsTo(Category::class)]', $file->content);
         $this->assertStringContainsString('public ?Category $category;', $file->content);
-        $this->assertStringContainsString("#[ActionMeta(method: 'post', label: 'Create')]", $file->content);
+        $this->assertStringContainsString("#[ActionMeta(route: 'create', method: 'post', label: 'Create')]", $file->content);
     }
 
     public function test_action_boolean_field_has_default(): void
