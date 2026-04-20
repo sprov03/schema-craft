@@ -464,20 +464,11 @@ abstract class Action
             $mainAction->modalDescription($meta->description);
         }
 
-        // Relay passes the run() result from ->action() into ->after() without
-        // going through Livewire serialization. Only the final scalar/array/model
-        // passed to mountAction() arguments is serialized.
-        $relay = new \stdClass;
-        $relay->result = null;
-
         $schemaCraftAction = $this;
         $mainAction->schema(fn (?Model $record = null) => $schemaCraftAction->buildFilamentSchema($definition, $record));
-        $mainAction->action(function (array $data, ?Model $record = null) use ($schemaCraftAction, &$relay) {
-            $relay->result = $schemaCraftAction->execute($record, $data);
-        });
-        $mainAction->after(function ($livewire) use (&$relay, $resultActionName) {
-            $livewire->mountAction($resultActionName, ['result' => $relay->result]);
-            $relay->result = null;
+        $mainAction->action(function (array $data, ?Model $record, $livewire) use ($schemaCraftAction, $resultActionName) {
+            $result = $schemaCraftAction->execute($record, $data);
+            $livewire->replaceMountedAction($resultActionName, ['result' => $result]);
         });
 
         $resultAction = FilamentAction::make($resultActionName)
