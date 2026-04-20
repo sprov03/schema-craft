@@ -400,7 +400,27 @@ abstract class Action
      *
      * @param  \Closure|null  $configureFields  Optional closure to customize fields (receives FieldProxy)
      */
-    public function filamentAction(?\Closure $configureFields = null): FilamentAction
+    /**
+     * Build a Filament Action with auto-generated modal form from this action's definition.
+     *
+     * All component defaults are set via Filament's ->default() with closure DI.
+     * configureFields() runs last and can override any default — last call wins.
+     * No fillForm() is used; Filament evaluates ->default() closures at mount time,
+     * resolving $record via DI (works for both page and table row actions).
+     *
+     * Fill-data precedence (lowest → highest):
+     *   1. PHP property defaults on the action class → component ->default()
+     *   2. Record data via ->default(fn($record) => ...) closures
+     *   3. configureFields() ->default() overrides — always wins
+     *
+     * Filament handles record injection automatically in all contexts:
+     * - Page actions: resolved via getDefaultActionRecord() on the Livewire component
+     * - Table row actions: set per-row by resolveTableAction() before mounting
+     *
+     * @param  \Closure|null  $configureFields  Optional closure to customize fields (receives FieldProxy)
+     * @param  \Closure|null  $then  Optional closure called after run() with its return value
+     */
+    public function filamentAction(?\Closure $configureFields = null, ?\Closure $then = null): FilamentAction
     {
         // configureFields can be set via the method parameter or via the chainable method
         if ($configureFields !== null) {
@@ -424,60 +444,15 @@ abstract class Action
         $action->schema(fn (?Model $record = null) => $schemaCraftAction->buildFilamentSchema($definition, $record));
 
         // Deferred: $record resolved by Filament's DI at submit time.
-        $schemaCraftAction = $this;
-        $action->action(fn (array $data, ?Model $record = null) => $schemaCraftAction->execute($record, $data));
-
-        return $action;
-    }
-
-    /**
-     * Build a Filament Action pair that shows a result modal after run() completes.
-     *
-     * Returns two Filament actions: [mainAction, resultAction]. Both must be registered
-     * in the same Filament component. Spread the return value at the call site:
-     *
-     *   ->headerActions([
-     *       ...(new MyAction()->filamentActionWithResponse(
-     *           response: fn ($result) => [TextInput::make('token')->default($result->value)->readOnly()],
-     *       )),
-     *   ])
-     *
-     * @param  \Closure|null  $configureFields  Optional — same as filamentAction()
-     * @param  \Closure  $response  Receives the return value of run(), returns array of Filament components
-     * @return FilamentAction[]
-     */
-    public function filamentActionWithResponse(?\Closure $configureFields = null, \Closure $response): array
-    {
-        if ($configureFields !== null) {
-            $this->fieldConfigFn = $configureFields;
-        }
-
-        $definition = static::definition();
-        $meta = static::meta();
-        $actionName = Str::camel($definition->serviceMethod);
-        $resultActionName = 'showResult_'.$actionName;
-
-        $mainAction = FilamentAction::make($actionName)
-            ->label($meta?->label ?? Str::headline($definition->serviceMethod));
-
-        if ($meta?->description) {
-            $mainAction->modalDescription($meta->description);
-        }
-
-        $schemaCraftAction = $this;
-        $mainAction->schema(fn (?Model $record = null) => $schemaCraftAction->buildFilamentSchema($definition, $record));
-        $mainAction->action(function (array $data, ?Model $record, $livewire) use ($schemaCraftAction, $resultActionName) {
+        $action->action(function (array $data, ?Model $record = null) use ($schemaCraftAction, $then) {
             $result = $schemaCraftAction->execute($record, $data);
-            $livewire->replaceMountedAction($resultActionName, ['result' => $result]);
+
+            if ($then !== null) {
+                $then($result);
+            }
         });
 
-        $resultAction = FilamentAction::make($resultActionName)
-            ->hidden()
-            ->schema(fn (array $arguments) => $response($arguments['result'] ?? null))
-            ->modalSubmitAction(false)
-            ->modalCancelActionLabel('Close');
-
-        return [$mainAction, $resultAction];
+        return $action;
     }
 
     /**
