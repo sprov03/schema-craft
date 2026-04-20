@@ -431,6 +431,55 @@ abstract class Action
     }
 
     /**
+     * Build a Filament Action pair that shows a result modal after run() completes.
+     *
+     * Returns two Filament actions: [mainAction, resultAction]. Both must be registered
+     * in the same Filament component. Spread the return value at the call site:
+     *
+     *   ->headerActions([
+     *       ...(new MyAction()->filamentActionWithResponse(
+     *           response: fn ($result) => [TextInput::make('token')->default($result->value)->readOnly()],
+     *       )),
+     *   ])
+     *
+     * @param  \Closure|null  $configureFields  Optional — same as filamentAction()
+     * @param  \Closure  $response  Receives the return value of run(), returns array of Filament components
+     * @return FilamentAction[]
+     */
+    public function filamentActionWithResponse(?\Closure $configureFields = null, \Closure $response): array
+    {
+        if ($configureFields !== null) {
+            $this->fieldConfigFn = $configureFields;
+        }
+
+        $definition = static::definition();
+        $meta = static::meta();
+        $actionName = Str::camel($definition->serviceMethod);
+        $resultActionName = 'showResult_'.$actionName;
+
+        $mainAction = FilamentAction::make($actionName)
+            ->label($meta?->label ?? Str::headline($definition->serviceMethod));
+
+        if ($meta?->description) {
+            $mainAction->modalDescription($meta->description);
+        }
+
+        $schemaCraftAction = $this;
+        $mainAction->schema(fn (?Model $record = null) => $schemaCraftAction->buildFilamentSchema($definition, $record));
+        $mainAction->action(function (array $data, ?Model $record, FilamentAction $action) use ($schemaCraftAction, $resultActionName) {
+            $result = $schemaCraftAction->execute($record, $data);
+            $action->replaceMountedAction($resultActionName, ['result' => $result]);
+        });
+
+        $resultAction = FilamentAction::make($resultActionName)
+            ->schema(fn (array $arguments) => $response($arguments['result'] ?? null))
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Close');
+
+        return [$mainAction, $resultAction];
+    }
+
+    /**
      * Build the Filament form schema from the action definition.
      *
      * Each component gets a ->default() closure that resolves values from the
