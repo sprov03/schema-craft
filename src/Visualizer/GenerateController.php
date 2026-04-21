@@ -1013,7 +1013,8 @@ class GenerateController
     }
 
     /**
-     * Enrich an endpoint from RuntimeRouteScanner with additional action metadata.
+     * Enrich an endpoint from RuntimeRouteScanner with additional action metadata
+     * and, for controller endpoints, resolve #[ApiResponse] into response field docs.
      *
      * @param  array<string, mixed>  $endpoint
      * @return array<string, mixed>
@@ -1063,10 +1064,76 @@ class GenerateController
             }
         }
 
+        // For controller endpoints with #[ApiResponse], resolve response field docs
+        if ($endpoint['source'] === 'controller' && ! empty($endpoint['responseResource'])) {
+            $rr = $endpoint['responseResource'];
+            $resourceClass = $rr['resourceClass'] ?? null;
+
+            if ($resourceClass !== null && class_exists($resourceClass)) {
+                $fields = $this->buildResponseFieldsFromResource($resourceClass);
+
+                if ($fields !== null) {
+                    $endpoint['responseFields'] = $fields;
+                    $endpoint['responseCollection'] = $rr['collection'] ?? false;
+                    $endpoint['responseModelName'] = str_replace('Resource', '', class_basename($resourceClass));
+                }
+            }
+
+            unset($endpoint['responseResource']);
+        }
+
         $endpoint['parameters'] = $parameters;
         $endpoint['relationships'] = $relationships;
 
         return $endpoint;
+    }
+
+    /**
+     * Build response field documentation from a SchemaCraftResource class.
+     *
+     * Reflects on the resource's typed public properties, relationship attributes,
+     * and computed methods to produce the same shape as buildResponseFields().
+     * Returns null for manual JsonResource subclasses (toArray() is opaque).
+     *
+     * @return array{columns: array, relationships: array}|null
+     */
+    private function buildResponseFieldsFromResource(string $resourceClass): ?array
+    {
+        try {
+            $definition = (new ResourceScanner)->scanClass($resourceClass);
+
+            if ($definition->isManual) {
+                return null;
+            }
+
+            $columns = array_map(fn ($p) => [
+                'name' => $p['name'],
+                'type' => ltrim($p['type'], '?'),
+                'nullable' => str_starts_with($p['type'], '?'),
+            ], $definition->properties);
+
+            foreach ($definition->computed as $c) {
+                $columns[] = [
+                    'name' => Str::snake($c['name']),
+                    'type' => $c['returnType'] ?? 'mixed',
+                    'nullable' => false,
+                    'computed' => true,
+                ];
+            }
+
+            $collectionTypes = ['hasMany', 'morphMany', 'morphToMany', 'hasManyThrough'];
+            $relationships = array_map(fn ($r) => [
+                'name' => $r['name'],
+                'type' => $r['type'],
+                'relatedModel' => str_replace('Resource', '', class_basename($r['resource'])),
+                'isCollection' => in_array($r['type'], $collectionTypes, true),
+                'conditional' => true,
+            ], $definition->relationships);
+
+            return ['columns' => $columns, 'relationships' => $relationships];
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

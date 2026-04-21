@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Route as RouteFacade;
 use ReflectionMethod;
 use ReflectionNamedType;
 use SchemaCraft\Action;
+use SchemaCraft\Attributes\Api\ApiResponse;
 use SchemaCraft\Scanner\ActionScanner;
 
 /**
@@ -137,7 +138,7 @@ class RuntimeRouteScanner
     /**
      * Build a structured endpoint array from a route.
      *
-     * @return array{method: string, path: string, action: string, type: string, description: ?string, source: string, schema: ?string, actionClass: ?string, rules: ?array, formRequest: ?string}
+     * @return array{method: string, path: string, action: string, type: string, description: ?string, source: string, schema: ?string, actionClass: ?string, rules: ?array, formRequest: ?string, responseResource: ?array}
      */
     private function buildEndpoint(
         Route $route,
@@ -158,6 +159,7 @@ class RuntimeRouteScanner
         $formRequest = null;
         $actionClass = null;
         $actionParameters = null;
+        $responseResource = null;
 
         // Check for action endpoint (route defaults)
         $schemaCraftAction = $route->defaults['_schema_craft_action'] ?? null;
@@ -193,7 +195,7 @@ class RuntimeRouteScanner
                 ], $definition->parameters);
             }
         } elseif ($controllerClass !== null && str_starts_with($controllerClass, $controllerNamespace)) {
-            // Controller route — derive schema from controller name
+            // Controller route inside the configured namespace — derive schema from controller name
             $source = 'controller';
             $modelName = str_replace('Controller', '', class_basename($controllerClass));
             $schemaClass = $schemaNamespace.'\\'.$modelName.'Schema';
@@ -201,19 +203,21 @@ class RuntimeRouteScanner
             if (class_exists($schemaClass)) {
                 $schema = $schemaClass;
             }
-
-            // Get PHPDoc description and FormRequest rules via reflection
-            if ($controllerMethod !== 'Closure') {
-                $description = $this->extractDescription($controllerClass, $controllerMethod);
-                $formRequest = $this->extractFormRequest($controllerClass, $controllerMethod);
-
-                if ($formRequest !== null) {
-                    $rules = $this->extractRules($formRequest);
-                }
-            }
         } elseif ($controllerClass !== null) {
-            // Controller outside the API namespace — still try to map
+            // Controller outside the configured namespace
             $source = 'controller';
+        }
+
+        // Reflect on ALL controller routes for description, FormRequest, and #[ApiResponse]
+        if ($source === 'controller' && $controllerClass !== null && $controllerMethod !== 'Closure') {
+            $description = $this->extractDescription($controllerClass, $controllerMethod);
+            $formRequest = $this->extractFormRequest($controllerClass, $controllerMethod);
+
+            if ($formRequest !== null) {
+                $rules = $this->extractRules($formRequest);
+            }
+
+            $responseResource = $this->extractResponseAttribute($controllerClass, $controllerMethod);
         }
 
         return [
@@ -228,6 +232,7 @@ class RuntimeRouteScanner
             'rules' => $rules,
             'formRequest' => $formRequest,
             'actionParameters' => $actionParameters,
+            'responseResource' => $responseResource,
         ];
     }
 
@@ -322,5 +327,37 @@ class RuntimeRouteScanner
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * Extract #[ApiResponse] attribute data from a controller method.
+     *
+     * Returns an array with 'resourceClass' and 'collection' keys, or null
+     * when no #[ApiResponse] attribute is present on the method.
+     *
+     * @return array{resourceClass: string, collection: bool}|null
+     */
+    private function extractResponseAttribute(string $controllerClass, string $method): ?array
+    {
+        try {
+            $ref = new ReflectionMethod($controllerClass, $method);
+
+            foreach ($ref->getAttributes() as $attr) {
+                $name = $attr->getName();
+
+                if ($name === ApiResponse::class || str_ends_with($name, '\\ApiResponse')) {
+                    $instance = $attr->newInstance();
+
+                    return [
+                        'resourceClass' => $instance->resourceClass,
+                        'collection' => $instance->collection,
+                    ];
+                }
+            }
+        } catch (\Throwable) {
+            // Reflection failed
+        }
+
+        return null;
     }
 }

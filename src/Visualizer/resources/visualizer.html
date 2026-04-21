@@ -7407,18 +7407,19 @@
                 row.addEventListener('click', function() {
                     var ep = JSON.parse(row.dataset.docsEp);
                     var modelName = row.dataset.docsModel;
-                    // Find responseFields from the group data
-                    var responseFields = null;
-                    if (modelName && docsData && docsData.groups) {
+                    // Per-endpoint responseFields (from #[ApiResponse]) take priority
+                    var responseFields = ep.responseFields || null;
+                    var resolvedModelName = ep.responseModelName || modelName;
+                    if (!responseFields && modelName && docsData && docsData.groups) {
                         var group = docsData.groups.find(function(g) { return g.modelName === modelName; });
                         if (group) responseFields = group.responseFields;
                     }
-                    showEndpointDetailModal(ep, modelName, responseFields);
+                    showEndpointDetailModal(ep, resolvedModelName, responseFields, ep.responseCollection || false);
                 });
             });
         }
 
-        function showEndpointDetailModal(ep, modelName, responseFields) {
+        function showEndpointDetailModal(ep, modelName, responseFields, isCollection) {
             var methods = ep.method.split('|');
             var primaryMethod = methods[0];
             var methodLabel = methods.join(' | ');
@@ -7536,10 +7537,11 @@
                     '<div style="font-size:12px;color:var(--text-secondary);"><code>204 No Content</code> \u2014 Empty response on success.</div>' +
                 '</div>';
             } else if (responseFields && (responseFields.columns.length > 0 || responseFields.relationships.length > 0)) {
-                // Resource response fields from schema scan
+                // Resource response fields from schema scan or #[ApiResponse] attribute
+                var resourceLabel = modelName ? (escapeHtml(modelName) + 'Resource' + (isCollection ? '[]' : '')) : 'Resource';
                 responseHtml += '<div class="ep-section">' +
                     '<div class="ep-section-title">Response Body ' +
-                        '<span class="ep-section-badge fields">' + escapeHtml(modelName) + 'Resource</span>' +
+                        '<span class="ep-section-badge fields">' + resourceLabel + '</span>' +
                     '</div>';
 
                 if (responseFields.columns.length > 0) {
@@ -7554,6 +7556,7 @@
                         if (col.unsigned) flags += '<span class="ep-field-flag unsigned">unsigned</span>';
                         if (col.cast) flags += '<span class="ep-rule-tag">' + escapeHtml(col.cast) + '</span>';
                         if (col.managed) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">managed</span>';
+                        if (col.computed) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">computed</span>';
                         if (col.length) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">len:' + col.length + '</span>';
                         if (col.hasOwnProperty('default') && col['default'] !== null && col['default'] !== undefined) {
                             flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">default: ' + escapeHtml(String(col['default'])) + '</span>';
