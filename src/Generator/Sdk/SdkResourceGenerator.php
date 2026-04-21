@@ -42,6 +42,7 @@ class SdkResourceGenerator
         $lines[] = "namespace {$resourceNamespace};";
         $lines[] = '';
         $lines[] = "use {$dataNamespace}\\{$dataClassName};";
+        $lines[] = 'use Illuminate\\Support\\Collection;';
         $lines[] = '';
         $lines[] = "class {$resourceClassName}";
         $lines[] = '{';
@@ -141,7 +142,7 @@ class SdkResourceGenerator
         if ($isGet) {
             $lines[] = str_contains($path, '{')
                 ? "     * @return {$dataClassName}"
-                : "     * @return {$dataClassName}[]";
+                : "     * @return Collection<int, {$dataClassName}>";
         } else {
             $lines[] = '     * @return void';
         }
@@ -156,9 +157,9 @@ class SdkResourceGenerator
             if (str_contains($path, '{')) {
                 $lines[] = "        return {$dataClassName}::fromArray(\$response['data']);";
             } else {
-                $lines[] = '        return array_map(function (array $item) {';
+                $lines[] = "        return collect(\$response['data'])->map(function (array \$item) {";
                 $lines[] = "            return {$dataClassName}::fromArray(\$item);";
-                $lines[] = '        }, $response[\'data\']);';
+                $lines[] = '        });';
             }
         } elseif (! empty($bodyParams)) {
             $lines[] = "        \$this->connector->{$httpMethod}({$connectorPath}, [";
@@ -276,15 +277,15 @@ class SdkResourceGenerator
         return [
             '',
             '    /**',
-            "     * @return {$dataClassName}[]",
+            "     * @return Collection<int, {$dataClassName}>",
             '     */',
             '    public function list()',
             '    {',
             "        \$response = \$this->connector->get('{$pluralSlug}');",
             '',
-            '        return array_map(function (array $item) {',
+            "        return collect(\$response['data'])->map(function (array \$item) {",
             "            return {$dataClassName}::fromArray(\$item);",
-            '        }, $response[\'data\']);',
+            '        });',
             '    }',
         ];
     }
