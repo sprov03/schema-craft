@@ -1581,13 +1581,52 @@ class GenerateController
         }
 
         $sdkPath = $this->resolveSdkOutputPath($request);
+        $outputDir = base_path($sdkPath);
         $previewFiles = [];
+        $generatedRelPaths = [];
+
         foreach ($result['files'] as $file) {
-            $previewFiles[] = [
-                'path' => $sdkPath.'/'.$file->path,
+            $relPath = $sdkPath.'/'.$file->path;
+            $absolutePath = base_path($relPath);
+            $exists = file_exists($absolutePath);
+            $generatedRelPaths[] = $relPath;
+
+            $entry = [
+                'path' => $relPath,
                 'content' => $file->content,
-                'exists' => file_exists(base_path($sdkPath.'/'.$file->path)),
+                'exists' => $exists,
             ];
+
+            if ($exists) {
+                $entry['existingContent'] = file_get_contents($absolutePath);
+            }
+
+            $previewFiles[] = $entry;
+        }
+
+        // Detect files on disk that the generator no longer produces (would be removed)
+        if (is_dir($outputDir)) {
+            $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($outputDir, \RecursiveDirectoryIterator::SKIP_DOTS));
+            foreach ($iterator as $fsFile) {
+                if (! $fsFile->isFile()) {
+                    continue;
+                }
+
+                $relPath = $sdkPath.'/'.ltrim(str_replace($outputDir, '', $fsFile->getPathname()), DIRECTORY_SEPARATOR);
+                $relPath = str_replace('\\', '/', $relPath);
+
+                if (in_array($relPath, $generatedRelPaths, true)) {
+                    continue;
+                }
+
+                $previewFiles[] = [
+                    'path' => $relPath,
+                    'content' => '',
+                    'exists' => true,
+                    'existingContent' => file_get_contents($fsFile->getPathname()),
+                    'removed' => true,
+                ];
+            }
         }
 
         return new JsonResponse([
@@ -1611,10 +1650,13 @@ class GenerateController
             'client' => ['sometimes', 'string'],
             'version' => ['sometimes', 'string'],
             'force' => ['sometimes', 'boolean'],
+            'removeFiles' => ['sometimes', 'array'],
+            'removeFiles.*' => ['string'],
         ]);
 
         $result = $this->buildSdkFiles($request);
         $force = $request->boolean('force', false);
+        $removeFiles = $request->input('removeFiles', []);
 
         if ($result === null) {
             return new JsonResponse(['success' => false, 'message' => 'No schemas with generated API controllers found.'], 422);
@@ -1638,12 +1680,28 @@ class GenerateController
             $results[] = ['path' => $sdkPath.'/'.$file->path, 'created' => true, 'message' => basename($file->path).' created.'];
         }
 
+        // Delete files the generator no longer produces (confirmed by the user in the preview modal)
+        $deleted = 0;
+        foreach ($removeFiles as $relPath) {
+            $absolutePath = base_path($relPath);
+
+            if ($fs->exists($absolutePath)) {
+                $fs->delete($absolutePath);
+                $results[] = ['path' => $relPath, 'deleted' => true, 'message' => basename($relPath).' deleted.'];
+                $deleted++;
+            }
+        }
+
         $created = count(array_filter($results, fn ($r) => $r['created'] ?? false));
+        $parts = array_filter([
+            $created ? "{$created} file(s) created" : null,
+            $deleted ? "{$deleted} file(s) deleted" : null,
+        ]);
 
         return new JsonResponse([
             'success' => true,
             'files' => $results,
-            'message' => "{$created} SDK file(s) created.",
+            'message' => implode(', ', $parts) ?: 'No changes.',
             'errors' => $result['errors'],
             'warnings' => $result['warnings'],
         ]);

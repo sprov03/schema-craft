@@ -996,6 +996,7 @@
         }
         .fp-file-badge.new { background: var(--success-dim); color: var(--success); }
         .fp-file-badge.exists { background: var(--warning-dim); color: var(--warning); }
+        .fp-file-badge.removed { background: color-mix(in srgb, #f87171 15%, transparent); color: #dc2626; }
         .fp-skip-btn {
             padding: 2px 8px; border-radius: 10px; font-size: 10px;
             font-weight: 600; text-transform: uppercase; flex-shrink: 0;
@@ -5681,17 +5682,25 @@
             var overlay = document.createElement('div');
             overlay.className = 'fp-overlay';
 
-            var newCount = files.filter(function(f) { return !f.exists; }).length;
-            var existsCount = files.filter(function(f) { return f.exists; }).length;
-            var summaryText = files.length + ' file(s): ' + newCount + ' new' + (existsCount ? ', ' + existsCount + ' existing' : '');
+            var newCount = files.filter(function(f) { return !f.exists && !f.removed; }).length;
+            var existsCount = files.filter(function(f) { return f.exists && !f.removed; }).length;
+            var removedCount = files.filter(function(f) { return f.removed; }).length;
+            var summaryParts = [newCount + ' new'];
+            if (existsCount) { summaryParts.push(existsCount + ' existing'); }
+            if (removedCount) { summaryParts.push(removedCount + ' removed'); }
+            var summaryText = files.length + ' file(s): ' + summaryParts.join(', ');
 
             // Track which files are skipped
             var skippedFiles = {};
 
             var fileListHtml = files.map(function(f, idx) {
-                var badge = f.exists ? '<span class="fp-file-badge exists">Exists</span>'
-                    : '<span class="fp-file-badge new">New</span>';
-                var skipBtn = '<button class="fp-skip-btn" data-fp-skip-idx="' + idx + '" title="Skip this file">Skip</button>';
+                var badge = f.removed
+                    ? '<span class="fp-file-badge removed">Removed</span>'
+                    : (f.exists ? '<span class="fp-file-badge exists">Exists</span>'
+                                : '<span class="fp-file-badge new">New</span>');
+                var skipLabel = f.removed ? 'Keep' : 'Skip';
+                var skipTitle = f.removed ? 'Keep this file (do not delete)' : 'Skip this file';
+                var skipBtn = '<button class="fp-skip-btn" data-fp-skip-idx="' + idx + '" title="' + skipTitle + '">' + skipLabel + '</button>';
                 return '<div class="fp-file-item' + (idx === 0 ? ' active' : '') + '" data-fp-idx="' + idx + '">' +
                     '<span class="fp-file-path">' + escapeHtml(f.path) + '</span>' + badge + skipBtn + '</div>';
             }).join('');
@@ -5734,7 +5743,15 @@
                 var toggle = document.getElementById('fp-view-toggle');
                 var wrap = document.getElementById('fp-code-content-wrap');
 
-                if (file.exists && file.existingContent) {
+                if (file.removed) {
+                    // Removed: diff existing content against empty — everything shows red
+                    toggle.style.display = 'flex';
+                    if (currentView === 'diff') {
+                        wrap.innerHTML = renderDiffView(file.existingContent || '', '');
+                    } else {
+                        wrap.innerHTML = '<pre class="fp-code-content">' + escapeHtml(file.existingContent || '') + '</pre>';
+                    }
+                } else if (file.exists && file.existingContent) {
                     toggle.style.display = 'flex';
                     if (currentView === 'diff') {
                         wrap.innerHTML = renderDiffView(file.existingContent, file.content);
@@ -5747,10 +5764,8 @@
                 }
             }
 
-            // Show first file (handle diff for existing)
-            if (files[0].exists && files[0].existingContent) {
-                showFile(0);
-            }
+            // Show first file
+            showFile(0);
 
             // File selection
             overlay.querySelectorAll('.fp-file-item').forEach(function(item) {
@@ -5762,31 +5777,33 @@
                 });
             });
 
-            // Skip button handling
+            // Skip/Keep button handling
             overlay.querySelectorAll('.fp-skip-btn').forEach(function(btn) {
                 btn.addEventListener('click', function(e) {
                     e.stopPropagation();
                     var idx = parseInt(btn.dataset.fpSkipIdx, 10);
+                    var file = files[idx];
                     var fileItem = overlay.querySelector('.fp-file-item[data-fp-idx="' + idx + '"]');
+                    var isRemoved = file.removed;
 
                     if (skippedFiles[idx]) {
                         delete skippedFiles[idx];
-                        btn.textContent = 'Skip';
+                        btn.textContent = isRemoved ? 'Keep' : 'Skip';
                         btn.classList.remove('skipped');
                         fileItem.classList.remove('fp-skipped');
                     } else {
                         skippedFiles[idx] = true;
-                        btn.textContent = 'Skipped';
+                        btn.textContent = isRemoved ? 'Keeping' : 'Skipped';
                         btn.classList.add('skipped');
                         fileItem.classList.add('fp-skipped');
                     }
 
                     // Update summary
                     var skipCount = Object.keys(skippedFiles).length;
-                    var writeCount = files.length - skipCount;
                     var summaryEl = overlay.querySelector('.fp-summary');
                     if (skipCount > 0) {
-                        summaryEl.textContent = files.length + ' file(s): ' + writeCount + ' to write, ' + skipCount + ' skipped';
+                        var actionCount = files.length - skipCount;
+                        summaryEl.textContent = files.length + ' file(s): ' + actionCount + ' to apply, ' + skipCount + ' skipped';
                     } else {
                         summaryEl.textContent = summaryText;
                     }
@@ -5817,7 +5834,7 @@
                     f.skip = !!skippedFiles[idx];
                 });
                 close();
-                if (onConfirm) onConfirm();
+                if (onConfirm) onConfirm(files);
             });
         }
 
@@ -8561,8 +8578,11 @@
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
                     renderSdkDiagnostics(data.errors, data.warnings);
-                    showFilePreviewModal(data.files, 'Generate SDK', function() {
+                    showFilePreviewModal(data.files, 'Generate SDK', function(confirmedFiles) {
                         payload.force = document.getElementById('gen-sdk-force-cb').checked;
+                        payload.removeFiles = (confirmedFiles || [])
+                            .filter(function(f) { return f.removed && !f.skip; })
+                            .map(function(f) { return f.path; });
                         doSdkWrite(payload);
                     });
                 })
