@@ -965,7 +965,7 @@
         @keyframes fp-fade-in { from { opacity: 0; } to { opacity: 1; } }
         .fp-modal {
             background: var(--bg-primary); border: 1px solid var(--border);
-            border-radius: 12px; width: 90vw; max-width: 1100px; height: 80vh;
+            border-radius: 12px; width: 96vw; max-width: 96vw; height: 94vh;
             display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         }
         .fp-header {
@@ -989,7 +989,7 @@
         }
         .fp-file-item:hover { background: var(--bg-secondary); }
         .fp-file-item.active { background: var(--accent-dim); color: var(--accent); }
-        .fp-file-path { flex: 1; font-family: var(--font-mono); word-break: break-all; }
+        .fp-file-path { flex: 1; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .fp-file-badge {
             padding: 2px 8px; border-radius: 10px; font-size: 10px;
             font-weight: 600; text-transform: uppercase; flex-shrink: 0;
@@ -5745,8 +5745,9 @@
                 var skipLabel = f.removed ? 'Keep' : 'Skip';
                 var skipTitle = f.removed ? 'Keep this file (do not delete)' : 'Skip this file';
                 var skipBtn = '<button class="fp-skip-btn" data-fp-skip-idx="' + idx + '" title="' + skipTitle + '">' + skipLabel + '</button>';
-                return '<div class="fp-file-item' + hidden + '" data-fp-idx="' + idx + '" data-fp-category="' + cat + '">' +
-                    '<span class="fp-file-path">' + escapeHtml(f.path) + '</span>' + badgeMap[cat] + skipBtn + '</div>';
+                var fileName = f.path.split('/').pop();
+                return '<div class="fp-file-item' + hidden + '" data-fp-idx="' + idx + '" data-fp-category="' + cat + '" title="' + escapeHtml(f.path) + '">' +
+                    '<span class="fp-file-path">' + escapeHtml(fileName) + '</span>' + badgeMap[cat] + skipBtn + '</div>';
             }).join('');
 
             var chipOrder = ['new', 'changed', 'deleted', 'unchanged'];
