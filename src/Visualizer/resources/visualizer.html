@@ -8642,9 +8642,6 @@
                         '<span class="gen-sdk-info-label">Output Path</span>' +
                         '<span class="gen-sdk-info-value">' + escapeHtml(d.path || '-') + '</span>' +
                     '</div>' +
-                    '<div class="sc-form-group">' +
-                        '<label class="sc-checkbox-label"><input type="checkbox" id="gen-sdk-force-cb"> Force overwrite existing files</label>' +
-                    '</div>' +
                     '<div style="display:flex;gap:10px;">' +
                         '<button class="sc-btn" id="gen-sdk-preview-btn">Preview SDK</button>' +
                         '<button class="sc-btn primary" id="gen-sdk-generate-btn">Generate SDK</button>' +
@@ -8700,7 +8697,6 @@
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
                     renderSdkDiagnostics(data.errors, data.warnings);
                     showFilePreviewModal(data.files, 'Generate SDK', function(confirmedFiles) {
-                        payload.force = document.getElementById('gen-sdk-force-cb').checked;
                         payload.removeFiles = (confirmedFiles || [])
                             .filter(function(f) { return f.removed && !f.skip; })
                             .map(function(f) { return f.path; });
@@ -8709,7 +8705,6 @@
                 })
                 .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
             } else {
-                payload.force = document.getElementById('gen-sdk-force-cb').checked;
                 doSdkWrite(payload);
             }
         }

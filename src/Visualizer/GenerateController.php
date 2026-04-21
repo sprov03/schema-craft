@@ -1653,13 +1653,11 @@ class GenerateController
             'namespace' => ['sometimes', 'string'],
             'client' => ['sometimes', 'string'],
             'version' => ['sometimes', 'string'],
-            'force' => ['sometimes', 'boolean'],
             'removeFiles' => ['sometimes', 'array'],
             'removeFiles.*' => ['string'],
         ]);
 
         $result = $this->buildSdkFiles($request);
-        $force = $request->boolean('force', false);
         $removeFiles = $request->input('removeFiles', []);
 
         if ($result === null) {
@@ -1672,12 +1670,6 @@ class GenerateController
 
         foreach ($result['files'] as $file) {
             $absolutePath = $outputPath.'/'.$file->path;
-
-            if (! $force && $fs->exists($absolutePath)) {
-                $results[] = ['path' => $sdkPath.'/'.$file->path, 'skipped' => true, 'message' => 'Already exists.'];
-
-                continue;
-            }
 
             $fs->ensureDirectoryExists(dirname($absolutePath));
             $fs->put($absolutePath, $file->content);
