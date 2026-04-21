@@ -1093,18 +1093,28 @@ class GenerateController
      *
      * Reflects on the resource's typed public properties, relationship attributes,
      * and computed methods to produce the same shape as buildResponseFields().
+     * Recursively scans related resource classes and embeds their fields under
+     * `relatedFields` on each relationship entry.
+     *
      * Returns null for manual JsonResource subclasses (toArray() is opaque).
      *
+     * @param  string[]  $visited  Resource classes already scanned (prevents infinite recursion)
      * @return array{columns: array, relationships: array}|null
      */
-    private function buildResponseFieldsFromResource(string $resourceClass): ?array
+    private function buildResponseFieldsFromResource(string $resourceClass, array $visited = []): ?array
     {
+        if (in_array($resourceClass, $visited, true)) {
+            return null;
+        }
+
         try {
             $definition = (new ResourceScanner)->scanClass($resourceClass);
 
             if ($definition->isManual) {
                 return null;
             }
+
+            $visited[] = $resourceClass;
 
             $columns = array_map(fn ($p) => [
                 'name' => $p['name'],
@@ -1122,13 +1132,25 @@ class GenerateController
             }
 
             $collectionTypes = ['hasMany', 'morphMany', 'morphToMany', 'hasManyThrough'];
-            $relationships = array_map(fn ($r) => [
-                'name' => $r['name'],
-                'type' => $r['type'],
-                'relatedModel' => str_replace('Resource', '', class_basename($r['resource'])),
-                'isCollection' => in_array($r['type'], $collectionTypes, true),
-                'conditional' => true,
-            ], $definition->relationships);
+            $relationships = array_map(function ($r) use ($collectionTypes, $visited) {
+                $rel = [
+                    'name' => $r['name'],
+                    'type' => $r['type'],
+                    'relatedModel' => str_replace('Resource', '', class_basename($r['resource'])),
+                    'isCollection' => in_array($r['type'], $collectionTypes, true),
+                    'conditional' => true,
+                ];
+
+                // Recursively scan the related resource class
+                if (class_exists($r['resource'])) {
+                    $nested = $this->buildResponseFieldsFromResource($r['resource'], $visited);
+                    if ($nested !== null) {
+                        $rel['relatedFields'] = $nested;
+                    }
+                }
+
+                return $rel;
+            }, $definition->relationships);
 
             return ['columns' => $columns, 'relationships' => $relationships];
         } catch (\Throwable) {

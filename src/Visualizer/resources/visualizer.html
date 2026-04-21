@@ -1638,6 +1638,32 @@
             font-size: 12px; font-weight: 500; transition: opacity 0.15s;
         }
         .ep-rel-link:hover { opacity: 0.8; text-decoration: underline; }
+
+        /* Expandable relationship items in the response panel */
+        .ep-rel-details {
+            border: 1px solid var(--border); border-radius: 6px;
+            overflow: hidden; margin-top: 6px;
+        }
+        .ep-rel-details + .ep-rel-details { margin-top: 6px; }
+        .ep-rel-summary {
+            display: flex; align-items: center; gap: 0;
+            padding: 8px 12px; cursor: pointer;
+            background: var(--bg-secondary); font-size: 12px;
+            list-style: none; user-select: none;
+        }
+        .ep-rel-summary::-webkit-details-marker { display: none; }
+        .ep-rel-summary::before {
+            content: '▶'; font-size: 9px; color: var(--text-muted);
+            margin-right: 8px; transition: transform 0.15s; flex-shrink: 0;
+        }
+        .ep-rel-details[open] > .ep-rel-summary::before { transform: rotate(90deg); }
+        .ep-rel-summary:hover { background: var(--bg-tertiary); }
+        .ep-rel-body {
+            border-top: 1px solid var(--border);
+            padding: 8px 12px 4px;
+            background: var(--bg-primary);
+        }
+        .ep-rel-body .ep-field-table { margin-bottom: 4px; }
         .ep-breadcrumb { display: flex; align-items: center; gap: 6px; padding: 0 20px 0; margin-bottom: -8px; padding-top: 12px; }
         .ep-breadcrumb-item { font-size: 11px; color: var(--text-muted); }
         .ep-breadcrumb-link { font-size: 11px; color: var(--accent); cursor: pointer; }
@@ -7419,6 +7445,75 @@
             });
         }
 
+        /**
+         * Render response fields (columns + relationships) as HTML.
+         * Recursively renders nested relatedFields on relationships.
+         *
+         * @param {object} fields  { columns: [...], relationships: [...] }
+         * @param {number} depth   Nesting depth (0 = top level)
+         * @returns {string} HTML string
+         */
+        function renderResponseFields(fields, depth) {
+            depth = depth || 0;
+            var html = '';
+            var indent = depth > 0 ? 'margin-left:' + (depth * 12) + 'px;' : '';
+
+            if (fields.columns && fields.columns.length > 0) {
+                html += '<table class="ep-field-table" style="' + indent + '">' +
+                    (depth === 0 ? '<thead><tr><th>Field</th><th>Type</th><th>Info</th></tr></thead>' : '') +
+                    '<tbody>';
+                fields.columns.forEach(function(col) {
+                    var flags = '';
+                    if (col.primary) flags += '<span class="ep-field-flag pk">PK</span>';
+                    if (col.autoIncrement) flags += '<span class="ep-field-flag ai">AI</span>';
+                    if (col.unique) flags += '<span class="ep-field-flag unique">unique</span>';
+                    if (col.nullable) flags += '<span class="ep-rule-tag nullable">nullable</span>';
+                    if (col.unsigned) flags += '<span class="ep-field-flag unsigned">unsigned</span>';
+                    if (col.cast) flags += '<span class="ep-rule-tag">' + escapeHtml(col.cast) + '</span>';
+                    if (col.managed) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">managed</span>';
+                    if (col.computed) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">computed</span>';
+                    if (col.length) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">len:' + col.length + '</span>';
+                    if (col.hasOwnProperty('default') && col['default'] !== null && col['default'] !== undefined) {
+                        flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">default: ' + escapeHtml(String(col['default'])) + '</span>';
+                    }
+                    html += '<tr>' +
+                        '<td class="ep-field-name">' + escapeHtml(col.name) + '</td>' +
+                        '<td class="ep-field-type">' + escapeHtml(col.type) + '</td>' +
+                        '<td class="ep-field-flags" style="display:flex;gap:4px;flex-wrap:wrap;">' + (flags || '<span style="color:var(--text-muted);">\u2014</span>') + '</td>' +
+                    '</tr>';
+                });
+                html += '</tbody></table>';
+            }
+
+            if (fields.relationships && fields.relationships.length > 0) {
+                fields.relationships.forEach(function(rel) {
+                    var info = rel.isCollection ? '<span class="ep-rule-tag">collection</span>' : '<span class="ep-rule-tag">single</span>';
+                    if (rel.pivotColumns && rel.pivotColumns.length > 0) {
+                        info += '<span class="ep-rule-tag" style="background:var(--warning-dim);color:var(--warning);">pivot: ' + escapeHtml(rel.pivotColumns.join(', ')) + '</span>';
+                    }
+                    var hasNested = rel.relatedFields && (
+                        (rel.relatedFields.columns && rel.relatedFields.columns.length > 0) ||
+                        (rel.relatedFields.relationships && rel.relatedFields.relationships.length > 0)
+                    );
+
+                    html += '<details class="ep-rel-details" style="' + indent + 'margin-top:6px;">' +
+                        '<summary class="ep-rel-summary">' +
+                            '<span class="ep-field-name">' + escapeHtml(rel.name) + (rel.isCollection ? '[]' : '') + '</span>' +
+                            '<span class="ep-field-type" style="margin-left:12px;">' + escapeHtml(rel.type) + '</span>' +
+                            '<span style="margin-left:12px;color:var(--text-secondary);font-size:11px;">' + escapeHtml(rel.relatedModel) + 'Resource</span>' +
+                            '<span style="margin-left:auto;display:flex;gap:4px;">' + info + '</span>' +
+                        '</summary>' +
+                        (hasNested
+                            ? '<div class="ep-rel-body">' + renderResponseFields(rel.relatedFields, depth + 1) + '</div>'
+                            : '<div class="ep-rel-body" style="padding:6px 12px;font-size:11px;color:var(--text-muted);">No typed fields defined.</div>'
+                        ) +
+                    '</details>';
+                });
+            }
+
+            return html;
+        }
+
         function showEndpointDetailModal(ep, modelName, responseFields, isCollection) {
             var methods = ep.method.split('|');
             var primaryMethod = methods[0];
@@ -7542,62 +7637,9 @@
                 responseHtml += '<div class="ep-section">' +
                     '<div class="ep-section-title">Response Body ' +
                         '<span class="ep-section-badge fields">' + resourceLabel + '</span>' +
-                    '</div>';
-
-                if (responseFields.columns.length > 0) {
-                    responseHtml += '<table class="ep-field-table"><thead><tr><th>Field</th><th>Type</th><th>Info</th></tr></thead><tbody>';
-
-                    responseFields.columns.forEach(function(col) {
-                        var flags = '';
-                        if (col.primary) flags += '<span class="ep-field-flag pk">PK</span>';
-                        if (col.autoIncrement) flags += '<span class="ep-field-flag ai">AI</span>';
-                        if (col.unique) flags += '<span class="ep-field-flag unique">unique</span>';
-                        if (col.nullable) flags += '<span class="ep-rule-tag nullable">nullable</span>';
-                        if (col.unsigned) flags += '<span class="ep-field-flag unsigned">unsigned</span>';
-                        if (col.cast) flags += '<span class="ep-rule-tag">' + escapeHtml(col.cast) + '</span>';
-                        if (col.managed) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">managed</span>';
-                        if (col.computed) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">computed</span>';
-                        if (col.length) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">len:' + col.length + '</span>';
-                        if (col.hasOwnProperty('default') && col['default'] !== null && col['default'] !== undefined) {
-                            flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">default: ' + escapeHtml(String(col['default'])) + '</span>';
-                        }
-
-                        responseHtml += '<tr>' +
-                            '<td class="ep-field-name">' + escapeHtml(col.name) + '</td>' +
-                            '<td class="ep-field-type">' + escapeHtml(col.type) + '</td>' +
-                            '<td class="ep-field-flags" style="display:flex;gap:4px;flex-wrap:wrap;">' + (flags || '<span style="color:var(--text-muted);">\u2014</span>') + '</td>' +
-                        '</tr>';
-                    });
-
-                    responseHtml += '</tbody></table>';
-                }
-
-                responseHtml += '</div>';
-
-                // Relationships in response (conditional via whenLoaded)
-                if (responseFields.relationships.length > 0) {
-                    responseHtml += '<div class="ep-section">' +
-                        '<div class="ep-section-title">Included Relationships <span class="ep-section-badge relations">' + responseFields.relationships.length + '</span> ' +
-                            '<span style="font-size:10px;color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0;">via whenLoaded()</span>' +
-                        '</div>' +
-                        '<table class="ep-field-table"><thead><tr><th>Name</th><th>Type</th><th>Related Model</th><th>Info</th></tr></thead><tbody>';
-
-                    responseFields.relationships.forEach(function(rel) {
-                        var info = rel.isCollection ? '<span class="ep-rule-tag">collection</span>' : '<span class="ep-rule-tag">single</span>';
-                        if (rel.pivotColumns && rel.pivotColumns.length > 0) {
-                            info += '<span class="ep-rule-tag" style="background:var(--warning-dim);color:var(--warning);">pivot: ' + escapeHtml(rel.pivotColumns.join(', ')) + '</span>';
-                        }
-
-                        responseHtml += '<tr>' +
-                            '<td class="ep-field-name">' + escapeHtml(rel.name) + '</td>' +
-                            '<td class="ep-field-type">' + escapeHtml(rel.type) + '</td>' +
-                            '<td>' + escapeHtml(rel.relatedModel) + 'Resource</td>' +
-                            '<td style="display:flex;gap:4px;flex-wrap:wrap;">' + info + '</td>' +
-                        '</tr>';
-                    });
-
-                    responseHtml += '</tbody></table></div>';
-                }
+                    '</div>' +
+                    renderResponseFields(responseFields, 0) +
+                '</div>';
             } else if (modelName) {
                 responseHtml += '<div class="ep-section">' +
                     '<div class="ep-section-title">Response <span class="ep-section-badge meta">info</span></div>' +
