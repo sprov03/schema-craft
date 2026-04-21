@@ -369,11 +369,13 @@ class GenerateController
 
         $previewFiles = [];
         foreach ($files as $file) {
-            $previewFiles[] = [
-                'path' => $file->path,
-                'content' => $file->content,
-                'exists' => file_exists(base_path($file->path)),
-            ];
+            $absolutePath = base_path($file->path);
+            $exists = file_exists($absolutePath);
+            $entry = ['path' => $file->path, 'content' => $file->content, 'exists' => $exists];
+            if ($exists) {
+                $entry['existingContent'] = file_get_contents($absolutePath);
+            }
+            $previewFiles[] = $entry;
         }
 
         return new JsonResponse(['success' => true, 'files' => $previewFiles]);
@@ -1729,11 +1731,13 @@ class GenerateController
 
         $previewFiles = [];
         foreach ($files as $file) {
-            $previewFiles[] = [
-                'path' => $file->path,
-                'content' => $file->content,
-                'exists' => file_exists(base_path($file->path)),
-            ];
+            $absolutePath = base_path($file->path);
+            $exists = file_exists($absolutePath);
+            $entry = ['path' => $file->path, 'content' => $file->content, 'exists' => $exists];
+            if ($exists) {
+                $entry['existingContent'] = file_get_contents($absolutePath);
+            }
+            $previewFiles[] = $entry;
         }
 
         return new JsonResponse(['success' => true, 'files' => $previewFiles]);
@@ -2072,14 +2076,32 @@ class GenerateController
             $previewFiles[] = ['path' => $requestFile->path, 'content' => $requestFile->content, 'exists' => false];
         }
 
-        $previewFiles[] = ['path' => $controllerRelPath, 'content' => $controllerContent, 'exists' => true];
+        $controllerAbsPath = base_path($controllerRelPath);
+        $controllerExists = file_exists($controllerAbsPath);
+        $controllerEntry = ['path' => $controllerRelPath, 'content' => $controllerContent, 'exists' => $controllerExists];
+        if ($controllerExists) {
+            $controllerEntry['existingContent'] = file_get_contents($controllerAbsPath);
+        }
+        $previewFiles[] = $controllerEntry;
 
         if ($hasService && $serviceContent !== null) {
-            $previewFiles[] = ['path' => $serviceRelPath, 'content' => $serviceContent, 'exists' => true];
+            $serviceAbsPath = base_path($serviceRelPath);
+            $serviceExists = file_exists($serviceAbsPath);
+            $serviceEntry = ['path' => $serviceRelPath, 'content' => $serviceContent, 'exists' => $serviceExists];
+            if ($serviceExists) {
+                $serviceEntry['existingContent'] = file_get_contents($serviceAbsPath);
+            }
+            $previewFiles[] = $serviceEntry;
         }
 
         if ($hasTest && $testContent !== null) {
-            $previewFiles[] = ['path' => $testRelPath, 'content' => $testContent, 'exists' => true];
+            $testAbsPath = base_path($testRelPath);
+            $testExists = file_exists($testAbsPath);
+            $testEntry = ['path' => $testRelPath, 'content' => $testContent, 'exists' => $testExists];
+            if ($testExists) {
+                $testEntry['existingContent'] = file_get_contents($testAbsPath);
+            }
+            $previewFiles[] = $testEntry;
         }
 
         return new JsonResponse([
