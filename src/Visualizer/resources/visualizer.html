@@ -1614,6 +1614,7 @@
         .ep-field-table tr:last-child td { border-bottom: none; }
         .ep-field-name { font-family: var(--font-mono); font-weight: 500; color: var(--text-primary); }
         .ep-field-type { font-family: var(--font-mono); color: var(--text-secondary); font-size: 11px; }
+        .ep-morph-hint { font-weight: 400; color: var(--text-muted); font-size: 11px; }
         .ep-field-rules { font-size: 11px; }
         .ep-rule-tag {
             display: inline-block; padding: 1px 6px; margin: 1px 2px; border-radius: 3px;
@@ -7556,12 +7557,22 @@
                 var flatParams = ep.parameters.filter(function(p) { return !p.isNestedRelationship; });
                 var nestedParams = ep.parameters.filter(function(p) { return p.isNestedRelationship; });
 
-                if (flatParams.length > 0) {
+                // Split morph pair params out — collapse each pair into one grouped row
+                var regularParams = flatParams.filter(function(p) { return !p.morphPairName; });
+                var morphPairMap = {};
+                flatParams.filter(function(p) { return p.morphPairName; }).forEach(function(p) {
+                    if (!morphPairMap[p.morphPairName]) { morphPairMap[p.morphPairName] = []; }
+                    morphPairMap[p.morphPairName].push(p.columnName || p.name);
+                });
+                var morphPairNames = Object.keys(morphPairMap);
+                var displayCount = regularParams.length + morphPairNames.length;
+
+                if (displayCount > 0) {
                     requestHtml += '<div class="ep-section">' +
-                        '<div class="ep-section-title">Request Body <span class="ep-section-badge body">' + flatParams.length + ' field' + (flatParams.length !== 1 ? 's' : '') + '</span></div>' +
+                        '<div class="ep-section-title">Request Body <span class="ep-section-badge body">' + displayCount + ' field' + (displayCount !== 1 ? 's' : '') + '</span></div>' +
                         '<table class="ep-field-table"><thead><tr><th>Field</th><th>Type</th><th>Rules</th></tr></thead><tbody>';
 
-                    flatParams.forEach(function(param) {
+                    regularParams.forEach(function(param) {
                         var fieldName = param.foreignKeyColumn || param.columnName || param.name;
                         var rules = ep.rules && ep.rules[fieldName] ? ep.rules[fieldName] : '';
                         var rulesHtml = buildRulesHtml(rules);
@@ -7575,6 +7586,16 @@
                             '<td class="ep-field-name">' + escapeHtml(fieldName) + '</td>' +
                             '<td class="ep-field-type">' + escapeHtml(typeDisplay) + '</td>' +
                             '<td class="ep-field-rules">' + (rulesHtml || '<span style="color:var(--text-muted);font-style:italic;">\u2014</span>') + '</td>' +
+                        '</tr>';
+                    });
+
+                    // One row per morph pair — shows the pair name and its two underlying columns
+                    morphPairNames.forEach(function(pairName) {
+                        var cols = morphPairMap[pairName];
+                        requestHtml += '<tr>' +
+                            '<td class="ep-field-name">' + escapeHtml(pairName) + '<span class="ep-morph-hint"> (' + escapeHtml(cols.join(', ')) + ')</span></td>' +
+                            '<td class="ep-field-type">morph</td>' +
+                            '<td class="ep-field-rules"><span style="color:var(--text-muted);font-style:italic;">\u2014</span></td>' +
                         '</tr>';
                     });
 

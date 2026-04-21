@@ -1045,6 +1045,8 @@ class GenerateController
                     'columnType' => $p->columnType,
                     'foreignKeyColumn' => $p->foreignKeyColumn,
                     'isNestedRelationship' => $p->isNestedRelationship,
+                    'morphPairName' => $p->morphPairName,
+                    'isMorphType' => $p->isMorphType,
                 ], $definition->parameters);
 
                 // Extract relationships this action needs loaded
