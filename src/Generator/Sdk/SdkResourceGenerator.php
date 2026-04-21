@@ -109,7 +109,7 @@ class SdkResourceGenerator
         $httpMethods = array_map('strtoupper', explode('|', $endpoint['method']));
         $httpMethod = strtolower($httpMethods[0]);
         $path = ltrim($endpoint['path'], '/');
-        $actionParameters = $endpoint['actionParameters'] ?? null;
+        $actionParameters = $endpoint['parameters'] ?? $endpoint['actionParameters'] ?? null;
 
         $hasId = str_contains($path, '{id}');
         $isGet = $httpMethod === 'get';

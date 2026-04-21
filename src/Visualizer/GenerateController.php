@@ -1070,6 +1070,9 @@ class GenerateController
             $resourceClass = $rr['resourceClass'] ?? null;
 
             if ($resourceClass !== null && class_exists($resourceClass)) {
+                // Persist the resource class so callers (e.g. SDK builder) can resolve #[ResourceSchema] after enrichment
+                $endpoint['resolvedResourceClass'] = $resourceClass;
+
                 $fields = $this->buildResponseFieldsFromResource($resourceClass);
 
                 if ($fields !== null) {
@@ -1571,15 +1574,15 @@ class GenerateController
             'version' => ['sometimes', 'string'],
         ]);
 
-        $files = $this->buildSdkFiles($request);
+        $result = $this->buildSdkFiles($request);
 
-        if ($files === null) {
+        if ($result === null) {
             return new JsonResponse(['success' => false, 'message' => 'No schemas with generated API controllers found.'], 422);
         }
 
         $sdkPath = $this->resolveSdkOutputPath($request);
         $previewFiles = [];
-        foreach ($files as $file) {
+        foreach ($result['files'] as $file) {
             $previewFiles[] = [
                 'path' => $sdkPath.'/'.$file->path,
                 'content' => $file->content,
@@ -1587,7 +1590,12 @@ class GenerateController
             ];
         }
 
-        return new JsonResponse(['success' => true, 'files' => $previewFiles]);
+        return new JsonResponse([
+            'success' => true,
+            'files' => $previewFiles,
+            'errors' => $result['errors'],
+            'warnings' => $result['warnings'],
+        ]);
     }
 
     /**
@@ -1605,10 +1613,10 @@ class GenerateController
             'force' => ['sometimes', 'boolean'],
         ]);
 
-        $files = $this->buildSdkFiles($request);
+        $result = $this->buildSdkFiles($request);
         $force = $request->boolean('force', false);
 
-        if ($files === null) {
+        if ($result === null) {
             return new JsonResponse(['success' => false, 'message' => 'No schemas with generated API controllers found.'], 422);
         }
 
@@ -1616,7 +1624,7 @@ class GenerateController
         $outputPath = base_path($sdkPath);
         $results = [];
 
-        foreach ($files as $file) {
+        foreach ($result['files'] as $file) {
             $absolutePath = $outputPath.'/'.$file->path;
 
             if (! $force && $fs->exists($absolutePath)) {
@@ -1636,6 +1644,8 @@ class GenerateController
             'success' => true,
             'files' => $results,
             'message' => "{$created} SDK file(s) created.",
+            'errors' => $result['errors'],
+            'warnings' => $result['warnings'],
         ]);
     }
 
@@ -2024,7 +2034,7 @@ class GenerateController
      * Uses RuntimeRouteScanner to discover schemas from registered routes,
      * working with both generated controllers and hand-written APIs.
      *
-     * @return GeneratedFile[]|null
+     * @return array{files: GeneratedFile[], errors: array, warnings: array}|null
      */
     private function buildSdkFiles(Request $request): ?array
     {
@@ -2051,6 +2061,48 @@ class GenerateController
         $schemaEndpoints = $routeData['schemas'] ?? [];
         $allowedSchemas = array_flip($schemaClasses);
         $discoveredSchemaClasses = [];
+
+        // Enrich all schema-assigned endpoints (same data the API docs panel uses)
+        foreach ($schemaEndpoints as $schemaClass => &$endpointList) {
+            $endpointList = array_map(fn ($ep) => $this->enrichEndpoint($ep), $endpointList);
+        }
+        unset($endpointList);
+
+        // Enrich unassigned endpoints and attempt to resolve their schema via #[ResourceSchema]
+        $unassigned = array_map(fn ($ep) => $this->enrichEndpoint($ep), $routeData['unassigned'] ?? []);
+
+        $sdkErrors = [];
+        $sdkWarnings = [];
+
+        foreach ($unassigned as $endpoint) {
+            $resourceClass = $endpoint['resolvedResourceClass'] ?? null;
+
+            if ($resourceClass === null) {
+                $sdkWarnings[] = [
+                    'route' => $endpoint['method'].' '.$endpoint['path'],
+                    'message' => 'No #[ApiResponse] attribute — add one to include this route in the SDK.',
+                ];
+
+                continue;
+            }
+
+            $definition = (new ResourceScanner)->scanClass($resourceClass);
+
+            if ($definition->schema === null) {
+                $sdkErrors[] = [
+                    'route' => $endpoint['method'].' '.$endpoint['path'],
+                    'message' => class_basename($resourceClass).' has no #[ResourceSchema] — cannot assign to a schema group.',
+                ];
+
+                continue;
+            }
+
+            if (! isset($allowedSchemas[$definition->schema])) {
+                continue;
+            }
+
+            $schemaEndpoints[$definition->schema][] = $endpoint;
+        }
 
         $schemas = [];
         foreach ($schemaEndpoints as $schemaClass => $endpoints) {
@@ -2146,14 +2198,18 @@ class GenerateController
         $stubsPath = StubResolver::basePath();
         $generator = new SdkGenerator;
 
-        return $generator->generate(
-            schemas: $allSchemas,
-            packageName: $sdkName,
-            namespace: $sdkNamespace,
-            clientClassName: $sdkClient,
-            stubsPath: $stubsPath,
-            version: $sdkVersion,
-        );
+        return [
+            'files' => $generator->generate(
+                schemas: $allSchemas,
+                packageName: $sdkName,
+                namespace: $sdkNamespace,
+                clientClassName: $sdkClient,
+                stubsPath: $stubsPath,
+                version: $sdkVersion,
+            ),
+            'errors' => $sdkErrors ?? [],
+            'warnings' => $sdkWarnings ?? [],
+        ];
     }
 
     private function resolveSdkOutputPath(Request $request): string

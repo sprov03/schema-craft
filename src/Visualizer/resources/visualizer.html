@@ -1689,6 +1689,17 @@
         .gen-sdk-info-label { font-size: 12px; font-weight: 500; color: var(--text-muted); padding-top: 2px; }
         .gen-sdk-info-value { font-size: 13px; font-family: var(--font-mono); color: var(--text-primary); }
 
+        /* SDK diagnostics (errors/warnings after preview or generate) */
+        .sdk-diag-block { margin-top: 20px; border-radius: 8px; overflow: hidden; font-size: 13px; }
+        .sdk-diag-errors { border: 1px solid #f87171; background: color-mix(in srgb, #f87171 10%, transparent); }
+        .sdk-diag-warnings { border: 1px solid #fbbf24; background: color-mix(in srgb, #fbbf24 10%, transparent); }
+        .sdk-diag-heading { padding: 10px 14px; font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--border); }
+        .sdk-diag-errors .sdk-diag-heading { color: #dc2626; border-bottom-color: #f87171; }
+        .sdk-diag-warnings .sdk-diag-heading { color: #b45309; border-bottom-color: #fbbf24; }
+        .sdk-diag-item { padding: 8px 14px; border-bottom: 1px solid var(--border); line-height: 1.5; }
+        .sdk-diag-item:last-child { border-bottom: none; }
+        .sdk-diag-item code { font-family: var(--font-mono); font-size: 12px; }
+
         /* Selector page sections */
         .gen-selector-section { width: 100%; max-width: 800px; text-align: center; }
         .gen-selector-section-title {
@@ -8500,10 +8511,34 @@
                         '<button class="sc-btn" id="gen-sdk-preview-btn">Preview SDK</button>' +
                         '<button class="sc-btn primary" id="gen-sdk-generate-btn">Generate SDK</button>' +
                     '</div>' +
+                    '<div id="gen-sdk-diagnostics"></div>' +
                 '</div>';
 
             document.getElementById('gen-sdk-preview-btn').addEventListener('click', function() { doSdkAction(true); });
             document.getElementById('gen-sdk-generate-btn').addEventListener('click', function() { doSdkAction(false); });
+        }
+
+        function renderSdkDiagnostics(errors, warnings) {
+            var el = document.getElementById('gen-sdk-diagnostics');
+            if (!el) { return; }
+            var html = '';
+            if (errors && errors.length) {
+                html += '<div class="sdk-diag-block sdk-diag-errors">';
+                html += '<div class="sdk-diag-heading">&#10060; Errors — routes cannot be included in the SDK</div>';
+                errors.forEach(function(e) {
+                    html += '<div class="sdk-diag-item"><code>' + escapeHtml(e.route) + '</code> &mdash; ' + escapeHtml(e.message) + '</div>';
+                });
+                html += '</div>';
+            }
+            if (warnings && warnings.length) {
+                html += '<div class="sdk-diag-block sdk-diag-warnings">';
+                html += '<div class="sdk-diag-heading">&#9888; Warnings — routes skipped from the SDK</div>';
+                warnings.forEach(function(w) {
+                    html += '<div class="sdk-diag-item"><code>' + escapeHtml(w.route) + '</code> &mdash; ' + escapeHtml(w.message) + '</div>';
+                });
+                html += '</div>';
+            }
+            el.innerHTML = html;
         }
 
         function doSdkAction(previewOnly) {
@@ -8525,6 +8560,7 @@
                 .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
+                    renderSdkDiagnostics(data.errors, data.warnings);
                     showFilePreviewModal(data.files, 'Generate SDK', function() {
                         payload.force = document.getElementById('gen-sdk-force-cb').checked;
                         doSdkWrite(payload);
@@ -8545,6 +8581,7 @@
             })
             .then(handleResponse)
             .then(function(data) {
+                renderSdkDiagnostics(data.errors, data.warnings);
                 if (data.success) {
                     showToast(data.message, 'success');
                 } else {
