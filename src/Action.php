@@ -340,7 +340,9 @@ abstract class Action
                 }
             } else {
                 $columnName = $param->columnName ?? $param->name;
-                $mapped[$param->name] = $data[$columnName] ?? $param->default;
+                $value = $data[$columnName] ?? $param->default;
+
+                $mapped[$param->name] = $this->castScalarValue($value, $param);
             }
         }
 
@@ -360,6 +362,30 @@ abstract class Action
         }
 
         return $mapped;
+    }
+
+    /**
+     * Cast a raw scalar value to the parameter's declared PHP type.
+     *
+     * Handles date/time types by parsing strings into Carbon instances.
+     * Leaves primitives and already-instantiated objects untouched.
+     */
+    private function castScalarValue(mixed $value, ActionParameter $param): mixed
+    {
+        if ($value === null || is_object($value)) {
+            return $value;
+        }
+
+        return match (true) {
+            is_a($param->type, \Carbon\CarbonInterval::class, true)
+            => \Carbon\CarbonInterval::make($value),
+
+            is_a($param->type, \Carbon\CarbonInterface::class, true),
+            is_a($param->type, \DateTimeInterface::class, true)
+            => \Illuminate\Support\Carbon::parse($value),
+
+            default => $value,
+        };
     }
 
     /**
