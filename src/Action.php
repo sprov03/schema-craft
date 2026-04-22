@@ -2,8 +2,10 @@
 
 namespace SchemaCraft;
 
+use Carbon\CarbonInterface;
 use Filament\Actions\Action as FilamentAction;
 use Filament\Forms\Components\Checkbox;
+use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -522,9 +524,27 @@ abstract class Action
      *
      * Sets ->default() from PHP property defaults and a record-aware closure.
      */
-    protected function buildScalarFilamentComponent(ActionParameter $param): TextInput|Textarea|Checkbox
+    protected function buildScalarFilamentComponent(ActionParameter $param): TextInput|Textarea|Checkbox|DateTimePicker
     {
         $columnName = $param->columnName ?? $param->name;
+
+        // Date/datetime detection — check PHP type or column type
+        $isDateTime = in_array($param->type, [CarbonInterface::class, \DateTimeInterface::class, \DateTime::class, \Carbon\Carbon::class, \Illuminate\Support\Carbon::class], true)
+            || in_array($param->columnType, ['date', 'datetime', 'timestamp'], true)
+            || in_array($param->castType, ['date', 'datetime', 'immutable_date', 'immutable_datetime'], true);
+
+        if ($isDateTime) {
+            $field = DateTimePicker::make($columnName)
+                ->label(Str::headline($param->name));
+
+            if (! $param->nullable && ! $param->hasDefault) {
+                $field->required();
+            }
+
+            $field->default($this->buildScalarDefaultClosure($param));
+
+            return $field;
+        }
 
         if ($param->type === 'bool') {
             $field = Checkbox::make($columnName)
