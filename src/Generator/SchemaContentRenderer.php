@@ -181,13 +181,15 @@ class SchemaContentRenderer
      */
     public function renderModel(SchemaEditorPayload $payload): string
     {
-        $modelName = Str::replaceLast('Schema', '', $payload->schemaName);
+        $modelName = Str::studly(Str::singular(Str::replaceLast('Schema', '', $payload->schemaName)));
+        $tableName = $payload->tableName ?? Str::snake(Str::plural($modelName));
 
         $content = StubResolver::render('model.stub', [
             '{{ namespace }}' => $payload->modelNamespace,
             '{{ class }}' => $modelName,
             '{{ schemaFqcn }}' => "{$payload->schemaNamespace}\\{$payload->schemaName}",
             '{{ schemaClass }}' => $payload->schemaName,
+            '{{ table }}' => $tableName,
             '{{ softDeletesImport }}' => $payload->hasSoftDeletes
                 ? 'use Illuminate\\Database\\Eloquent\\SoftDeletes;'
                 : '',

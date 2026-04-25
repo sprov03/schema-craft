@@ -4,6 +4,7 @@ namespace SchemaCraft\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Support\Str;
 use SchemaCraft\Generator\StubResolver;
 
 class MakeSchemaCommand extends Command
@@ -34,6 +35,7 @@ class MakeSchemaCommand extends Command
         }
 
         foreach ($names as $name) {
+            $name = Str::studly(Str::singular($name));
             $schemaName = $name.'Schema';
 
             $this->createSchema($files, $schemaName, $idConfig, $softDeletes);
@@ -119,6 +121,7 @@ class MakeSchemaCommand extends Command
                 '{{ class }}',
                 '{{ schemaFqcn }}',
                 '{{ schemaClass }}',
+                '{{ table }}',
                 '{{ softDeletesImport }}',
                 '{{ softDeletesTrait }}',
             ],
@@ -127,6 +130,7 @@ class MakeSchemaCommand extends Command
                 $name,
                 $schemaFqcn,
                 $schemaName,
+                Str::snake(Str::plural($name)),
                 $softDeletes ? 'use Illuminate\\Database\\Eloquent\\SoftDeletes;' : '',
                 $softDeletes ? "    use SoftDeletes;\n\n" : '',
             ],

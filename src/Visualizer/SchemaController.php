@@ -950,13 +950,16 @@ class SchemaController
 
         if ($request->boolean('createModel')) {
             $modelContent = $renderer->renderModel($payload);
-            $modelName = Str::replaceLast('Schema', '', $payload->schemaName);
+            $modelName = Str::studly(Str::singular(Str::replaceLast('Schema', '', $payload->schemaName)));
             $modelRelPath = str_replace('\\', '/', $payload->modelNamespace).'/'.$modelName.'.php';
             if (str_starts_with($modelRelPath, 'App/')) {
                 $modelRelPath = 'app/'.substr($modelRelPath, 4);
             }
             $files[] = ['path' => $modelRelPath, 'content' => $modelContent, 'exists' => false, 'type' => 'model'];
         }
+
+        // Use the server-normalized model FQCN so reverse patches reference the correct singular class.
+        $currentModelFqcn = $payload->modelNamespace.'\\'.Str::studly(Str::singular(Str::replaceLast('Schema', '', $payload->schemaName)));
 
         // Preview reverse relationship patches into existing schema files.
         $writer = new SchemaWriter(new Filesystem);
@@ -973,7 +976,7 @@ class SchemaController
             $previewContent = $writer->previewRelationship(
                 schemaFilePath: $filePath,
                 relationshipType: $rev['type'],
-                relatedModelFqcn: $rev['relatedModelFqcn'],
+                relatedModelFqcn: $currentModelFqcn,
                 morphName: $rev['morphName'] ?? null,
                 propertyName: $rev['propertyName'] ?? null,
             );
@@ -1014,7 +1017,7 @@ class SchemaController
 
         if ($request->boolean('createModel')) {
             $modelContent = $renderer->renderModel($payload);
-            $modelName = Str::replaceLast('Schema', '', $payload->schemaName);
+            $modelName = Str::studly(Str::singular(Str::replaceLast('Schema', '', $payload->schemaName)));
             $modelDir = $this->namespaceToAppPath($payload->modelNamespace);
             $modelFullPath = "{$modelDir}/{$modelName}.php";
             $modelRelPath = str_replace(base_path().'/', '', $modelFullPath);
@@ -1023,6 +1026,9 @@ class SchemaController
             $files->put($modelFullPath, $modelContent);
             $outputFiles[] = ['path' => $modelRelPath, 'created' => true, 'message' => "{$modelName} saved.", 'type' => 'model'];
         }
+
+        // Use the server-normalized model FQCN so reverse patches reference the correct singular class.
+        $currentModelFqcn = $payload->modelNamespace.'\\'.Str::studly(Str::singular(Str::replaceLast('Schema', '', $payload->schemaName)));
 
         // Write reverse relationship patches into existing schema files.
         $writer = new SchemaWriter($files);
@@ -1038,7 +1044,7 @@ class SchemaController
             $result = $writer->addRelationship(
                 schemaFilePath: $filePath,
                 relationshipType: $rev['type'],
-                relatedModelFqcn: $rev['relatedModelFqcn'],
+                relatedModelFqcn: $currentModelFqcn,
                 morphName: $rev['morphName'] ?? null,
                 propertyName: $rev['propertyName'] ?? null,
             );
@@ -1149,8 +1155,14 @@ class SchemaController
             );
         }
 
+        $rawSchemaName = trim($request->input('schemaName'));
+        if (! str_ends_with($rawSchemaName, 'Schema')) {
+            $rawSchemaName .= 'Schema';
+        }
+        $schemaName = Str::studly(Str::singular(Str::beforeLast($rawSchemaName, 'Schema'))).'Schema';
+
         return new SchemaEditorPayload(
-            schemaName: $request->input('schemaName'),
+            schemaName: $schemaName,
             schemaNamespace: $request->input('schemaNamespace'),
             modelNamespace: $request->input('modelNamespace'),
             tableName: $request->input('tableName'),
