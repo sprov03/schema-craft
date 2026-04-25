@@ -10680,7 +10680,12 @@
                     columns: s.columns,
                     relationships: s.relationships,
                     compositeIndexes: s.compositeIndexes,
-                    createModel: true,
+                    // Only generate the model file when creating a brand-new schema.
+                    // For existing schemas the model was already produced at import time
+                    // and may contain user customisations — regenerating it on every edit
+                    // would silently overwrite those changes and pollute the preview diff
+                    // with a file that hasn't actually changed.
+                    createModel: this.isNew,
                     reverseRelationships: reverseRelationships
                 };
             },

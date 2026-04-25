@@ -944,10 +944,29 @@ class SchemaController
             $schemaRelPath = 'app/'.substr($schemaRelPath, 4);
         }
 
-        $files = [
-            ['path' => $schemaRelPath, 'content' => $schemaContent, 'exists' => false, 'type' => 'schema'],
-        ];
+        // Resolve the full path so we can check whether the file already exists on disk.
+        // When the file exists we include `existingContent` so the frontend diff view can
+        // show what actually changed rather than treating every edit as a brand-new file.
+        $schemaFullPath = base_path($schemaRelPath);
+        $schemaExists = file_exists($schemaFullPath);
 
+        $schemaEntry = [
+            'path'    => $schemaRelPath,
+            'content' => $schemaContent,
+            'exists'  => $schemaExists,
+            'type'    => 'schema',
+        ];
+        if ($schemaExists) {
+            // Reading the current content here (not after writing) gives a true before/after diff.
+            $schemaEntry['existingContent'] = file_get_contents($schemaFullPath);
+        }
+
+        $files = [$schemaEntry];
+
+        // `createModel` is only true when the user is creating a brand-new schema from the
+        // editor. For edits to existing schemas the flag is false because the model file was
+        // already generated at import time and may contain user customisations — regenerating
+        // it on every schema edit would silently overwrite those changes.
         if ($request->boolean('createModel')) {
             $modelContent = $renderer->renderModel($payload);
             $modelName = Str::studly(Str::singular(Str::replaceLast('Schema', '', $payload->schemaName)));
@@ -955,7 +974,21 @@ class SchemaController
             if (str_starts_with($modelRelPath, 'App/')) {
                 $modelRelPath = 'app/'.substr($modelRelPath, 4);
             }
-            $files[] = ['path' => $modelRelPath, 'content' => $modelContent, 'exists' => false, 'type' => 'model'];
+
+            $modelFullPath = base_path($modelRelPath);
+            $modelExists = file_exists($modelFullPath);
+
+            $modelEntry = [
+                'path'    => $modelRelPath,
+                'content' => $modelContent,
+                'exists'  => $modelExists,
+                'type'    => 'model',
+            ];
+            if ($modelExists) {
+                $modelEntry['existingContent'] = file_get_contents($modelFullPath);
+            }
+
+            $files[] = $modelEntry;
         }
 
         // Use the server-normalized model FQCN so reverse patches reference the correct singular class.
