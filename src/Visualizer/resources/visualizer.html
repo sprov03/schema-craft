@@ -1798,7 +1798,7 @@
         }
         .se-modal {
             background: var(--bg-primary); border: 1px solid var(--border);
-            border-radius: 12px; width: 95vw; max-width: 900px; max-height: 90vh;
+            border-radius: 12px; width: 95vw; max-width: 900px; height: 85vh; max-height: 85vh;
             display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         }
         .se-header {
@@ -1864,6 +1864,8 @@
             padding: 2px 6px; border-radius: 4px; font-size: 13px;
         }
         .se-item-btn:hover { color: var(--error); background: var(--error-dim); }
+        .se-item-btn.se-jump-rel { font-size: 12px; }
+        .se-item-btn.se-jump-rel:hover { color: var(--accent); background: var(--accent-dim); }
         .se-edit-form {
             padding: 16px; background: var(--bg-secondary); border-radius: 0 0 6px 6px;
             border: 1px solid var(--border); border-top: none; margin-top: -7px; margin-bottom: 6px;
@@ -9491,6 +9493,7 @@
                         if (rel.index) badges += '<span class="se-constraint-badge idx">Index</span>';
                         if (rel.with) badges += '<span class="se-constraint-badge fillable">Eager</span>';
                         var modelShort = rel.relatedModel ? rel.relatedModel.split('\\').pop() : '';
+                        var relSchemaClass = rel.reverseSchemaClass || (rel.relatedModel ? scModelToSchemaClass(rel.relatedModel) : null);
 
                         html += '<div class="se-item-row' + (self.editingIndex === i && self.editingType === 'rel' ? ' active' : '') + '" data-se-rel-idx="' + i + '">' +
                             '<span class="se-item-name">' + escapeHtml(rel.name) + '</span>' +
@@ -9498,6 +9501,7 @@
                             (modelShort ? '<span class="se-constraint-badge">' + escapeHtml(modelShort) + '</span>' : '') +
                             badges +
                             '<span class="se-item-actions">' +
+                                (relSchemaClass ? '<button class="se-item-btn se-jump-rel" data-schema="' + escapeAttr(relSchemaClass) + '" title="Edit ' + escapeAttr(scSchemaShortName(relSchemaClass)) + '">↗</button>' : '') +
                                 '<button class="se-item-btn se-remove-rel" data-idx="' + i + '" title="Remove">&times;</button>' +
                             '</span>' +
                         '</div>';
@@ -9523,6 +9527,14 @@
                             self.editingIndex = idx; self.editingType = 'rel';
                         }
                         self.renderBody();
+                    });
+                });
+
+                // Jump to related schema buttons
+                body.querySelectorAll('.se-jump-rel').forEach(function(btn) {
+                    btn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        SchemaEditor.openEdit(btn.dataset.schema, SchemaEditor.dbConnection);
                     });
                 });
 
