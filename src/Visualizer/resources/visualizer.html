@@ -88,6 +88,93 @@
             background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer;
         }
         .theme-toggle:hover { border-color: var(--text-muted); }
+        .hk-open-btn {
+            padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+            background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer;
+        }
+        .hk-open-btn:hover { border-color: var(--text-muted); }
+        .pending-badge {
+            display: none; align-items: center; justify-content: center;
+            min-width: 20px; height: 20px; padding: 0 5px;
+            background: var(--accent); color: #fff; border-radius: 10px;
+            font-size: 11px; font-weight: 700; line-height: 1;
+        }
+        .pending-badge.visible { display: flex; }
+
+        /* ── Global Search Modal (cmd+O) ─────────────────── */
+        .sc-search-overlay {
+            position: fixed; inset: 0; z-index: 9300;
+            background: rgba(0,0,0,0.55); display: flex;
+            align-items: flex-start; justify-content: center;
+            padding-top: 15vh;
+            animation: fp-fade-in 0.15s ease-out;
+        }
+        .sc-search-modal {
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 12px; width: 520px; max-width: 94vw;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+        .sc-search-input-wrap {
+            display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        .sc-search-input-wrap svg { flex-shrink: 0; color: var(--text-muted); }
+        .sc-search-input {
+            flex: 1; background: transparent; border: none; outline: none;
+            font-size: 15px; color: var(--text-primary); font-family: inherit;
+        }
+        .sc-search-results { max-height: 320px; overflow-y: auto; }
+        .sc-search-result {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 16px; cursor: pointer; transition: background 0.1s;
+            font-size: 13px; color: var(--text-primary);
+        }
+        .sc-search-result:hover, .sc-search-result.selected {
+            background: var(--accent-dim); color: var(--accent);
+        }
+        .sc-search-result-sub { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+        .sc-search-empty { padding: 20px 16px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+        /* ── Hotkey Reference Modal ──────────────────────── */
+        .hk-overlay {
+            position: fixed; inset: 0; z-index: 9500;
+            background: rgba(0,0,0,0.55); display: flex;
+            align-items: center; justify-content: center;
+            animation: fp-fade-in 0.15s ease-out;
+        }
+        .hk-modal {
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 12px; width: 480px; max-width: 94vw; max-height: 70vh;
+            display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+            overflow: hidden;
+        }
+        .hk-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 18px; border-bottom: 1px solid var(--border);
+        }
+        .hk-header-title { font-size: 14px; font-weight: 600; }
+        .hk-close-btn {
+            background: none; border: none; cursor: pointer; font-size: 18px;
+            color: var(--text-muted); line-height: 1; padding: 0;
+        }
+        .hk-body { overflow-y: auto; padding: 8px 0; }
+        .hk-section-label {
+            padding: 8px 18px 4px; font-size: 11px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);
+        }
+        .hk-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 18px; font-size: 13px; transition: opacity 0.15s;
+        }
+        .hk-row.dimmed { opacity: 0.3; }
+        .hk-row-desc { color: var(--text-primary); }
+        .hk-keys { display: flex; gap: 4px; }
+        .hk-key {
+            display: inline-block; padding: 2px 7px; border: 1px solid var(--border);
+            border-radius: 4px; background: var(--bg-secondary); font-size: 12px;
+            color: var(--text-secondary); font-family: inherit;
+        }
 
         /* ── Loading ────────────────────────────────────── */
         #loading {
@@ -956,8 +1043,22 @@
         .err-trace-line .err-loc { color: var(--text-muted); }
 
         /* ── File Preview Modal ───────────────────────────── */
+        /*
+         * ── Z-INDEX HIERARCHY ──────────────────────────────────────────────────────
+         * Keep these values in sync when adding new modals. Never reorder layers.
+         *
+         *   100   header (sticky nav bar)
+         *  9100   .sd-overlay   — Schema View modal
+         *  9200   .se-overlay   — Schema Editor modal
+         *  9300   .sc-search-overlay — cmd+O global search
+         *  9400   .fp-overlay   — File Preview modal
+         *  9500   .hk-overlay   — Hotkey reference modal (highest, always on top)
+         * 10000   toasts / confirm dialogs (system UI, above all modals)
+         * ──────────────────────────────────────────────────────────────────────────
+         */
+
         .fp-overlay {
-            position: fixed; inset: 0; z-index: 10000;
+            position: fixed; inset: 0; z-index: 9400;
             background: rgba(0,0,0,0.6); display: flex;
             align-items: center; justify-content: center;
             animation: fp-fade-in 0.2s ease-out;
@@ -1188,7 +1289,7 @@
 
         /* ── Schema Detail Modal ─────────────────────────────── */
         .sd-overlay {
-            position: fixed; inset: 0; z-index: 9000;
+            position: fixed; inset: 0; z-index: 9100;
             background: rgba(0,0,0,0.6); display: flex;
             align-items: center; justify-content: center;
             animation: fp-fade-in 0.2s ease-out;
@@ -1791,7 +1892,7 @@
 
         /* ── Schema Editor Modal ─────────────────────────── */
         .se-overlay {
-            position: fixed; inset: 0; z-index: 9500;
+            position: fixed; inset: 0; z-index: 9200;
             background: rgba(0,0,0,0.6); display: flex;
             align-items: center; justify-content: center;
             animation: fp-fade-in 0.2s ease-out;
@@ -2478,7 +2579,9 @@
             <button class="tab-btn" data-tab="generators">Generators</button>
             <button class="tab-btn" data-tab="docs">Docs</button>
         </nav>
-        <div class="header-actions">
+        <div class="header-actions" style="display:flex;align-items:center;gap:8px;">
+            <span class="pending-badge" id="pending-badge">0</span>
+            <button class="hk-open-btn" id="hk-open-btn">Hotkeys</button>
             <button class="theme-toggle" id="theme-toggle">Light</button>
         </div>
     </header>
@@ -2659,6 +2762,250 @@
             connections: [],      // populated from API
             tables: null,         // populated from API (same data as schemasState.tables)
         };
+
+        // ── Pending Changes Store ────────────────────────────────────────────────────
+        // Each entry: { key: schemaClass|'new:<n>', payload: {...}, label: 'SchemaName' }
+        var pendingChanges = {};
+
+        function updatePendingBadge() {
+            var count = Object.keys(pendingChanges).length;
+            var badge = document.getElementById('pending-badge');
+            if (!badge) return;
+            badge.textContent = count;
+            badge.classList.toggle('visible', count > 0);
+        }
+
+        function pendingKey(schemaClass) {
+            return schemaClass || ('new:' + Date.now());
+        }
+
+        function storePending(key, payload, label) {
+            pendingChanges[key] = { key: key, payload: payload, label: label };
+            updatePendingBadge();
+        }
+
+        function removePending(key) {
+            delete pendingChanges[key];
+            updatePendingBadge();
+        }
+
+        // ── HotkeyContext Stack ──────────────────────────────────────────────────────
+        var HotkeyContext = {
+            _stack: [],
+            push: function(ctx) { this._stack.push(ctx); },
+            pop: function() { this._stack.pop(); },
+            current: function() { return this._stack[this._stack.length - 1] || 'global'; }
+        };
+
+        // ── Hotkey Definitions ───────────────────────────────────────────────────────
+        var HOTKEYS = [
+            { keys: ['⌘', 'O'], desc: 'Open schema search', contexts: ['global', 'schema-view', 'schema-editor'] },
+            { keys: ['⌘', 'E'], desc: 'Edit schema', contexts: ['schema-view'] },
+            { keys: ['⌘', 'S'], desc: 'Preview & save changes', contexts: ['global', 'schema-view', 'schema-editor'] },
+            { keys: ['⌘', '?'], desc: 'Show hotkey reference', contexts: ['global', 'schema-view', 'schema-editor'] },
+            { keys: ['Esc'], desc: 'Close modal / cancel', contexts: ['global', 'schema-view', 'schema-editor'] },
+        ];
+
+        // ── Global Search Modal ──────────────────────────────────────────────────────
+        var searchOverlayEl = null;
+
+        function openSearchModal() {
+            if (searchOverlayEl) return;
+
+            var overlay = document.createElement('div');
+            overlay.className = 'sc-search-overlay';
+            searchOverlayEl = overlay;
+
+            overlay.innerHTML =
+                '<div class="sc-search-modal">' +
+                    '<div class="sc-search-input-wrap">' +
+                        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>' +
+                        '<input class="sc-search-input" id="sc-search-input" placeholder="Search schemas…" autocomplete="off">' +
+                    '</div>' +
+                    '<div class="sc-search-results" id="sc-search-results"></div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            var input = overlay.querySelector('#sc-search-input');
+            var results = overlay.querySelector('#sc-search-results');
+            var selectedIdx = -1;
+            var matches = [];
+
+            function getItems() {
+                var tables = sharedFilterState.tables || [];
+                return tables.filter(function(t) { return t.schemaClass; });
+            }
+
+            function render(query) {
+                var all = getItems();
+                matches = query
+                    ? all.filter(function(t) {
+                        var name = (t.schemaClass || '').toLowerCase();
+                        var label = (t.name || '').toLowerCase();
+                        return name.indexOf(query.toLowerCase()) !== -1 || label.indexOf(query.toLowerCase()) !== -1;
+                      })
+                    : all;
+                selectedIdx = matches.length ? 0 : -1;
+                renderList();
+            }
+
+            function renderList() {
+                if (!matches.length) {
+                    results.innerHTML = '<div class="sc-search-empty">No schemas found</div>';
+                    return;
+                }
+                results.innerHTML = matches.map(function(t, i) {
+                    var name = t.schemaClass ? t.schemaClass.split('\\').pop() : t.name;
+                    var sub = t.name || '';
+                    return '<div class="sc-search-result' + (i === selectedIdx ? ' selected' : '') + '" data-idx="' + i + '">' +
+                        '<span>' + escapeHtml(name) + '</span>' +
+                        (sub ? '<span class="sc-search-result-sub">' + escapeHtml(sub) + '</span>' : '') +
+                        '</div>';
+                }).join('');
+
+                results.querySelectorAll('.sc-search-result').forEach(function(el) {
+                    el.addEventListener('mousedown', function(e) {
+                        e.preventDefault();
+                        var idx = parseInt(el.dataset.idx, 10);
+                        selectResult(idx);
+                    });
+                });
+            }
+
+            function selectResult(idx) {
+                var t = matches[idx];
+                if (!t) return;
+                closeSearchModal();
+                showSchemaDetailModal(t);
+            }
+
+            input.addEventListener('input', function() { render(input.value); });
+
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    selectedIdx = Math.min(selectedIdx + 1, matches.length - 1);
+                    renderList();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    selectedIdx = Math.max(selectedIdx - 1, 0);
+                    renderList();
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (selectedIdx >= 0) selectResult(selectedIdx);
+                } else if (e.key === 'Escape') {
+                    closeSearchModal();
+                }
+            });
+
+            overlay.addEventListener('mousedown', function(e) {
+                if (e.target === overlay) closeSearchModal();
+            });
+
+            render('');
+            setTimeout(function() { input.focus(); }, 30);
+        }
+
+        function closeSearchModal() {
+            if (searchOverlayEl) { searchOverlayEl.remove(); searchOverlayEl = null; }
+        }
+
+        // ── Hotkey Reference Modal ───────────────────────────────────────────────────
+        var hkOverlayEl = null;
+
+        function showHotkeyModal() {
+            if (hkOverlayEl) { closeHotkeyModal(); return; }
+            var ctx = HotkeyContext.current();
+
+            var overlay = document.createElement('div');
+            overlay.className = 'hk-overlay';
+            hkOverlayEl = overlay;
+
+            var rows = HOTKEYS.map(function(hk) {
+                var relevant = hk.contexts.indexOf(ctx) !== -1 || hk.contexts.indexOf('global') !== -1;
+                return '<div class="hk-row' + (relevant ? '' : ' dimmed') + '">' +
+                    '<span class="hk-row-desc">' + escapeHtml(hk.desc) + '</span>' +
+                    '<span class="hk-keys">' + hk.keys.map(function(k) { return '<kbd class="hk-key">' + escapeHtml(k) + '</kbd>'; }).join('') + '</span>' +
+                    '</div>';
+            }).join('');
+
+            overlay.innerHTML =
+                '<div class="hk-modal">' +
+                    '<div class="hk-header">' +
+                        '<span class="hk-header-title">Keyboard Shortcuts</span>' +
+                        '<button class="hk-close-btn" id="hk-close-btn">&times;</button>' +
+                    '</div>' +
+                    '<div class="hk-body">' + rows + '</div>' +
+                '</div>';
+
+            document.body.appendChild(overlay);
+
+            overlay.querySelector('#hk-close-btn').addEventListener('click', closeHotkeyModal);
+            overlay.addEventListener('mousedown', function(e) { if (e.target === overlay) closeHotkeyModal(); });
+        }
+
+        function closeHotkeyModal() {
+            if (hkOverlayEl) { hkOverlayEl.remove(); hkOverlayEl = null; }
+        }
+
+        // ── Global Save (cmd+S) ──────────────────────────────────────────────────────
+        function globalSave() {
+            // Commit any live editor state first
+            if (SchemaEditor.state) {
+                SchemaEditor.commitOpenEdit();
+                var key = SchemaEditor.originalClass || '__new__';
+                var label = SchemaEditor.state.schemaName || 'New Schema';
+                var payload = SchemaEditor.buildPayload();
+                if (payload) storePending(key, payload, label);
+            }
+
+            var keys = Object.keys(pendingChanges);
+            if (!keys.length) { showToast('No pending changes', 'info'); return; }
+
+            // Collect all pending payloads and preview them all
+            var payloads = keys.map(function(k) { return pendingChanges[k].payload; });
+
+            // Deduplicate files across payloads — full edits take precedence
+            var fileMap = {};
+            var pending = payloads.map(function(payload) {
+                return fetch('/_schema-craft/api/schema/save/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(payload)
+                }).then(handleResponse);
+            });
+
+            Promise.all(pending).then(function(results) {
+                results.forEach(function(data) {
+                    if (data.success && data.files) {
+                        data.files.forEach(function(f) {
+                            if (!fileMap[f.path]) fileMap[f.path] = f;
+                        });
+                    }
+                });
+
+                var allFiles = Object.values(fileMap);
+                if (!allFiles.length) { showToast('Nothing to save', 'info'); return; }
+
+                showFilePreviewModal(allFiles, 'Save All Pending Changes', function() {
+                    var saves = keys.map(function(k) {
+                        return fetch('/_schema-craft/api/schema/save', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify(pendingChanges[k].payload)
+                        }).then(handleResponse);
+                    });
+                    Promise.all(saves).then(function() {
+                        keys.forEach(removePending);
+                        showToast('All changes saved', 'success');
+                        if (SchemaEditor.state) SchemaEditor.close();
+                        loadDatabaseTables();
+                        refreshSchemaData();
+                    }).catch(function(e) { showToast('Save error: ' + e.message, 'error'); });
+                });
+            }).catch(function(e) { showToast('Preview error: ' + e.message, 'error'); });
+        }
 
         function loadSharedFilterState() {
             try {
@@ -2872,6 +3219,23 @@
                 btn.addEventListener('click', function() { switchTab(btn.dataset.tab); });
             });
             document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+            document.getElementById('hk-open-btn').addEventListener('click', function() { showHotkeyModal(); });
+            document.addEventListener('keydown', function(e) {
+                if (!e.metaKey && !e.ctrlKey) return;
+                var key = e.key.toLowerCase();
+                if (key === 'o') { e.preventDefault(); if (searchOverlayEl) { closeSearchModal(); } else { openSearchModal(); } return; }
+                if (key === 's') { e.preventDefault(); globalSave(); return; }
+                if (key === 'e') {
+                    e.preventDefault();
+                    var ctx = HotkeyContext.current();
+                    if (ctx === 'schema-view' && window._schemaDetailCurrentTable) {
+                        var t = window._schemaDetailCurrentTable;
+                        SchemaEditor.openEdit(t.schemaClass, t.dbConnection || sharedFilterState.dbConnection);
+                    }
+                    return;
+                }
+                if (key === '/' || e.key === '?') { e.preventDefault(); showHotkeyModal(); return; }
+            });
             document.getElementById('model-search').addEventListener('input', function(e) { filterModelList(e.target.value); });
             document.getElementById('explorer-canvas').addEventListener('mousedown', onCanvasMouseDown);
             document.addEventListener('mousemove', onCanvasMouseMove);
@@ -6782,8 +7146,14 @@
                 '</div>';
 
             document.body.appendChild(overlay);
+            HotkeyContext.push('schema-view');
+            window._schemaDetailCurrentTable = table;
 
-            function closeModal() { overlay.remove(); }
+            function closeModal() {
+                overlay.remove();
+                HotkeyContext.pop();
+                if (window._schemaDetailCurrentTable === table) window._schemaDetailCurrentTable = null;
+            }
             overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal(); });
             document.getElementById('sd-close').addEventListener('click', closeModal);
 
@@ -9177,6 +9547,7 @@
             openNew: function(dbConnection) {
                 this.isNew = true;
                 this.originalClass = null;
+                this._pendingKey = '__new__';
                 this.dbConnection = dbConnection;
                 this.state = {
                     schemaName: '',
@@ -9194,6 +9565,7 @@
                 };
                 this.activeTab = 'columns';
                 this.editingIndex = null;
+                HotkeyContext.push('schema-editor');
                 this.loadModels();
                 this.render();
             },
@@ -9202,6 +9574,7 @@
                 var self = this;
                 self.isNew = false;
                 self.originalClass = schemaClass;
+                self._pendingKey = schemaClass;
                 self.dbConnection = dbConn;
                 self.activeTab = 'columns';
                 self.editingIndex = null;
@@ -9225,6 +9598,7 @@
                             relationships: data.relationships || [],
                             compositeIndexes: data.compositeIndexes || []
                         };
+                        HotkeyContext.push('schema-editor');
                         self.loadModels();
                         self.render();
                     })
@@ -9245,6 +9619,7 @@
             },
 
             close: function() {
+                HotkeyContext.pop();
                 if (this.overlayEl) { this.overlayEl.remove(); this.overlayEl = null; }
                 this.state = null;
             },
@@ -9277,11 +9652,12 @@
                 document.body.appendChild(overlay);
 
                 // Close handlers
-                overlay.querySelector('.se-close-btn').addEventListener('click', function() { self.close(); });
-                overlay.querySelector('#se-cancel').addEventListener('click', function() { self.close(); });
-                overlay.addEventListener('click', function(e) { if (e.target === overlay) self.close(); });
+                overlay.querySelector('.se-close-btn').addEventListener('click', function() { removePending(self._pendingKey); self.close(); });
+                overlay.querySelector('#se-cancel').addEventListener('click', function() { removePending(self._pendingKey); self.close(); });
+                overlay.addEventListener('click', function(e) { if (e.target === overlay) { removePending(self._pendingKey); self.close(); } });
                 document.addEventListener('keydown', function onEsc(e) {
                     if (e.key === 'Escape' && self.overlayEl) {
+                        removePending(self._pendingKey);
                         self.close();
                         document.removeEventListener('keydown', onEsc);
                     }
@@ -10065,6 +10441,14 @@
                         }
                     });
                 }
+
+                // Auto-store to pending store on every commit (blur/tab switch)
+                if (this._pendingKey && this.state) {
+                    var snapshot = this.buildPayload();
+                    if (snapshot) {
+                        storePending(this._pendingKey, snapshot, this.state.schemaName || 'New Schema');
+                    }
+                }
             },
 
             // ── Build payload for API ──
@@ -10162,6 +10546,7 @@
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Save failed', 'error'); return; }
                     showToast(data.message || 'Schema saved', 'success');
+                    removePending(self._pendingKey);
                     self.close();
                     self.promptRegenerateExtras(payload);
                     loadDatabaseTables();
