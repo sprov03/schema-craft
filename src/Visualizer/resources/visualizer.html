@@ -9809,6 +9809,15 @@
                         detailsPanel.style.display = open ? 'none' : '';
                         detailsBtn.classList.toggle('open', !open);
                         self.state.relationships[self.editingIndex]._detailsOpen = !open;
+                        if (!open) {
+                            // Scroll so the active row sits near the top, keeping other rows visible below
+                            var seBody = document.getElementById('se-body');
+                            var activeRow = body.querySelector('.se-item-row.active');
+                            if (seBody && activeRow) {
+                                var rowTop = activeRow.getBoundingClientRect().top - seBody.getBoundingClientRect().top + seBody.scrollTop;
+                                seBody.scrollTop = Math.max(0, rowTop - 8);
+                            }
+                        }
                     });
                 }
 
