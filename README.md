@@ -277,7 +277,7 @@ Add shared scopes, boot logic, or overrides here and every model in your project
 To manage multiple APIs per project, publish the configuration file:
 
 ```bash
-php artisan vendor:publish --tag=schema-craft-config
+php artisan vendor:publish --tag=schema-craft
 ```
 
 This creates `config/schema-craft.php` where you can define isolated API configurations, SDK metadata, and route settings. See [Multi-API Configuration](#multi-api-configuration) for details.

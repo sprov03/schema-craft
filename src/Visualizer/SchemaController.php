@@ -38,6 +38,7 @@ use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Scanner\RelationshipDefinition;
 use SchemaCraft\Scanner\SchemaScanner;
 use SchemaCraft\Scanner\TableDefinition;
+use SchemaCraft\Writer\SchemaWriter;
 
 class SchemaController
 {
@@ -957,6 +958,37 @@ class SchemaController
             $files[] = ['path' => $modelRelPath, 'content' => $modelContent, 'exists' => false, 'type' => 'model'];
         }
 
+        // Preview reverse relationship patches into existing schema files.
+        $writer = new SchemaWriter(new Filesystem);
+        foreach ($request->input('reverseRelationships', []) as $rev) {
+            $revSchemaClass = $rev['schemaClass'] ?? null;
+            if (! $revSchemaClass || ! class_exists($revSchemaClass)) {
+                continue;
+            }
+
+            $reflection = new \ReflectionClass($revSchemaClass);
+            $filePath = $reflection->getFileName();
+            $existingContent = file_get_contents($filePath);
+
+            $previewContent = $writer->previewRelationship(
+                schemaFilePath: $filePath,
+                relationshipType: $rev['type'],
+                relatedModelFqcn: $rev['relatedModelFqcn'],
+                morphName: $rev['morphName'] ?? null,
+                propertyName: $rev['propertyName'] ?? null,
+            );
+
+            if ($previewContent !== null) {
+                $files[] = [
+                    'path' => str_replace(base_path().'/', '', $filePath),
+                    'content' => $previewContent,
+                    'existingContent' => $existingContent,
+                    'exists' => true,
+                    'type' => 'schema',
+                ];
+            }
+        }
+
         return new JsonResponse(['success' => true, 'files' => $files]);
     }
 
@@ -990,6 +1022,33 @@ class SchemaController
             $files->ensureDirectoryExists(dirname($modelFullPath));
             $files->put($modelFullPath, $modelContent);
             $outputFiles[] = ['path' => $modelRelPath, 'created' => true, 'message' => "{$modelName} saved.", 'type' => 'model'];
+        }
+
+        // Write reverse relationship patches into existing schema files.
+        $writer = new SchemaWriter($files);
+        foreach ($request->input('reverseRelationships', []) as $rev) {
+            $revSchemaClass = $rev['schemaClass'] ?? null;
+            if (! $revSchemaClass || ! class_exists($revSchemaClass)) {
+                continue;
+            }
+
+            $reflection = new \ReflectionClass($revSchemaClass);
+            $filePath = $reflection->getFileName();
+
+            $result = $writer->addRelationship(
+                schemaFilePath: $filePath,
+                relationshipType: $rev['type'],
+                relatedModelFqcn: $rev['relatedModelFqcn'],
+                morphName: $rev['morphName'] ?? null,
+                propertyName: $rev['propertyName'] ?? null,
+            );
+
+            $outputFiles[] = [
+                'path' => str_replace(base_path().'/', '', $filePath),
+                'created' => $result->success,
+                'message' => $result->message,
+                'type' => 'schema',
+            ];
         }
 
         return new JsonResponse([

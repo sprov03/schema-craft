@@ -1907,6 +1907,110 @@
         }
         .se-composite-cols { flex: 1; font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); }
 
+        /* ── Relationship compact form ── */
+        .se-rel-compact-line {
+            display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+        }
+        .se-rel-model-wrap { position: relative; flex: 2; min-width: 140px; }
+        .se-rel-model-input {
+            width: 100%; padding: 6px 10px; font-size: 13px;
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text-primary); outline: none; box-sizing: border-box;
+        }
+        .se-rel-model-input:focus { border-color: var(--accent); }
+        .se-rel-model-dropdown {
+            position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 200;
+            background: var(--bg-secondary); border: 1px solid var(--accent);
+            border-radius: 6px; max-height: 220px; overflow-y: auto;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .se-rel-model-option {
+            padding: 7px 12px; font-size: 13px; cursor: pointer; color: var(--text-primary);
+        }
+        .se-rel-model-option:hover, .se-rel-model-option.active { background: var(--accent-dim); color: var(--accent); }
+        .se-rel-model-option-ns { font-size: 10px; color: var(--text-muted); margin-left: 4px; }
+        .se-rel-type-sel {
+            padding: 6px 8px; font-size: 12px; border: 1px solid var(--border);
+            border-radius: 6px; background: var(--bg-primary); color: var(--text-primary);
+            outline: none; cursor: pointer; flex-shrink: 0;
+        }
+        .se-rel-type-sel:focus { border-color: var(--accent); }
+        .se-rel-name-input, .se-rel-morph-input {
+            padding: 6px 9px; font-size: 13px; font-family: var(--font-mono);
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text-primary); outline: none;
+            width: 100px; flex-shrink: 0;
+        }
+        .se-rel-name-input:focus, .se-rel-morph-input:focus { border-color: var(--accent); }
+        .se-rel-arrow { color: var(--text-muted); font-size: 14px; flex-shrink: 0; padding: 0 2px; }
+        .se-rel-rev-section { display: flex; align-items: center; gap: 1px; flex-shrink: 0; }
+        .se-rel-rev-section.se-rel-rev-disabled { opacity: 0.35; pointer-events: none; }
+        .se-rel-rev-brace { color: var(--accent); font-size: 14px; font-weight: 700; padding: 0 1px; }
+        .se-rel-rev-name-input {
+            padding: 6px 9px; font-size: 13px; font-family: var(--font-mono);
+            background: var(--bg-primary); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text-primary); outline: none;
+            width: 100px;
+        }
+        .se-rel-rev-name-input:focus { border-color: var(--accent); }
+        .se-rel-rev-toggle-label {
+            display: flex; align-items: center; gap: 4px; font-size: 11px;
+            color: var(--text-muted); cursor: pointer; flex-shrink: 0;
+            padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px;
+        }
+        .se-rel-rev-toggle-label input { accent-color: var(--accent); cursor: pointer; }
+        .se-rel-morph-hint {
+            font-size: 11px; color: var(--text-muted); flex-shrink: 0;
+            padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px;
+        }
+        .se-rel-details-btn {
+            padding: 5px 10px; font-size: 13px; border: 1px solid var(--border);
+            border-radius: 6px; background: none; color: var(--text-muted);
+            cursor: pointer; flex-shrink: 0; line-height: 1; letter-spacing: 2px;
+            margin-left: auto;
+        }
+        .se-rel-details-btn:hover, .se-rel-details-btn.open {
+            border-color: var(--accent); color: var(--accent);
+        }
+        .se-rel-details-panel {
+            margin-top: 10px; border-top: 1px solid var(--border); padding-top: 12px;
+        }
+        .se-rel-details-cols { display: flex; gap: 16px; }
+        .se-rel-details-left, .se-rel-details-right {
+            flex: 1; min-width: 0;
+        }
+        .se-rel-details-section-title {
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            color: var(--text-muted); letter-spacing: 0.6px; margin-bottom: 10px;
+            padding-bottom: 4px; border-bottom: 1px solid var(--border);
+        }
+        .se-rel-morph-target-row {
+            display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+            padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px;
+            background: var(--bg-primary);
+        }
+        .se-rel-morph-target-schema {
+            font-size: 12px; font-weight: 600; color: var(--text-primary);
+            flex-shrink: 0; min-width: 80px;
+        }
+        .se-rel-morph-type-sel {
+            padding: 4px 6px; font-size: 11px; border: 1px solid var(--border);
+            border-radius: 5px; background: var(--bg-secondary); color: var(--text-primary);
+            outline: none; flex-shrink: 0;
+        }
+        .se-rel-morph-prop-input {
+            padding: 4px 8px; font-size: 12px; font-family: var(--font-mono);
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: 5px; color: var(--text-primary); outline: none; flex: 1; min-width: 0;
+        }
+        .se-rel-morph-prop-input:focus { border-color: var(--accent); }
+        .se-rel-rev-info {
+            margin-top: 8px; font-size: 11px; color: var(--text-muted);
+        }
+        .se-rel-rev-info code {
+            font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
+        }
+
         /* ── Actions Tab ─────────────────────────────────── */
         .act-action-item {
             display: flex; align-items: center; gap: 10px; padding: 12px 16px;
@@ -8991,6 +9095,45 @@
         }
 
         // ── Schema Editor ─────────────────────────────────
+        // ── Schema Editor relationship helpers ─────────────────
+        function scCamelCase(str) {
+            if (!str) return str;
+            return str.charAt(0).toLowerCase() + str.slice(1);
+        }
+        function scPluralize(word) {
+            if (!word) return word;
+            var low = word.toLowerCase();
+            if (low.endsWith('ies')) return word;
+            if (low.endsWith('y') && !/[aeiou]y$/.test(low)) return word.slice(0, -1) + 'ies';
+            if (low.endsWith('s') || low.endsWith('x') || low.endsWith('z') || low.endsWith('ch') || low.endsWith('sh')) return word + 'es';
+            return word + 's';
+        }
+        function scRelInferName(type, modelShort, morphName) {
+            if (type === 'morphTo') return morphName || 'morphable';
+            var collections = ['hasMany', 'belongsToMany', 'morphMany', 'morphToMany', 'morphedByMany'];
+            if (collections.indexOf(type) !== -1) return scCamelCase(scPluralize(modelShort));
+            return scCamelCase(modelShort);
+        }
+        function scRelInverseType(type) {
+            var map = { belongsTo: 'hasMany', hasMany: 'belongsTo', hasOne: 'belongsTo', belongsToMany: 'belongsToMany', morphTo: 'morphMany', morphMany: 'morphTo', morphOne: 'morphTo', morphToMany: 'morphedByMany' };
+            return map[type] || null;
+        }
+        function scModelToSchemaClass(modelFqcn) {
+            if (!schemaData || !schemaData.schemas) return null;
+            var found = null;
+            Object.keys(schemaData.schemas).forEach(function(sc) {
+                if ((schemaData.schemas[sc].modelClass || '') === modelFqcn) { found = sc; }
+            });
+            return found;
+        }
+        function scSchemaShortName(schemaClass) {
+            return schemaClass ? schemaClass.split('\\').pop() : '';
+        }
+        function scGetAllSchemas() {
+            if (!schemaData || !schemaData.schemas) return [];
+            return Object.keys(schemaData.schemas).sort();
+        }
+
         var SchemaEditor = {
             state: null,
             isNew: false,
@@ -9360,95 +9503,348 @@
                         name: '', type: 'belongsTo', relatedModel: '',
                         nullable: false, foreignColumn: null, onDelete: null, onUpdate: null,
                         noConstraint: false, pivotTable: null, pivotColumns: null,
-                        morphName: null, pivotModel: null, index: false, columnType: null, with: false
+                        morphName: null, pivotModel: null, index: false, columnType: null, with: false,
+                        reverseEnabled: true, reverseSchemaClass: null, reverseType: null,
+                        reversePropertyName: null, reverseWith: false, morphTargets: []
                     });
                     self.editingIndex = self.state.relationships.length - 1;
                     self.editingType = 'rel';
                     self.renderTabs();
                     self.renderBody();
-                    var nameInput = document.getElementById('se-rel-name');
-                    if (nameInput) nameInput.focus();
+                    var modelInput = document.getElementById('se-rel-model-input');
+                    if (modelInput) modelInput.focus();
                 });
+
+                // Bind interactive events for the open edit form
+                if (self.editingIndex !== null && self.editingType === 'rel') {
+                    self.bindRelationshipFormEvents(body, self.editingIndex);
+                }
             },
 
             renderRelationshipEditForm: function(rel, idx) {
                 var self = this;
-                var relTypes = ['belongsTo', 'hasOne', 'hasMany', 'belongsToMany', 'morphTo', 'morphOne', 'morphMany', 'morphToMany'];
-                var relTypeHtml = relTypes.map(function(t) {
-                    return '<option value="' + t + '"' + (rel.type === t ? ' selected' : '') + '>' + t + '</option>';
-                }).join('');
-
-                var modelHtml = '<option value="">(select model)</option>';
-                self.availableModels.forEach(function(m) {
-                    modelHtml += '<option value="' + escapeAttr(m) + '"' + (rel.relatedModel === m ? ' selected' : '') + '>' + m.split('\\').pop() + ' (' + m + ')</option>';
-                });
-
                 var isMorphTo = rel.type === 'morphTo';
                 var isBelongsTo = rel.type === 'belongsTo';
                 var isBTM = rel.type === 'belongsToMany';
                 var isMorphX = ['morphOne', 'morphMany', 'morphToMany'].indexOf(rel.type) !== -1;
                 var needsMorphName = isMorphTo || isMorphX;
+                var hasReverse = !isMorphTo;
+                var revEnabled = rel.reverseEnabled !== false;
+                var currentModelShort = self.state.schemaName.replace(/Schema$/, '');
+                var modelShort = rel.relatedModel ? rel.relatedModel.split('\\').pop() : '';
 
-                var onDeleteOptions = ['', 'cascade', 'restrict', 'set null', 'no action'];
-                var onDeleteHtml = onDeleteOptions.map(function(o) {
-                    var label = o || '(none)';
-                    return '<option value="' + o + '"' + ((rel.onDelete || '') === o ? ' selected' : '') + '>' + label + '</option>';
-                }).join('');
-                var onUpdateHtml = onDeleteOptions.map(function(o) {
-                    var label = o || '(none)';
-                    return '<option value="' + o + '"' + ((rel.onUpdate || '') === o ? ' selected' : '') + '>' + label + '</option>';
+                // Resolve reverse defaults
+                var revSchemaClass = rel.reverseSchemaClass || (rel.relatedModel ? scModelToSchemaClass(rel.relatedModel) : null);
+                var revType = rel.reverseType || scRelInverseType(rel.type) || 'hasMany';
+                var revName = rel.reversePropertyName || (revType ? scRelInferName(revType, currentModelShort, null) : '');
+
+                var relTypes = ['belongsTo', 'hasOne', 'hasMany', 'belongsToMany', 'morphTo', 'morphOne', 'morphMany', 'morphToMany'];
+                var relTypeHtml = relTypes.map(function(t) {
+                    return '<option value="' + t + '"' + (rel.type === t ? ' selected' : '') + '>' + t + '</option>';
                 }).join('');
 
+                var onDeleteOpts = ['', 'cascade', 'restrict', 'set null', 'no action'];
+                function onDeleteSelect(field, current) {
+                    return '<select data-field="' + field + '">' + onDeleteOpts.map(function(o) {
+                        return '<option value="' + o + '"' + ((current || '') === o ? ' selected' : '') + '>' + (o || '(none)') + '</option>';
+                    }).join('') + '</select>';
+                }
+
+                // ── Compact main line ──
                 var html = '<div class="se-edit-form" data-se-edit-idx="' + idx + '" data-se-edit-type="rel">' +
-                    '<div class="se-row">' +
-                        '<div class="se-field" style="flex:2"><label>Name</label><input type="text" id="se-rel-name" value="' + escapeAttr(rel.name) + '" data-field="name"></div>' +
-                        '<div class="se-field"><label>Type</label><select data-field="type">' + relTypeHtml + '</select></div>' +
-                    '</div>';
+                    '<div class="se-rel-compact-line">';
 
+                // Searchable model picker (not shown for morphTo — morph name is the key)
                 if (!isMorphTo) {
-                    html += '<div class="se-row">' +
-                        '<div class="se-field" style="flex:2"><label>Related Model</label><select data-field="relatedModel">' + modelHtml + '</select></div>' +
+                    html += '<div class="se-rel-model-wrap">' +
+                        '<input type="text" class="se-rel-model-input" id="se-rel-model-input" autocomplete="off" ' +
+                            'placeholder="Related model..." value="' + escapeAttr(modelShort) + '">' +
+                        '<div class="se-rel-model-dropdown" id="se-rel-model-dropdown" style="display:none"></div>' +
+                        '<input type="hidden" id="se-rel-model-value" data-field="relatedModel" value="' + escapeAttr(rel.relatedModel || '') + '">' +
                     '</div>';
                 }
 
+                // Type select
+                html += '<select class="se-rel-type-sel" id="se-rel-type" data-field="type">' + relTypeHtml + '</select>';
+
+                // Morph name input (for morphTo/morphX)
                 if (needsMorphName) {
-                    html += '<div class="se-row"><div class="se-field"><label>Morph Name</label><input type="text" value="' + escapeAttr(rel.morphName || '') + '" data-field="morphName" placeholder="e.g. commentable"></div></div>';
+                    html += '<input type="text" class="se-rel-morph-input" id="se-rel-morph" data-field="morphName" ' +
+                        'value="' + escapeAttr(rel.morphName || '') + '" placeholder="morph name">';
                 }
+
+                // Forward property name
+                html += '<input type="text" class="se-rel-name-input" id="se-rel-name" data-field="name" ' +
+                    'value="' + escapeAttr(rel.name || '') + '" placeholder="property name">';
+
+                // Reverse section (normal relationships)
+                if (hasReverse) {
+                    html += '<span class="se-rel-arrow">→</span>' +
+                        '<span class="se-rel-rev-section' + (!revEnabled ? ' se-rel-rev-disabled' : '') + '" id="se-rel-rev-section">' +
+                            '<span class="se-rel-rev-brace">{</span>' +
+                            '<input type="text" class="se-rel-rev-name-input" id="se-rel-rev-name" data-field="reversePropertyName" ' +
+                                'value="' + escapeAttr(rel.reversePropertyName || revName) + '" placeholder="reverse name"' + (!revEnabled ? ' disabled' : '') + '>' +
+                            '<span class="se-rel-rev-brace">}</span>' +
+                        '</span>' +
+                        '<label class="se-rel-rev-toggle-label" title="Add reverse relationship to related schema">' +
+                            '<input type="checkbox" id="se-rel-rev-enabled" data-field="reverseEnabled"' + (revEnabled ? ' checked' : '') + '> reverse' +
+                        '</label>';
+                }
+
+                // MorphTo: show parent model count hint
+                if (isMorphTo) {
+                    var tc = (rel.morphTargets || []).length;
+                    html += '<span class="se-rel-morph-hint">' + (tc > 0 ? tc + ' parent' + (tc > 1 ? 's' : '') : 'no parents') + '</span>';
+                }
+
+                // Details toggle button
+                html += '<button class="se-rel-details-btn' + (rel._detailsOpen ? ' open' : '') + '" id="se-rel-details-btn" type="button" title="Advanced options">···</button>';
+                html += '</div>'; // end compact-line
+
+                // ── Details panel ──
+                html += '<div class="se-rel-details-panel" id="se-rel-details-panel" style="' + (rel._detailsOpen ? '' : 'display:none') + '">' +
+                    '<div class="se-rel-details-cols">';
+
+                // LEFT: this schema's options
+                html += '<div class="se-rel-details-left">' +
+                    '<div class="se-rel-details-section-title">' + escapeHtml(self.state.schemaName) + '</div>';
 
                 if (isBelongsTo) {
                     html += '<div class="se-row">' +
-                        '<div class="se-field"><label>On Delete</label><select data-field="onDelete">' + onDeleteHtml + '</select></div>' +
-                        '<div class="se-field"><label>On Update</label><select data-field="onUpdate">' + onUpdateHtml + '</select></div>' +
-                        '<div class="se-field"><label>Foreign Column</label><input type="text" value="' + escapeAttr(rel.foreignColumn || '') + '" data-field="foreignColumn" placeholder="custom_fk_id"></div>' +
+                        '<div class="se-field"><label>FK Column</label><input type="text" data-field="foreignColumn" value="' + escapeAttr(rel.foreignColumn || '') + '" placeholder="auto"></div>' +
+                        '<div class="se-field"><label>On Delete</label>' + onDeleteSelect('onDelete', rel.onDelete) + '</div>' +
+                        '<div class="se-field"><label>On Update</label>' + onDeleteSelect('onUpdate', rel.onUpdate) + '</div>' +
                     '</div>' +
-                    '<div class="se-row"><div class="se-field"><label>Column Type</label><input type="text" value="' + escapeAttr(rel.columnType || '') + '" data-field="columnType" placeholder="e.g. unsignedInteger"></div></div>';
-                }
-
-                if (isBTM) {
+                    '<div class="se-row">' +
+                        '<div class="se-field"><label>Column Type</label><input type="text" data-field="columnType" value="' + escapeAttr(rel.columnType || '') + '" placeholder="e.g. unsignedInteger"></div>' +
+                    '</div>' +
+                    '<div class="se-row"><div class="se-checks">' +
+                        '<label class="se-check"><input type="checkbox" data-field="nullable"' + (rel.nullable ? ' checked' : '') + '> Nullable</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="index"' + (rel.index ? ' checked' : '') + '> Index</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="noConstraint"' + (rel.noConstraint ? ' checked' : '') + '> No Constraint</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="with"' + (rel.with ? ' checked' : '') + '> Eager Load</label>' +
+                    '</div></div>';
+                } else if (isMorphTo) {
                     html += '<div class="se-row">' +
-                        '<div class="se-field"><label>Pivot Table</label><input type="text" value="' + escapeAttr(rel.pivotTable || '') + '" data-field="pivotTable" placeholder="auto-detected"></div>' +
-                        '<div class="se-field"><label>Pivot Model</label><input type="text" value="' + escapeAttr(rel.pivotModel || '') + '" data-field="pivotModel" placeholder="App\\Models\\FooPivot"></div>' +
+                        '<div class="se-field"><label>Column Type</label><input type="text" data-field="columnType" value="' + escapeAttr(rel.columnType || '') + '" placeholder="e.g. unsignedInteger"></div>' +
                     '</div>' +
-                    '<div class="se-row"><div class="se-field"><label>Pivot Columns (JSON)</label><input type="text" value="' + escapeAttr(rel.pivotColumns ? JSON.stringify(rel.pivotColumns) : '') + '" data-field="pivotColumns" placeholder=\'{"role":"string"}\'></div></div>';
+                    '<div class="se-row"><div class="se-checks">' +
+                        '<label class="se-check"><input type="checkbox" data-field="nullable"' + (rel.nullable ? ' checked' : '') + '> Nullable</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="index"' + (rel.index ? ' checked' : '') + '> Index</label>' +
+                        '<label class="se-check"><input type="checkbox" data-field="with"' + (rel.with ? ' checked' : '') + '> Eager Load</label>' +
+                    '</div></div>';
+                } else if (isBTM) {
+                    html += '<div class="se-row">' +
+                        '<div class="se-field"><label>Pivot Table</label><input type="text" data-field="pivotTable" value="' + escapeAttr(rel.pivotTable || '') + '" placeholder="auto-detected"></div>' +
+                        '<div class="se-field"><label>Pivot Model</label><input type="text" data-field="pivotModel" value="' + escapeAttr(rel.pivotModel || '') + '" placeholder="App\\Models\\Pivot"></div>' +
+                    '</div>' +
+                    '<div class="se-row"><div class="se-field"><label>Pivot Columns (JSON)</label>' +
+                        '<input type="text" data-field="pivotColumns" value="' + escapeAttr(rel.pivotColumns ? JSON.stringify(rel.pivotColumns) : '') + '" placeholder=\'{"role":"string"}\'>' +
+                    '</div></div>' +
+                    '<div class="se-row"><div class="se-checks"><label class="se-check"><input type="checkbox" data-field="with"' + (rel.with ? ' checked' : '') + '> Eager Load</label></div></div>';
+                } else {
+                    // hasOne, hasMany, morphOne, morphMany
+                    html += '<div class="se-row">' +
+                        '<div class="se-field"><label>FK Column</label><input type="text" data-field="foreignColumn" value="' + escapeAttr(rel.foreignColumn || '') + '" placeholder="auto"></div>' +
+                    '</div>' +
+                    '<div class="se-row"><div class="se-checks"><label class="se-check"><input type="checkbox" data-field="with"' + (rel.with ? ' checked' : '') + '> Eager Load</label></div></div>';
                 }
+                html += '</div>'; // end details-left
+
+                // RIGHT: reverse / morph targets
+                html += '<div class="se-rel-details-right">';
 
                 if (isMorphTo) {
-                    html += '<div class="se-row"><div class="se-field"><label>Column Type</label><input type="text" value="' + escapeAttr(rel.columnType || '') + '" data-field="columnType" placeholder="e.g. unsignedInteger"></div></div>';
+                    // Morph targets list
+                    html += '<div class="se-rel-details-section-title">Parent Models</div>';
+                    var morphTargets = rel.morphTargets || [];
+                    if (morphTargets.length === 0) {
+                        html += '<div class="se-empty" style="padding:12px 0;font-size:12px;">No parent models yet.</div>';
+                    }
+                    morphTargets.forEach(function(target, ti) {
+                        var targetShort = scSchemaShortName(target.schemaClass);
+                        html += '<div class="se-rel-morph-target-row" data-morph-target-idx="' + ti + '">' +
+                            '<span class="se-rel-morph-target-schema">' + escapeHtml(targetShort || '?') + '</span>' +
+                            '<select class="se-rel-morph-type-sel" data-morph-field="type" data-morph-idx="' + ti + '">' +
+                                ['morphMany', 'morphOne'].map(function(t) {
+                                    return '<option value="' + t + '"' + (target.type === t ? ' selected' : '') + '>' + t + '</option>';
+                                }).join('') +
+                            '</select>' +
+                            '<input type="text" class="se-rel-morph-prop-input" data-morph-field="propertyName" data-morph-idx="' + ti + '" ' +
+                                'value="' + escapeAttr(target.propertyName || '') + '" placeholder="property name">' +
+                            '<button class="se-item-btn se-remove-morph-target" data-morph-idx="' + ti + '" title="Remove">&times;</button>' +
+                        '</div>';
+                    });
+                    var allSchemas = scGetAllSchemas();
+                    var schemaOpts = '<option value="">(select schema)</option>' + allSchemas.map(function(sc) {
+                        return '<option value="' + escapeAttr(sc) + '">' + escapeHtml(scSchemaShortName(sc)) + '</option>';
+                    }).join('');
+                    html += '<div class="se-row" style="align-items:flex-end;gap:6px;margin-top:8px;">' +
+                        '<div class="se-field" style="flex:2"><label>Add Parent Schema</label>' +
+                            '<select id="se-morph-add-schema">' + schemaOpts + '</select>' +
+                        '</div>' +
+                        '<button class="sc-btn sm" id="se-morph-add-btn" type="button" style="height:33px;margin-bottom:0;flex-shrink:0;">Add</button>' +
+                    '</div>';
+                } else {
+                    // Normal reverse details
+                    var revSchemaShort = revSchemaClass ? scSchemaShortName(revSchemaClass) : null;
+                    html += '<div class="se-rel-details-section-title">Reverse' + (revSchemaShort ? ': ' + escapeHtml(revSchemaShort) : '') + '</div>';
+                    if (!revEnabled) {
+                        html += '<div style="font-size:12px;color:var(--text-muted);">Reverse disabled. Toggle it in the main line.</div>';
+                    } else if (!revSchemaClass) {
+                        html += '<div style="font-size:12px;color:var(--text-muted);">No schema found for this model. Select a model first.</div>';
+                    } else {
+                        var inverseTypeOpts = ['hasMany', 'hasOne', 'belongsTo', 'belongsToMany'];
+                        html += '<div class="se-row">' +
+                            '<div class="se-field"><label>Type</label>' +
+                                '<select data-field="reverseType">' + inverseTypeOpts.map(function(t) {
+                                    return '<option value="' + t + '"' + (revType === t ? ' selected' : '') + '>' + t + '</option>';
+                                }).join('') + '</select>' +
+                            '</div>' +
+                            '<div class="se-field"><label>Property Name</label>' +
+                                '<input type="text" data-field="reversePropertyName" value="' + escapeAttr(rel.reversePropertyName || revName) + '" placeholder="auto">' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="se-row"><div class="se-checks">' +
+                            '<label class="se-check"><input type="checkbox" data-field="reverseWith"' + (rel.reverseWith ? ' checked' : '') + '> Eager Load (reverse)</label>' +
+                        '</div></div>';
+                        html += '<input type="hidden" data-field="reverseSchemaClass" value="' + escapeAttr(revSchemaClass) + '">';
+                        html += '<div class="se-rel-rev-info">Writes to: <code>' + escapeHtml(revSchemaClass) + '</code></div>';
+                    }
                 }
+                html += '</div></div></div>'; // end details-right, details-cols, details-panel
 
-                html += '<div class="se-row"><div class="se-checks">';
-                if (isBelongsTo || isMorphTo) {
-                    html += '<label class="se-check"><input type="checkbox" data-field="nullable"' + (rel.nullable ? ' checked' : '') + '> Nullable</label>';
-                    html += '<label class="se-check"><input type="checkbox" data-field="index"' + (rel.index ? ' checked' : '') + '> Index</label>';
-                }
-                if (isBelongsTo) {
-                    html += '<label class="se-check"><input type="checkbox" data-field="noConstraint"' + (rel.noConstraint ? ' checked' : '') + '> No Constraint</label>';
-                }
-                html += '<label class="se-check"><input type="checkbox" data-field="with"' + (rel.with ? ' checked' : '') + '> Eager Load</label>';
-                html += '</div></div>';
+                html += '</div>'; // end se-edit-form
 
-                html += '</div>';
                 return html;
+            },
+
+            bindRelationshipFormEvents: function(body, idx) {
+                var self = this;
+                var rel = self.state.relationships[idx];
+                if (!rel) return;
+
+                // ── Model picker ──
+                var modelInput = document.getElementById('se-rel-model-input');
+                var modelDropdown = document.getElementById('se-rel-model-dropdown');
+                var modelValue = document.getElementById('se-rel-model-value');
+                if (modelInput && modelDropdown && modelValue) {
+                    function buildDropdown(filter) {
+                        var filtered = self.availableModels.filter(function(m) {
+                            var short = m.split('\\').pop().toLowerCase();
+                            var full = m.toLowerCase();
+                            var q = filter.toLowerCase();
+                            return !q || short.indexOf(q) !== -1 || full.indexOf(q) !== -1;
+                        });
+                        if (filtered.length === 0) {
+                            modelDropdown.innerHTML = '<div class="se-rel-model-option" style="color:var(--text-muted);">No models found</div>';
+                        } else {
+                            modelDropdown.innerHTML = filtered.map(function(m) {
+                                var short = m.split('\\').pop();
+                                var ns = m.substring(0, m.lastIndexOf('\\'));
+                                return '<div class="se-rel-model-option" data-model="' + escapeAttr(m) + '">' +
+                                    escapeHtml(short) + '<span class="se-rel-model-option-ns">' + escapeHtml(ns) + '</span>' +
+                                '</div>';
+                            }).join('');
+                        }
+                        modelDropdown.style.display = '';
+                    }
+
+                    modelInput.addEventListener('focus', function() { buildDropdown(modelInput.value); });
+                    modelInput.addEventListener('input', function() { buildDropdown(modelInput.value); });
+                    modelInput.addEventListener('blur', function() {
+                        setTimeout(function() { modelDropdown.style.display = 'none'; }, 180);
+                    });
+                    modelDropdown.addEventListener('mousedown', function(e) {
+                        var opt = e.target.closest('.se-rel-model-option');
+                        if (!opt || !opt.dataset.model) return;
+                        var modelFqcn = opt.dataset.model;
+                        var short = modelFqcn.split('\\').pop();
+                        modelInput.value = short;
+                        modelValue.value = modelFqcn;
+                        modelDropdown.style.display = 'none';
+                        // Commit & re-infer
+                        self.commitOpenEdit();
+                        var r = self.state.relationships[self.editingIndex];
+                        r.relatedModel = modelFqcn;
+                        r.name = r.name || scRelInferName(r.type, short, r.morphName);
+                        r.reverseSchemaClass = scModelToSchemaClass(modelFqcn);
+                        r.reverseType = r.reverseType || scRelInverseType(r.type) || 'hasMany';
+                        var curShort = self.state.schemaName.replace(/Schema$/, '');
+                        r.reversePropertyName = r.reversePropertyName || scRelInferName(r.reverseType, curShort, null);
+                        self.renderBody();
+                    });
+                }
+
+                // ── Type select → re-infer names ──
+                var typeSelect = document.getElementById('se-rel-type');
+                if (typeSelect) {
+                    typeSelect.addEventListener('change', function() {
+                        self.commitOpenEdit();
+                        var r = self.state.relationships[self.editingIndex];
+                        var modelSh = (r.relatedModel || '').split('\\').pop();
+                        if (modelSh) r.name = scRelInferName(r.type, modelSh, r.morphName);
+                        r.reverseType = scRelInverseType(r.type) || r.reverseType;
+                        var curSh = self.state.schemaName.replace(/Schema$/, '');
+                        r.reversePropertyName = scRelInferName(r.reverseType || 'hasMany', curSh, null);
+                        self.renderBody();
+                    });
+                }
+
+                // ── Reverse enabled toggle → re-render ──
+                var revCheck = document.getElementById('se-rel-rev-enabled');
+                if (revCheck) {
+                    revCheck.addEventListener('change', function() {
+                        self.commitOpenEdit();
+                        self.renderBody();
+                    });
+                }
+
+                // ── Details button ──
+                var detailsBtn = document.getElementById('se-rel-details-btn');
+                var detailsPanel = document.getElementById('se-rel-details-panel');
+                if (detailsBtn && detailsPanel) {
+                    detailsBtn.addEventListener('click', function() {
+                        var open = detailsPanel.style.display !== 'none';
+                        detailsPanel.style.display = open ? 'none' : '';
+                        detailsBtn.classList.toggle('open', !open);
+                        self.state.relationships[self.editingIndex]._detailsOpen = !open;
+                    });
+                }
+
+                // ── Morph target remove ──
+                body.querySelectorAll('.se-remove-morph-target').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        self.commitOpenEdit();
+                        var r = self.state.relationships[self.editingIndex];
+                        var ti = parseInt(btn.dataset.morphIdx, 10);
+                        r.morphTargets.splice(ti, 1);
+                        self.renderBody();
+                    });
+                });
+
+                // ── Add morph target ──
+                var morphAddBtn = document.getElementById('se-morph-add-btn');
+                if (morphAddBtn) {
+                    morphAddBtn.addEventListener('click', function() {
+                        self.commitOpenEdit();
+                        var r = self.state.relationships[self.editingIndex];
+                        var schemaSelect = document.getElementById('se-morph-add-schema');
+                        var sc = schemaSelect ? schemaSelect.value : '';
+                        if (!sc) { showToast('Select a schema first', 'warning'); return; }
+                        r.morphTargets = r.morphTargets || [];
+                        var already = r.morphTargets.some(function(t) { return t.schemaClass === sc; });
+                        if (already) { showToast('Already added', 'warning'); return; }
+                        var curShort = self.state.schemaName.replace(/Schema$/, '');
+                        r.morphTargets.push({
+                            schemaClass: sc,
+                            type: 'morphMany',
+                            propertyName: scRelInferName('morphMany', curShort, r.morphName || r.name)
+                        });
+                        r._detailsOpen = true;
+                        self.renderBody();
+                    });
+                }
             },
 
             // ── Settings Tab ──
@@ -9563,6 +9959,17 @@
                         item[field] = el.value || null;
                     }
                 });
+
+                // Commit morph target edits (type + propertyName per row)
+                if (this.editingType === 'rel' && item.morphTargets) {
+                    form.querySelectorAll('[data-morph-field]').forEach(function(el) {
+                        var field = el.dataset.morphField;
+                        var ti = parseInt(el.dataset.morphIdx, 10);
+                        if (item.morphTargets[ti] !== undefined) {
+                            item.morphTargets[ti][field] = el.value || null;
+                        }
+                    });
+                }
             },
 
             // ── Build payload for API ──
@@ -9570,10 +9977,39 @@
                 this.commitOpenEdit();
                 var s = this.state;
                 if (!s.schemaName) { showToast('Schema name is required', 'warning'); return null; }
-                // Ensure schemaName ends with Schema
                 if (s.schemaName.indexOf('Schema') === -1) {
                     s.schemaName = s.schemaName + 'Schema';
                 }
+
+                // Derive the current schema's model FQCN for reverse relationship writes
+                var modelName = s.schemaName.replace(/Schema$/, '');
+                var currentModelFqcn = s.modelNamespace + '\\' + modelName;
+
+                var reverseRelationships = [];
+                s.relationships.forEach(function(rel) {
+                    if (rel.type === 'morphTo') {
+                        (rel.morphTargets || []).forEach(function(target) {
+                            if (target.schemaClass && target.type && target.propertyName) {
+                                reverseRelationships.push({
+                                    schemaClass: target.schemaClass,
+                                    type: target.type,
+                                    propertyName: target.propertyName,
+                                    relatedModelFqcn: currentModelFqcn,
+                                    morphName: rel.morphName || rel.name || null
+                                });
+                            }
+                        });
+                    } else if (rel.reverseEnabled !== false && rel.reverseSchemaClass && rel.reverseType) {
+                        reverseRelationships.push({
+                            schemaClass: rel.reverseSchemaClass,
+                            type: rel.reverseType,
+                            propertyName: rel.reversePropertyName || null,
+                            relatedModelFqcn: currentModelFqcn,
+                            morphName: null
+                        });
+                    }
+                });
+
                 return {
                     schemaName: s.schemaName,
                     schemaNamespace: s.schemaNamespace,
@@ -9585,7 +10021,8 @@
                     columns: s.columns,
                     relationships: s.relationships,
                     compositeIndexes: s.compositeIndexes,
-                    createModel: true
+                    createModel: true,
+                    reverseRelationships: reverseRelationships
                 };
             },
 

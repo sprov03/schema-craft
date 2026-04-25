@@ -60,10 +60,7 @@ class SchemaWriter
         }
 
         $propertyName = $propertyName ?? $this->resolvePropertyName($relationshipType, $shortModel, $morphName);
-
-        $content = $this->insertImports($content, $this->buildImports($relationshipType, $relatedModelFqcn));
-        $content = $this->insertMethodDoc($content, $this->buildMethodDocLine($relationshipType, $shortModel, $propertyName));
-        $content = $this->insertPropertyBlock($content, $this->buildPropertyBlock($relationshipType, $shortModel, $propertyName, $morphName));
+        $content = $this->applyRelationshipToContent($content, $relationshipType, $relatedModelFqcn, $shortModel, $propertyName, $morphName);
 
         $this->files->put($schemaFilePath, $content);
 
@@ -71,6 +68,53 @@ class SchemaWriter
         $schemaName = $this->extractSchemaName($content);
 
         return new SchemaWriteResult(true, "Added {$attrName}({$shortModel}::class) to {$schemaName}.", $propertyName);
+    }
+
+    /**
+     * Preview what addRelationship would produce without writing to disk.
+     * Returns the modified file content, or null if the file is missing,
+     * the type is unknown, or the relationship already exists.
+     */
+    public function previewRelationship(
+        string $schemaFilePath,
+        string $relationshipType,
+        string $relatedModelFqcn,
+        ?string $morphName = null,
+        ?string $propertyName = null,
+    ): ?string {
+        if (! $this->files->exists($schemaFilePath)) {
+            return null;
+        }
+
+        if (! isset(self::ATTRIBUTE_CLASSES[$relationshipType])) {
+            return null;
+        }
+
+        $content = $this->files->get($schemaFilePath);
+        $shortModel = class_basename($relatedModelFqcn);
+
+        if ($this->isDuplicate($content, $relationshipType, $shortModel)) {
+            return null;
+        }
+
+        $propertyName = $propertyName ?? $this->resolvePropertyName($relationshipType, $shortModel, $morphName);
+
+        return $this->applyRelationshipToContent($content, $relationshipType, $relatedModelFqcn, $shortModel, $propertyName, $morphName);
+    }
+
+    private function applyRelationshipToContent(
+        string $content,
+        string $relationshipType,
+        string $relatedModelFqcn,
+        string $shortModel,
+        string $propertyName,
+        ?string $morphName,
+    ): string {
+        $content = $this->insertImports($content, $this->buildImports($relationshipType, $relatedModelFqcn));
+        $content = $this->insertMethodDoc($content, $this->buildMethodDocLine($relationshipType, $shortModel, $propertyName));
+        $content = $this->insertPropertyBlock($content, $this->buildPropertyBlock($relationshipType, $shortModel, $propertyName, $morphName));
+
+        return $content;
     }
 
     private function resolvePropertyName(string $relationshipType, string $modelShortName, ?string $morphName): string
