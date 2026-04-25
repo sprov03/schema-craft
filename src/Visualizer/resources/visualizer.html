@@ -957,7 +957,7 @@
 
         /* ── File Preview Modal ───────────────────────────── */
         .fp-overlay {
-            position: fixed; inset: 0; z-index: 9000;
+            position: fixed; inset: 0; z-index: 10000;
             background: rgba(0,0,0,0.6); display: flex;
             align-items: center; justify-content: center;
             animation: fp-fade-in 0.2s ease-out;
@@ -9501,9 +9501,9 @@
                     self.commitOpenEdit();
                     self.state.relationships.push({
                         name: '', type: 'belongsTo', relatedModel: '',
-                        nullable: false, foreignColumn: null, onDelete: null, onUpdate: null,
+                        nullable: false, foreignColumn: null, onDelete: 'restrict', onUpdate: null,
                         noConstraint: false, pivotTable: null, pivotColumns: null,
-                        morphName: null, pivotModel: null, index: false, columnType: null, with: false,
+                        morphName: null, pivotModel: null, index: true, columnType: null, with: false,
                         reverseEnabled: true, reverseSchemaClass: null, reverseType: null,
                         reversePropertyName: null, reverseWith: false, morphTargets: []
                     });
@@ -10037,7 +10037,7 @@
                 .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed', 'error'); return; }
-                    showFilePreviewModal(data.files, function() { SchemaEditor.doSave(); }, 'Save Files');
+                    showFilePreviewModal(data.files, 'Save Files', function() { SchemaEditor.doSave(); });
                 })
                 .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
             },
