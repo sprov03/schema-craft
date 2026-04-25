@@ -2809,6 +2809,9 @@
             { keys: ['J'], desc: 'Select next item (vim)', contexts: ['schema-editor'] },
             { keys: ['K'], desc: 'Select previous item (vim)', contexts: ['schema-editor'] },
             { keys: ['⌘', 'E'], desc: 'Open edit form for selection', contexts: ['schema-editor', 'schema-view'] },
+            { keys: ['Enter'], desc: 'Open edit form for selection', contexts: ['schema-editor'] },
+            { keys: ['⌘', 'S'], desc: 'Save & close edit form', contexts: ['schema-editor'] },
+            { keys: ['⌘', 'C'], desc: 'Cancel & discard edit form', contexts: ['schema-editor'] },
             { keys: ['⌘', 'S'], desc: 'Preview & save changes', contexts: ['global', 'schema-view', 'schema-editor'] },
             { keys: ['⌘', '?'], desc: 'Show hotkey reference', contexts: ['global', 'schema-view', 'schema-editor'] },
             { keys: ['Esc'], desc: 'Close modal / cancel', contexts: ['global', 'schema-view', 'schema-editor'] },
@@ -3248,12 +3251,33 @@
                         }
                         return;
                     }
+                    if (e.key === 'Enter' && !inField) {
+                        var ctx = HotkeyContext.current();
+                        if (ctx === 'schema-editor' && SchemaEditor.state) {
+                            e.preventDefault();
+                            SchemaEditor.openSelectedEdit();
+                        }
+                        return;
+                    }
                 }
 
                 if (!e.metaKey && !e.ctrlKey) return;
                 var key = e.key.toLowerCase();
                 if (key === 'o') { e.preventDefault(); if (searchOverlayEl) { closeSearchModal(); } else { openSearchModal(); } return; }
-                if (key === 's') { e.preventDefault(); globalSave(); return; }
+                if (key === 's') {
+                    e.preventDefault();
+                    if (HotkeyContext.current() === 'schema-editor' && SchemaEditor.state && SchemaEditor.editingIndex !== null) {
+                        SchemaEditor.saveOpenEdit();
+                    } else {
+                        globalSave();
+                    }
+                    return;
+                }
+                if (key === 'c' && HotkeyContext.current() === 'schema-editor' && SchemaEditor.state && SchemaEditor.editingIndex !== null) {
+                    e.preventDefault();
+                    SchemaEditor.discardOpenEdit();
+                    return;
+                }
                 if (key === 'e') {
                     e.preventDefault();
                     var ctx = HotkeyContext.current();
@@ -9575,6 +9599,7 @@
             editingIndex: null,
             editingType: null,
             selectedIndex: null,
+            _editSnapshot: null,
             overlayEl: null,
             availableModels: [],
 
@@ -9706,12 +9731,47 @@
                 self.renderBody();
             },
 
+            _takeSnapshot: function() {
+                if (this.editingIndex === null || !this.state) { this._editSnapshot = null; return; }
+                var list = this.editingType === 'column' ? this.state.columns : this.state.relationships;
+                var item = list[this.editingIndex];
+                this._editSnapshot = item ? JSON.parse(JSON.stringify(item)) : null;
+            },
+
+            saveOpenEdit: function() {
+                if (this.editingIndex === null) return;
+                this.commitOpenEdit();
+                this._editSnapshot = null;
+                this.editingIndex = null;
+                this.editingType = null;
+                if (this._pendingKey && this.state) {
+                    var snapshot = this.buildPayload();
+                    if (snapshot) storePending(this._pendingKey, snapshot, this.state.schemaName || 'New Schema');
+                }
+                this.renderTabs();
+                this.renderBody();
+            },
+
+            discardOpenEdit: function() {
+                if (this.editingIndex === null) return;
+                if (this._editSnapshot !== null) {
+                    var list = this.editingType === 'column' ? this.state.columns : this.state.relationships;
+                    if (list && list[this.editingIndex] !== undefined) {
+                        list[this.editingIndex] = this._editSnapshot;
+                    }
+                }
+                this._editSnapshot = null;
+                this.editingIndex = null;
+                this.editingType = null;
+                this.renderBody();
+            },
+
             _tabOrder: ['columns', 'relationships', 'settings'],
 
             cycleTab: function(dir) {
                 var idx = this._tabOrder.indexOf(this.activeTab);
                 idx = (idx + dir + this._tabOrder.length) % this._tabOrder.length;
-                this.commitOpenEdit();
+                this.discardOpenEdit();
                 this.activeTab = this._tabOrder[idx];
                 this.editingIndex = null;
                 this.selectedIndex = null;
@@ -9722,6 +9782,7 @@
             navigateSelection: function(dir) {
                 var list = this.activeTab === 'columns' ? this.state.columns : this.state.relationships;
                 if (!list || !list.length) return;
+                if (this.editingIndex !== null) { this.discardOpenEdit(); return; }
                 if (this.selectedIndex === null) {
                     this.selectedIndex = dir > 0 ? 0 : list.length - 1;
                 } else {
@@ -9746,15 +9807,20 @@
             },
 
             openSelectedEdit: function() {
-                if (this.selectedIndex === null) return;
+                if (this.selectedIndex === null || this.activeTab === 'settings') return;
                 var type = this.activeTab === 'columns' ? 'column' : 'rel';
-                if (this.activeTab === 'settings') return;
-                this.commitOpenEdit();
                 if (this.editingIndex === this.selectedIndex && this.editingType === type) {
-                    this.editingIndex = null; this.editingType = null;
-                } else {
-                    this.editingIndex = this.selectedIndex; this.editingType = type;
+                    this.discardOpenEdit();
+                    return;
                 }
+                this.discardOpenEdit();
+                this.editingIndex = this.selectedIndex;
+                this.editingType = type;
+                if (type === 'rel') {
+                    var rel = this.state.relationships[this.editingIndex];
+                    if (rel) rel._detailsOpen = true;
+                }
+                this._takeSnapshot();
                 this.renderBody();
             },
 
@@ -9772,9 +9838,10 @@
 
                 tabs.querySelectorAll('.se-tab').forEach(function(tab) {
                     tab.addEventListener('click', function() {
-                        self.commitOpenEdit();
+                        self.discardOpenEdit();
                         self.activeTab = tab.dataset.seTab;
                         self.editingIndex = null;
+                        self.selectedIndex = null;
                         self.renderTabs();
                         self.renderBody();
                     });
@@ -9849,13 +9916,15 @@
                     row.addEventListener('click', function(e) {
                         if (e.target.closest('.se-item-btn')) return;
                         var idx = parseInt(row.dataset.seColIdx, 10);
-                        self.commitOpenEdit();
                         if (self.editingIndex === idx && self.editingType === 'column') {
-                            self.editingIndex = null; self.editingType = null;
+                            self.discardOpenEdit();
                         } else {
+                            self.discardOpenEdit();
                             self.editingIndex = idx; self.editingType = 'column';
+                            self.selectedIndex = idx;
+                            self._takeSnapshot();
+                            self.renderBody();
                         }
-                        self.renderBody();
                     });
                 });
 
@@ -9874,7 +9943,7 @@
 
                 // Add column
                 document.getElementById('se-add-column').addEventListener('click', function() {
-                    self.commitOpenEdit();
+                    self.saveOpenEdit();
                     self.state.columns.push({
                         name: '', phpType: 'string', typeOverride: null, columnType: null,
                         nullable: false, primary: false, autoIncrement: false, unsigned: false,
@@ -9985,13 +10054,15 @@
                     row.addEventListener('click', function(e) {
                         if (e.target.closest('.se-item-btn')) return;
                         var idx = parseInt(row.dataset.seRelIdx, 10);
-                        self.commitOpenEdit();
                         if (self.editingIndex === idx && self.editingType === 'rel') {
-                            self.editingIndex = null; self.editingType = null;
+                            self.discardOpenEdit();
                         } else {
+                            self.discardOpenEdit();
                             self.editingIndex = idx; self.editingType = 'rel';
+                            self.selectedIndex = idx;
+                            self._takeSnapshot();
+                            self.renderBody();
                         }
-                        self.renderBody();
                     });
                 });
 
@@ -10018,7 +10089,7 @@
 
                 // Add relationship
                 document.getElementById('se-add-rel').addEventListener('click', function() {
-                    self.commitOpenEdit();
+                    self.saveOpenEdit();
                     self.state.relationships.push({
                         name: '', type: 'belongsTo', relatedModel: '',
                         nullable: false, foreignColumn: null, onDelete: 'restrict', onUpdate: null,
@@ -10531,13 +10602,6 @@
                     });
                 }
 
-                // Auto-store to pending store on every commit (blur/tab switch)
-                if (this._pendingKey && this.state) {
-                    var snapshot = this.buildPayload();
-                    if (snapshot) {
-                        storePending(this._pendingKey, snapshot, this.state.schemaName || 'New Schema');
-                    }
-                }
             },
 
             // ── Build payload for API ──
