@@ -9713,12 +9713,11 @@
                 document.body.appendChild(overlay);
 
                 // Close handlers
-                overlay.querySelector('.se-close-btn').addEventListener('click', function() { removePending(self._pendingKey); self.close(); });
+                overlay.querySelector('.se-close-btn').addEventListener('click', function() { self.close(); });
                 overlay.querySelector('#se-cancel').addEventListener('click', function() { removePending(self._pendingKey); self.close(); });
-                overlay.addEventListener('click', function(e) { if (e.target === overlay) { removePending(self._pendingKey); self.close(); } });
+                overlay.addEventListener('click', function(e) { if (e.target === overlay) self.close(); });
                 document.addEventListener('keydown', function onEsc(e) {
                     if (e.key === 'Escape' && self.overlayEl) {
-                        removePending(self._pendingKey);
                         self.close();
                         document.removeEventListener('keydown', onEsc);
                     }
