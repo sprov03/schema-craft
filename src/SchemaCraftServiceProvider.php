@@ -162,6 +162,10 @@ class SchemaCraftServiceProvider extends ServiceProvider
             Route::post('/api/schema/import/extras', [SchemaController::class, 'generateExtras'])
                 ->withoutMiddleware($noCsrf);
 
+            // String inflection API
+            Route::post('/api/str/inflect', [SchemaController::class, 'strInflect'])
+                ->withoutMiddleware($noCsrf);
+
             // Schema Editor API
             Route::get('/api/schema/detail', [SchemaController::class, 'schemaDetail']);
             Route::get('/api/schema/available-models', [SchemaController::class, 'availableModels']);

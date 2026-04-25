@@ -9100,7 +9100,9 @@
             if (!str) return str;
             return str.charAt(0).toLowerCase() + str.slice(1);
         }
-        function scPluralize(word) {
+
+        // Fallback pluralizer used when the API cache is cold (e.g. network error).
+        function scPluralizeFallback(word) {
             if (!word) return word;
             var low = word.toLowerCase();
             if (low.endsWith('ies')) return word;
@@ -9108,10 +9110,35 @@
             if (low.endsWith('s') || low.endsWith('x') || low.endsWith('z') || low.endsWith('ch') || low.endsWith('sh')) return word + 'es';
             return word + 's';
         }
+
+        // ── Inflect cache ──────────────────────────────────────
+        // Keyed by "op:value", e.g. "plural:User" → "Users".
+        var scInflectCache = {};
+
+        function scPrewarmInflect(entries, callback) {
+            var needed = entries.filter(function(e) {
+                return e.value && scInflectCache[e.op + ':' + e.value] === undefined;
+            });
+            if (!needed.length) { callback(); return; }
+            fetch('/_schema-craft/api/str/inflect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ items: needed })
+            }).then(handleResponse).then(function(data) {
+                (data.results || []).forEach(function(r) {
+                    scInflectCache[r.op + ':' + r.value] = r.result;
+                });
+                callback();
+            }).catch(function() { callback(); });
+        }
+
         function scRelInferName(type, modelShort, morphName) {
             if (type === 'morphTo') return morphName || 'morphable';
             var collections = ['hasMany', 'belongsToMany', 'morphMany', 'morphToMany', 'morphedByMany'];
-            if (collections.indexOf(type) !== -1) return scCamelCase(scPluralize(modelShort));
+            if (collections.indexOf(type) !== -1) {
+                var plural = scInflectCache['plural:' + modelShort] || scPluralizeFallback(modelShort);
+                return scCamelCase(plural);
+            }
             return scCamelCase(modelShort);
         }
         function scRelInverseType(type) {
@@ -9288,12 +9315,28 @@
                 });
             },
 
+            // Collect all plural inflections needed to render the current relationship list.
+            collectRelInflectEntries: function() {
+                var entries = [];
+                var curShort = this.state.schemaName.replace(/Schema$/, '');
+                if (curShort) entries.push({ op: 'plural', value: curShort });
+                this.state.relationships.forEach(function(rel) {
+                    var modelShort = rel.relatedModel ? rel.relatedModel.split('\\').pop() : '';
+                    if (modelShort) entries.push({ op: 'plural', value: modelShort });
+                });
+                return entries;
+            },
+
             renderBody: function() {
                 var body = document.getElementById('se-body');
                 if (!body) return;
-                if (this.activeTab === 'columns') this.renderColumnsList(body);
-                else if (this.activeTab === 'relationships') this.renderRelationshipsList(body);
-                else if (this.activeTab === 'settings') this.renderSettings(body);
+                if (this.activeTab === 'columns') { this.renderColumnsList(body); return; }
+                if (this.activeTab === 'settings') { this.renderSettings(body); return; }
+                // Relationships tab: pre-warm the inflect cache, then render synchronously.
+                var self = this;
+                scPrewarmInflect(self.collectRelInflectEntries(), function() {
+                    self.renderRelationshipsList(body);
+                });
             },
 
             // ── Columns Tab ──
@@ -9505,7 +9548,9 @@
                         noConstraint: false, pivotTable: null, pivotColumns: null,
                         morphName: null, pivotModel: null, index: true, columnType: null, with: false,
                         reverseEnabled: true, reverseSchemaClass: null, reverseType: null,
-                        reversePropertyName: null, reverseWith: false, morphTargets: []
+                        reversePropertyName: null, reverseWith: false, morphTargets: [],
+                        reverseForeignColumn: null, reverseNullable: false, reverseIndex: true,
+                        reverseOnDelete: null, reverseOnUpdate: null, reverseColumnType: null, reverseNoConstraint: false
                     });
                     self.editingIndex = self.state.relationships.length - 1;
                     self.editingType = 'rel';
@@ -9704,10 +9749,27 @@
                             '<div class="se-field"><label>Property Name</label>' +
                                 '<input type="text" data-field="reversePropertyName" value="' + escapeAttr(rel.reversePropertyName || revName) + '" placeholder="auto">' +
                             '</div>' +
-                        '</div>' +
-                        '<div class="se-row"><div class="se-checks">' +
-                            '<label class="se-check"><input type="checkbox" data-field="reverseWith"' + (rel.reverseWith ? ' checked' : '') + '> Eager Load (reverse)</label>' +
-                        '</div></div>';
+                        '</div>';
+                        if (revType === 'belongsTo') {
+                            html += '<div class="se-row">' +
+                                '<div class="se-field"><label>FK Column</label><input type="text" data-field="reverseForeignColumn" value="' + escapeAttr(rel.reverseForeignColumn || '') + '" placeholder="auto"></div>' +
+                                '<div class="se-field"><label>On Delete</label>' + onDeleteSelect('reverseOnDelete', rel.reverseOnDelete) + '</div>' +
+                                '<div class="se-field"><label>On Update</label>' + onDeleteSelect('reverseOnUpdate', rel.reverseOnUpdate) + '</div>' +
+                            '</div>' +
+                            '<div class="se-row">' +
+                                '<div class="se-field"><label>Column Type</label><input type="text" data-field="reverseColumnType" value="' + escapeAttr(rel.reverseColumnType || '') + '" placeholder="e.g. unsignedInteger"></div>' +
+                            '</div>' +
+                            '<div class="se-row"><div class="se-checks">' +
+                                '<label class="se-check"><input type="checkbox" data-field="reverseNullable"' + (rel.reverseNullable ? ' checked' : '') + '> Nullable</label>' +
+                                '<label class="se-check"><input type="checkbox" data-field="reverseIndex"' + (rel.reverseIndex !== false ? ' checked' : '') + '> Index</label>' +
+                                '<label class="se-check"><input type="checkbox" data-field="reverseNoConstraint"' + (rel.reverseNoConstraint ? ' checked' : '') + '> No Constraint</label>' +
+                                '<label class="se-check"><input type="checkbox" data-field="reverseWith"' + (rel.reverseWith ? ' checked' : '') + '> Eager Load</label>' +
+                            '</div></div>';
+                        } else {
+                            html += '<div class="se-row"><div class="se-checks">' +
+                                '<label class="se-check"><input type="checkbox" data-field="reverseWith"' + (rel.reverseWith ? ' checked' : '') + '> Eager Load (reverse)</label>' +
+                            '</div></div>';
+                        }
                         html += '<input type="hidden" data-field="reverseSchemaClass" value="' + escapeAttr(revSchemaClass) + '">';
                         html += '<div class="se-rel-rev-info">Writes to: <code>' + escapeHtml(revSchemaClass) + '</code></div>';
                     }
@@ -9763,16 +9825,21 @@
                         modelInput.value = short;
                         modelValue.value = modelFqcn;
                         modelDropdown.style.display = 'none';
-                        // Commit & re-infer
                         self.commitOpenEdit();
                         var r = self.state.relationships[self.editingIndex];
                         r.relatedModel = modelFqcn;
-                        r.name = r.name || scRelInferName(r.type, short, r.morphName);
                         r.reverseSchemaClass = scModelToSchemaClass(modelFqcn);
                         r.reverseType = r.reverseType || scRelInverseType(r.type) || 'hasMany';
                         var curShort = self.state.schemaName.replace(/Schema$/, '');
-                        r.reversePropertyName = r.reversePropertyName || scRelInferName(r.reverseType, curShort, null);
-                        self.renderBody();
+                        // Pre-warm cache for both model shorts before inferring names.
+                        scPrewarmInflect([
+                            { op: 'plural', value: short },
+                            { op: 'plural', value: curShort }
+                        ], function() {
+                            r.name = r.name || scRelInferName(r.type, short, r.morphName);
+                            r.reversePropertyName = r.reversePropertyName || scRelInferName(r.reverseType, curShort, null);
+                            self.renderBody();
+                        });
                     });
                 }
 
@@ -9783,11 +9850,16 @@
                         self.commitOpenEdit();
                         var r = self.state.relationships[self.editingIndex];
                         var modelSh = (r.relatedModel || '').split('\\').pop();
-                        if (modelSh) r.name = scRelInferName(r.type, modelSh, r.morphName);
-                        r.reverseType = scRelInverseType(r.type) || r.reverseType;
                         var curSh = self.state.schemaName.replace(/Schema$/, '');
-                        r.reversePropertyName = scRelInferName(r.reverseType || 'hasMany', curSh, null);
-                        self.renderBody();
+                        scPrewarmInflect([
+                            { op: 'plural', value: modelSh },
+                            { op: 'plural', value: curSh }
+                        ], function() {
+                            if (modelSh) r.name = scRelInferName(r.type, modelSh, r.morphName);
+                            r.reverseType = scRelInverseType(r.type) || r.reverseType;
+                            r.reversePropertyName = scRelInferName(r.reverseType || 'hasMany', curSh, null);
+                            self.renderBody();
+                        });
                     });
                 }
 
@@ -9845,13 +9917,15 @@
                         var already = r.morphTargets.some(function(t) { return t.schemaClass === sc; });
                         if (already) { showToast('Already added', 'warning'); return; }
                         var curShort = self.state.schemaName.replace(/Schema$/, '');
-                        r.morphTargets.push({
-                            schemaClass: sc,
-                            type: 'morphMany',
-                            propertyName: scRelInferName('morphMany', curShort, r.morphName || r.name)
+                        scPrewarmInflect([{ op: 'plural', value: curShort }], function() {
+                            r.morphTargets.push({
+                                schemaClass: sc,
+                                type: 'morphMany',
+                                propertyName: scRelInferName('morphMany', curShort, r.morphName || r.name)
+                            });
+                            r._detailsOpen = true;
+                            self.renderBody();
                         });
-                        r._detailsOpen = true;
-                        self.renderBody();
                     });
                 }
             },
@@ -10009,12 +10083,24 @@
                             }
                         });
                     } else if (rel.reverseEnabled !== false && rel.reverseSchemaClass && rel.reverseType) {
+                        var revOpts = {};
+                        if (rel.reverseType === 'belongsTo') {
+                            if (rel.reverseForeignColumn) { revOpts.foreignColumn = rel.reverseForeignColumn; }
+                            if (rel.reverseOnDelete) { revOpts.onDelete = rel.reverseOnDelete; }
+                            if (rel.reverseOnUpdate) { revOpts.onUpdate = rel.reverseOnUpdate; }
+                            if (rel.reverseColumnType) { revOpts.columnType = rel.reverseColumnType; }
+                            if (rel.reverseNullable) { revOpts.nullable = true; }
+                            if (rel.reverseIndex !== false) { revOpts.index = true; }
+                            if (rel.reverseNoConstraint) { revOpts.noConstraint = true; }
+                            if (rel.reverseWith) { revOpts.with = true; }
+                        }
                         reverseRelationships.push({
                             schemaClass: rel.reverseSchemaClass,
                             type: rel.reverseType,
                             propertyName: rel.reversePropertyName || null,
                             relatedModelFqcn: currentModelFqcn,
-                            morphName: null
+                            morphName: null,
+                            options: revOpts
                         });
                     }
                 });
@@ -10073,17 +10159,15 @@
             },
 
             promptRegenerateExtras: function(payload) {
-                // Convention: table name from schema name
                 var modelName = payload.schemaName.replace(/Schema$/, '');
-                var tableName = modelName.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
-                tableName = tableName.replace(/([A-Z]+)/g, function(m) { return m.toLowerCase(); });
-                // Simple pluralize
-                if (!tableName.endsWith('s')) tableName += 's';
+                scPrewarmInflect([{ op: 'tableize', value: modelName }], function() {
+                    var tableName = scInflectCache['tableize:' + modelName]
+                        || (modelName.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase() + 's');
 
-                showConfirmDialog(
-                    'Regenerate Extras?',
-                    'Would you like to regenerate Factory, Model Test, and Service for ' + modelName + '?',
-                    function() {
+                    showConfirmDialog(
+                        'Regenerate Extras?',
+                        'Would you like to regenerate Factory, Model Test, and Service for ' + modelName + '?',
+                        function() {
                         var conn = SchemaEditor.dbConnection;
                         if (conn === 'all') conn = null;
                         fetch('/_schema-craft/api/schema/import/extras', {
@@ -10111,7 +10195,8 @@
                         })
                         .catch(function() {});
                     }
-                );
+                    );
+                });
             }
         };
 

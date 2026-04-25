@@ -377,12 +377,10 @@ abstract class Action
         }
 
         return match (true) {
-            is_a($param->type, \Carbon\CarbonInterval::class, true)
-            => \Carbon\CarbonInterval::make($value),
+            is_a($param->type, \Carbon\CarbonInterval::class, true) => \Carbon\CarbonInterval::make($value),
 
             is_a($param->type, \Carbon\CarbonInterface::class, true),
-            is_a($param->type, \DateTimeInterface::class, true)
-            => \Illuminate\Support\Carbon::parse($value),
+            is_a($param->type, \DateTimeInterface::class, true) => \Illuminate\Support\Carbon::parse($value),
 
             default => $value,
         };

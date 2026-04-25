@@ -41,6 +41,7 @@ class SchemaWriter
         string $relatedModelFqcn,
         ?string $morphName = null,
         ?string $propertyName = null,
+        array $options = [],
     ): SchemaWriteResult {
         if (! $this->files->exists($schemaFilePath)) {
             return new SchemaWriteResult(false, "Schema file not found: {$schemaFilePath}");
@@ -60,7 +61,7 @@ class SchemaWriter
         }
 
         $propertyName = $propertyName ?? $this->resolvePropertyName($relationshipType, $shortModel, $morphName);
-        $content = $this->applyRelationshipToContent($content, $relationshipType, $relatedModelFqcn, $shortModel, $propertyName, $morphName);
+        $content = $this->applyRelationshipToContent($content, $relationshipType, $relatedModelFqcn, $shortModel, $propertyName, $morphName, $options);
 
         $this->files->put($schemaFilePath, $content);
 
@@ -81,6 +82,7 @@ class SchemaWriter
         string $relatedModelFqcn,
         ?string $morphName = null,
         ?string $propertyName = null,
+        array $options = [],
     ): ?string {
         if (! $this->files->exists($schemaFilePath)) {
             return null;
@@ -99,7 +101,7 @@ class SchemaWriter
 
         $propertyName = $propertyName ?? $this->resolvePropertyName($relationshipType, $shortModel, $morphName);
 
-        return $this->applyRelationshipToContent($content, $relationshipType, $relatedModelFqcn, $shortModel, $propertyName, $morphName);
+        return $this->applyRelationshipToContent($content, $relationshipType, $relatedModelFqcn, $shortModel, $propertyName, $morphName, $options);
     }
 
     private function applyRelationshipToContent(
@@ -109,10 +111,11 @@ class SchemaWriter
         string $shortModel,
         string $propertyName,
         ?string $morphName,
+        array $options = [],
     ): string {
-        $content = $this->insertImports($content, $this->buildImports($relationshipType, $relatedModelFqcn));
+        $content = $this->insertImports($content, $this->buildImports($relationshipType, $relatedModelFqcn, $options));
         $content = $this->insertMethodDoc($content, $this->buildMethodDocLine($relationshipType, $shortModel, $propertyName));
-        $content = $this->insertPropertyBlock($content, $this->buildPropertyBlock($relationshipType, $shortModel, $propertyName, $morphName));
+        $content = $this->insertPropertyBlock($content, $this->buildPropertyBlock($relationshipType, $shortModel, $propertyName, $morphName, $options));
 
         return $content;
     }
@@ -133,7 +136,7 @@ class SchemaWriter
     /**
      * @return string[]
      */
-    private function buildImports(string $relationshipType, string $relatedModelFqcn): array
+    private function buildImports(string $relationshipType, string $relatedModelFqcn, array $options = []): array
     {
         $imports = [];
 
@@ -150,6 +153,27 @@ class SchemaWriter
         }
 
         $imports[] = 'Illuminate\Database\Eloquent\Relations as Eloquent';
+
+        if ($relationshipType === 'belongsTo') {
+            if (! empty($options['onDelete'])) {
+                $imports[] = 'SchemaCraft\Attributes\OnDelete';
+            }
+            if (! empty($options['onUpdate'])) {
+                $imports[] = 'SchemaCraft\Attributes\OnUpdate';
+            }
+            if (! empty($options['noConstraint'])) {
+                $imports[] = 'SchemaCraft\Attributes\NoConstraint';
+            }
+            if (! empty($options['index'])) {
+                $imports[] = 'SchemaCraft\Attributes\Index';
+            }
+            if (! empty($options['columnType'])) {
+                $imports[] = 'SchemaCraft\Attributes\ColumnType';
+            }
+            if (! empty($options['with'])) {
+                $imports[] = 'SchemaCraft\Attributes\With';
+            }
+        }
 
         return $imports;
     }
@@ -237,7 +261,7 @@ class SchemaWriter
         return $content;
     }
 
-    private function buildPropertyBlock(string $relationshipType, string $modelShortName, string $propertyName, ?string $morphName): string
+    private function buildPropertyBlock(string $relationshipType, string $modelShortName, string $propertyName, ?string $morphName, array $options = []): string
     {
         $attrShort = class_basename(self::ATTRIBUTE_CLASSES[$relationshipType]);
         $lines = [];
@@ -257,6 +281,33 @@ class SchemaWriter
             } else {
                 $lines[] = "    public {$modelShortName} \${$propertyName};";
             }
+        } elseif ($relationshipType === 'belongsTo') {
+            $foreignKey = $options['foreignColumn'] ?? null;
+            if ($foreignKey) {
+                $lines[] = "    #[{$attrShort}({$modelShortName}::class, foreignKey: '{$foreignKey}')]";
+            } else {
+                $lines[] = "    #[{$attrShort}({$modelShortName}::class)]";
+            }
+            if (! empty($options['onDelete'])) {
+                $lines[] = "    #[OnDelete('{$options['onDelete']}')]";
+            }
+            if (! empty($options['onUpdate'])) {
+                $lines[] = "    #[OnUpdate('{$options['onUpdate']}')]";
+            }
+            if (! empty($options['noConstraint'])) {
+                $lines[] = '    #[NoConstraint]';
+            }
+            if (! empty($options['index'])) {
+                $lines[] = '    #[Index]';
+            }
+            if (! empty($options['columnType'])) {
+                $lines[] = "    #[ColumnType('{$options['columnType']}')]";
+            }
+            if (! empty($options['with'])) {
+                $lines[] = '    #[With]';
+            }
+            $nullable = ! empty($options['nullable']) ? '?' : '';
+            $lines[] = "    public {$nullable}{$modelShortName} \${$propertyName};";
         } else {
             $lines[] = "    #[{$attrShort}({$modelShortName}::class)]";
 

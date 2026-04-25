@@ -979,6 +979,7 @@ class SchemaController
                 relatedModelFqcn: $currentModelFqcn,
                 morphName: $rev['morphName'] ?? null,
                 propertyName: $rev['propertyName'] ?? null,
+                options: $rev['options'] ?? [],
             );
 
             if ($previewContent !== null) {
@@ -1047,6 +1048,7 @@ class SchemaController
                 relatedModelFqcn: $currentModelFqcn,
                 morphName: $rev['morphName'] ?? null,
                 propertyName: $rev['propertyName'] ?? null,
+                options: $rev['options'] ?? [],
             );
 
             $outputFiles[] = [
@@ -1062,6 +1064,36 @@ class SchemaController
             'files' => $outputFiles,
             'message' => "{$payload->schemaName} saved successfully.",
         ]);
+    }
+
+    /**
+     * Batch-inflect strings using Laravel's Str helpers.
+     *
+     * Supported ops: plural, singular, snake, camel, studly, tableize (snake+plural)
+     */
+    public function strInflect(Request $request): JsonResponse
+    {
+        $items = $request->validate([
+            'items' => ['required', 'array'],
+            'items.*.op' => ['required', 'string'],
+            'items.*.value' => ['required', 'string'],
+        ])['items'];
+
+        $results = array_map(function (array $item): array {
+            $result = match ($item['op']) {
+                'plural' => Str::plural($item['value']),
+                'singular' => Str::singular($item['value']),
+                'snake' => Str::snake($item['value']),
+                'camel' => Str::camel($item['value']),
+                'studly' => Str::studly($item['value']),
+                'tableize' => Str::snake(Str::plural($item['value'])),
+                default => $item['value'],
+            };
+
+            return ['op' => $item['op'], 'value' => $item['value'], 'result' => $result];
+        }, $items);
+
+        return new JsonResponse(['results' => $results]);
     }
 
     /**
