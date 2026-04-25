@@ -76,11 +76,14 @@ class SchemaAnalyzer
                 continue;
             }
 
-            try {
-                $schemaClass = $ref->getStaticPropertyValue('schema');
-            } catch (\Throwable) {
+            $prop = $ref->getProperty('schema');
+            $prop->setAccessible(true);
+
+            if (! $prop->isInitialized(null)) {
                 continue;
             }
+
+            $schemaClass = $prop->getValue(null);
 
             if (is_string($schemaClass) && isset($this->tables[$schemaClass])) {
                 $this->modelToSchema[$modelClass] = $schemaClass;
