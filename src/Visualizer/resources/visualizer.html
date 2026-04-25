@@ -1942,6 +1942,7 @@
             cursor: pointer; transition: border-color 0.15s;
         }
         .se-item-row:hover { border-color: var(--accent); }
+        .se-item-row.focused { border-color: var(--accent); outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset: -1px; }
         .se-item-row.active { border-color: var(--accent); background: var(--accent-dim); }
         .se-item-name { font-family: var(--font-mono); font-size: 13px; font-weight: 500; }
         .se-type-badge {
@@ -2801,6 +2802,13 @@
         var HOTKEYS = [
             { keys: ['⌘', 'O'], desc: 'Open schema search', contexts: ['global', 'schema-view', 'schema-editor'] },
             { keys: ['⌘', 'E'], desc: 'Edit schema', contexts: ['schema-view'] },
+            { keys: ['⌘', 'J'], desc: 'Previous tab', contexts: ['schema-editor'] },
+            { keys: ['⌘', 'K'], desc: 'Next tab', contexts: ['schema-editor'] },
+            { keys: ['H'], desc: 'Previous tab (vim)', contexts: ['schema-editor'] },
+            { keys: ['L'], desc: 'Next tab (vim)', contexts: ['schema-editor'] },
+            { keys: ['J'], desc: 'Select next item (vim)', contexts: ['schema-editor'] },
+            { keys: ['K'], desc: 'Select previous item (vim)', contexts: ['schema-editor'] },
+            { keys: ['⌘', 'E'], desc: 'Open edit form for selection', contexts: ['schema-editor', 'schema-view'] },
             { keys: ['⌘', 'S'], desc: 'Preview & save changes', contexts: ['global', 'schema-view', 'schema-editor'] },
             { keys: ['⌘', '?'], desc: 'Show hotkey reference', contexts: ['global', 'schema-view', 'schema-editor'] },
             { keys: ['Esc'], desc: 'Close modal / cancel', contexts: ['global', 'schema-view', 'schema-editor'] },
@@ -3221,6 +3229,27 @@
             document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
             document.getElementById('hk-open-btn').addEventListener('click', function() { showHotkeyModal(); });
             document.addEventListener('keydown', function(e) {
+                var inField = ['INPUT','TEXTAREA','SELECT'].indexOf(document.activeElement.tagName) !== -1
+                    || document.activeElement.isContentEditable;
+
+                // Arrow keys + vim aliases — no modifier, not in a field
+                if (!e.metaKey && !e.ctrlKey && !e.altKey && !inField) {
+                    var vk = e.key === 'ArrowDown' ? 'j' : e.key === 'ArrowUp' ? 'k'
+                           : e.key === 'ArrowLeft' ? 'h' : e.key === 'ArrowRight' ? 'l'
+                           : e.key.toLowerCase();
+                    if (vk === 'j' || vk === 'k' || vk === 'h' || vk === 'l') {
+                        var ctx = HotkeyContext.current();
+                        if (ctx === 'schema-editor' && SchemaEditor.state) {
+                            e.preventDefault();
+                            if (vk === 'j') { SchemaEditor.navigateSelection(1); }
+                            else if (vk === 'k') { SchemaEditor.navigateSelection(-1); }
+                            else if (vk === 'h') { SchemaEditor.cycleTab(-1); }
+                            else if (vk === 'l') { SchemaEditor.cycleTab(1); }
+                        }
+                        return;
+                    }
+                }
+
                 if (!e.metaKey && !e.ctrlKey) return;
                 var key = e.key.toLowerCase();
                 if (key === 'o') { e.preventDefault(); if (searchOverlayEl) { closeSearchModal(); } else { openSearchModal(); } return; }
@@ -3228,12 +3257,16 @@
                 if (key === 'e') {
                     e.preventDefault();
                     var ctx = HotkeyContext.current();
-                    if (ctx === 'schema-view' && window._schemaDetailCurrentTable) {
+                    if (ctx === 'schema-editor' && SchemaEditor.state) {
+                        SchemaEditor.openSelectedEdit();
+                    } else if (ctx === 'schema-view' && window._schemaDetailCurrentTable) {
                         var t = window._schemaDetailCurrentTable;
                         SchemaEditor.openEdit(t.schemaClass, t.dbConnection || sharedFilterState.dbConnection);
                     }
                     return;
                 }
+                if (key === 'j' && HotkeyContext.current() === 'schema-editor' && SchemaEditor.state) { e.preventDefault(); SchemaEditor.cycleTab(-1); return; }
+                if (key === 'k' && HotkeyContext.current() === 'schema-editor' && SchemaEditor.state) { e.preventDefault(); SchemaEditor.cycleTab(1); return; }
                 if (key === '/' || e.key === '?') { e.preventDefault(); showHotkeyModal(); return; }
             });
             document.getElementById('model-search').addEventListener('input', function(e) { filterModelList(e.target.value); });
@@ -9541,6 +9574,7 @@
             activeTab: 'columns',
             editingIndex: null,
             editingType: null,
+            selectedIndex: null,
             overlayEl: null,
             availableModels: [],
 
@@ -9565,6 +9599,7 @@
                 };
                 this.activeTab = 'columns';
                 this.editingIndex = null;
+                this.selectedIndex = null;
                 HotkeyContext.push('schema-editor');
                 this.loadModels();
                 this.render();
@@ -9578,6 +9613,7 @@
                 self.dbConnection = dbConn;
                 self.activeTab = 'columns';
                 self.editingIndex = null;
+                self.selectedIndex = null;
 
                 var url = '/_schema-craft/api/schema/detail?schema=' + encodeURIComponent(schemaClass);
                 if (dbConn) url += '&db_connection=' + encodeURIComponent(dbConn);
@@ -9670,6 +9706,58 @@
                 self.renderBody();
             },
 
+            _tabOrder: ['columns', 'relationships', 'settings'],
+
+            cycleTab: function(dir) {
+                var idx = this._tabOrder.indexOf(this.activeTab);
+                idx = (idx + dir + this._tabOrder.length) % this._tabOrder.length;
+                this.commitOpenEdit();
+                this.activeTab = this._tabOrder[idx];
+                this.editingIndex = null;
+                this.selectedIndex = null;
+                this.renderTabs();
+                this.renderBody();
+            },
+
+            navigateSelection: function(dir) {
+                var list = this.activeTab === 'columns' ? this.state.columns : this.state.relationships;
+                if (!list || !list.length) return;
+                if (this.selectedIndex === null) {
+                    this.selectedIndex = dir > 0 ? 0 : list.length - 1;
+                } else {
+                    this.selectedIndex = Math.max(0, Math.min(list.length - 1, this.selectedIndex + dir));
+                }
+                this._applyFocusClass();
+            },
+
+            _applyFocusClass: function() {
+                if (!this.overlayEl) return;
+                var attr = this.activeTab === 'columns' ? 'data-se-col-idx' : 'data-se-rel-idx';
+                this.overlayEl.querySelectorAll('.se-item-row').forEach(function(row) {
+                    row.classList.remove('focused');
+                });
+                if (this.selectedIndex !== null) {
+                    var sel = this.overlayEl.querySelector('.se-item-row[' + attr + '="' + this.selectedIndex + '"]');
+                    if (sel) {
+                        sel.classList.add('focused');
+                        sel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    }
+                }
+            },
+
+            openSelectedEdit: function() {
+                if (this.selectedIndex === null) return;
+                var type = this.activeTab === 'columns' ? 'column' : 'rel';
+                if (this.activeTab === 'settings') return;
+                this.commitOpenEdit();
+                if (this.editingIndex === this.selectedIndex && this.editingType === type) {
+                    this.editingIndex = null; this.editingType = null;
+                } else {
+                    this.editingIndex = this.selectedIndex; this.editingType = type;
+                }
+                this.renderBody();
+            },
+
             renderTabs: function() {
                 var self = this;
                 var tabs = document.getElementById('se-tabs');
@@ -9706,14 +9794,15 @@
             },
 
             renderBody: function() {
+                var self = this;
                 var body = document.getElementById('se-body');
                 if (!body) return;
-                if (this.activeTab === 'columns') { this.renderColumnsList(body); return; }
-                if (this.activeTab === 'settings') { this.renderSettings(body); return; }
+                if (self.activeTab === 'columns') { self.renderColumnsList(body); self._applyFocusClass(); return; }
+                if (self.activeTab === 'settings') { self.renderSettings(body); return; }
                 // Relationships tab: pre-warm the inflect cache, then render synchronously.
-                var self = this;
                 scPrewarmInflect(self.collectRelInflectEntries(), function() {
                     self.renderRelationshipsList(body);
+                    self._applyFocusClass();
                 });
             },
 
