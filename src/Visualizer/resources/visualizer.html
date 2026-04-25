@@ -2809,6 +2809,7 @@
             { keys: ['J'], desc: 'Select next item (vim)', contexts: ['schema-editor'] },
             { keys: ['K'], desc: 'Select previous item (vim)', contexts: ['schema-editor'] },
             { keys: ['⌘', 'E'], desc: 'Open edit form for selection', contexts: ['schema-editor', 'schema-view'] },
+            { keys: ['⌘', 'I'], desc: 'Jump to related schema', contexts: ['schema-editor'] },
             { keys: ['Enter'], desc: 'Open edit form for selection', contexts: ['schema-editor'] },
             { keys: ['⌘', 'S'], desc: 'Save & close edit form', contexts: ['schema-editor'] },
             { keys: ['⌘', 'C'], desc: 'Cancel & discard edit form', contexts: ['schema-editor'] },
@@ -3289,6 +3290,7 @@
                     }
                     return;
                 }
+                if (key === 'i' && HotkeyContext.current() === 'schema-editor' && SchemaEditor.state && SchemaEditor.editingIndex === null) { e.preventDefault(); SchemaEditor.jumpToRelated(); return; }
                 if (key === 'j' && HotkeyContext.current() === 'schema-editor' && SchemaEditor.state) { e.preventDefault(); SchemaEditor.cycleTab(-1); return; }
                 if (key === 'k' && HotkeyContext.current() === 'schema-editor' && SchemaEditor.state) { e.preventDefault(); SchemaEditor.cycleTab(1); return; }
                 if (key === '/' || e.key === '?') { e.preventDefault(); showHotkeyModal(); return; }
@@ -9718,8 +9720,12 @@
                 overlay.addEventListener('click', function(e) { if (e.target === overlay) self.close(); });
                 document.addEventListener('keydown', function onEsc(e) {
                     if (e.key === 'Escape' && self.overlayEl) {
-                        self.close();
-                        document.removeEventListener('keydown', onEsc);
+                        if (self.editingIndex !== null) {
+                            self.discardOpenEdit();
+                        } else {
+                            self.close();
+                            document.removeEventListener('keydown', onEsc);
+                        }
                     }
                 });
 
@@ -9803,6 +9809,16 @@
                         sel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
                     }
                 }
+            },
+
+            jumpToRelated: function() {
+                if (this.activeTab !== 'relationships' || this.selectedIndex === null) return;
+                if (this.editingIndex !== null) return;
+                var rel = this.state.relationships[this.selectedIndex];
+                if (!rel) return;
+                var relSchemaClass = rel.reverseSchemaClass || (rel.relatedModel ? scModelToSchemaClass(rel.relatedModel) : null);
+                if (!relSchemaClass) return;
+                this.openEdit(relSchemaClass, this.dbConnection);
             },
 
             openSelectedEdit: function() {
