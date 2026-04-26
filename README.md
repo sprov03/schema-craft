@@ -536,11 +536,300 @@ The cast is automatically registered to the enum class.
 
 ### Custom Casts
 
-Classes implementing `Castable` or `CastsAttributes` are auto-detected:
+Any class used as a property type that implements `Illuminate\Contracts\Database\Eloquent\CastsAttributes` **must also implement `SchemaCraft\Contracts\SchemaCraftColumn`**. There is no fallback — SchemaCraft will throw at generation time if a custom cast class is present without the interface. This keeps generated output deterministic: every concern (DB type, Faker value, Filament rendering, API shape, SDK type) is explicitly declared on the class, not guessed.
 
 ```php
-public ?AddressData $address;        // json column, cast to AddressData
+public ?AddressData $address;        // json column, cast to AddressData — AddressData MUST implement SchemaCraftColumn
 ```
+
+---
+
+## Custom Column Types
+
+`SchemaCraftColumn` is a single interface that composes seven concerns. Every custom type must implement them all. Extend one of the three provided abstract base classes rather than implementing the interface from scratch.
+
+```
+SchemaCraftColumn extends
+  SchemaCraftType           ─ DB column declaration
+  CastsDataSchemaProperty   ─ internal hydration / dehydration
+  FormatsApiOutput          ─ API response shape
+  ParsesApiInput            ─ API request parsing
+  GeneratesFakerValue       ─ factory test data
+  GeneratesSdkType          ─ PHP type hint in generated SDKs
+  FilamentRenderable        ─ Filament form / table / infolist rendering
+```
+
+### Choosing a Base Class
+
+| Base class | Use when |
+|---|---|
+| `AbstractBitmaskType` | An integer column storing bit flags |
+| `AbstractJsonDtoType` | A JSON column storing a single typed object |
+| `AbstractCollectionType` | A JSON column storing an array of typed items |
+
+If none fits, implement `SchemaCraftColumn` directly.
+
+---
+
+### AbstractBitmaskType
+
+Declare the flags constant, override schema metadata if needed, and get everything else for free.
+
+```php
+use SchemaCraft\Types\AbstractBitmaskType;
+
+class LoanTypeMask extends AbstractBitmaskType
+{
+    // Required: declare each flag name and its bit value.
+    protected static function flags(): array
+    {
+        return [
+            'LOAN'      => 1,
+            'PURCHASE'  => 2,
+            'REFINANCE' => 4,
+        ];
+    }
+}
+```
+
+**Schema usage:**
+```php
+public LoanTypeMask $loanTypes;
+public ?LoanTypeMask $optionalTypes;
+```
+
+**What the base class provides (override as needed):**
+
+| Method | Default | When to override |
+|---|---|---|
+| `schemaColumnType()` | `'integer'` | When you need `tinyInteger`, `smallInteger`, `mediumInteger`, etc. |
+| `schemaColumnModifiers()` | `[]` | When you need `['unsigned' => true]` or similar |
+| `schemaValidationRules()` | `['required', 'array']` | When your validation rules differ |
+| `fakerExpression()` | `$faker->numberBetween(0, sum_of_all_bits)` | When you want more controlled fake data |
+| `sdkType()` | `'array'` | Rarely needed — SDK always receives the flags object |
+| `asFilamentField()` | `CheckboxList` with flag names as options | When you want a custom field UI |
+| `asFilamentColumn()` | `TextColumn` showing active flag names comma-separated | When you want different table display |
+| `asFilamentEntry()` | `TextEntry` showing active flag names | When you want different detail display |
+
+**API contract:**
+
+The base class enforces the same shape in and out so the client never sees the raw integer:
+
+```
+// Response (toApiRepresentation):
+{ "value": 3, "flags": { "LOAN": true, "PURCHASE": true, "REFINANCE": false } }
+
+// Request (fromApiInput) — accepts the flags object only:
+{ "LOAN": true, "PURCHASE": false, "REFINANCE": true }
+```
+
+`fromApiInput()` compiles the flags back to the integer before it reaches the model. Unknown flag names throw `InvalidArgumentException`. Non-array input throws `InvalidArgumentException`.
+
+**Helper methods available on instances:**
+
+```php
+$mask->getValue()              // raw integer
+$mask->hasFlag('LOAN')         // bool
+$mask->withFlag('LOAN')        // new instance with flag set
+$mask->withoutFlag('LOAN')     // new instance with flag cleared
+$mask->toApiRepresentation()   // ['value' => ..., 'flags' => [...]]
+```
+
+---
+
+### AbstractJsonDtoType
+
+Declare the DTO shape via `fromArray()` and `toArray()`.
+
+```php
+use SchemaCraft\Types\AbstractJsonDtoType;
+
+class AddressDto extends AbstractJsonDtoType
+{
+    public function __construct(
+        public readonly string $street = '',
+        public readonly string $city = '',
+        public readonly string $state = '',
+    ) {}
+
+    public static function fromArray(array $data): static
+    {
+        return new static(
+            street: $data['street'] ?? '',
+            city:   $data['city']   ?? '',
+            state:  $data['state']  ?? '',
+        );
+    }
+
+    public function toArray(): array
+    {
+        return [
+            'street' => $this->street,
+            'city'   => $this->city,
+            'state'  => $this->state,
+        ];
+    }
+}
+```
+
+**Schema usage:**
+```php
+public AddressDto $address;
+public ?AddressDto $shippingAddress;
+```
+
+**What the base class provides (override as needed):**
+
+| Method | Default | When to override |
+|---|---|---|
+| `schemaColumnType()` | `'json'` | Almost never |
+| `schemaColumnModifiers()` | `[]` | Almost never |
+| `schemaValidationRules()` | `['array']` | When you need nested field-level rules |
+| `fakerExpression()` | `'[]'` | When you want a populated fake object |
+| `sdkType()` | `'array'` | Almost never |
+| `asFilamentField()` | `KeyValue::make(...)` | When a custom Repeater or custom fields are needed |
+| `asFilamentColumn()` | `TextColumn::make(...)` | When you want richer table display |
+| `asFilamentEntry()` | `TextEntry::make(...)` | When you want richer detail display |
+
+**API contract:** `toApiRepresentation()` calls `toArray()`. `fromApiInput()` calls `fromArray()`. Non-array input throws.
+
+---
+
+### AbstractCollectionType
+
+Declare how each item is hydrated and dehydrated.
+
+```php
+use SchemaCraft\Types\AbstractCollectionType;
+
+class TagCollection extends AbstractCollectionType
+{
+    // Hydrate one item from its raw array.
+    protected static function itemFromArray(array $item): mixed
+    {
+        return ['name' => $item['name'] ?? '', 'color' => $item['color'] ?? '#000000'];
+    }
+
+    // Dehydrate one item back to its raw array.
+    protected static function itemToArray(mixed $item): array
+    {
+        return is_array($item) ? $item : (array) $item;
+    }
+}
+```
+
+**Schema usage:**
+```php
+public TagCollection $tags;
+```
+
+**What the base class provides (override as needed):**
+
+| Method | Default | When to override |
+|---|---|---|
+| `schemaColumnType()` | `'json'` | Almost never |
+| `schemaValidationRules()` | `['array']` | When you need item-level rules |
+| `fakerExpression()` | `'[]'` | When you want populated fake items |
+| `sdkType()` | `'array'` | Almost never |
+| `asFilamentField()` | `Repeater::make(...)->schema([])` | When you want a real repeater schema |
+| `asFilamentColumn()` | `TextColumn::make(...)` | When you want badge/tag display |
+| `asFilamentEntry()` | `RepeatableEntry::make(...)->schema([])` | When you want a real infolist schema |
+
+**Helper methods:**
+```php
+$col->getItems()    // Collection of hydrated items
+$col->count()       // item count
+$col->toArray()     // array of dehydrated items
+```
+
+---
+
+### Implementing SchemaCraftColumn Directly
+
+If the base classes don't fit (e.g., the class already extends something else), implement `SchemaCraftColumn` directly and satisfy all seven interfaces:
+
+```php
+use SchemaCraft\Contracts\SchemaCraftColumn;
+use SchemaCraft\Generators\GeneratorColumn;
+use SchemaCraft\Scanner\ColumnDefinition;
+
+class MySpecialType implements SchemaCraftColumn
+{
+    // ── SchemaCraftType ──────────────────────────────────────────
+    // Tells the schema scanner what DB column type to create.
+    public static function schemaColumnType(): string { return 'string'; }
+
+    // Additional column modifiers: 'unsigned', 'length', 'precision', 'scale'.
+    public static function schemaColumnModifiers(): array { return []; }
+
+    // Validation rules used by the Actions system.
+    public static function schemaValidationRules(): array { return ['string', 'max:255']; }
+
+    // ── CastsDataSchemaProperty ───────────────────────────────────
+    // Hydrate from the raw DB / DataSchema value.
+    public static function fromRaw(mixed $value): static { return new static((string) $value); }
+
+    // Dehydrate back to raw for storage.
+    public function toRaw(): mixed { return (string) $this; }
+
+    // ── FormatsApiOutput ──────────────────────────────────────────
+    // Shape returned to the API client. Return the same shape fromApiInput() accepts.
+    public function toApiRepresentation(): mixed { return (string) $this; }
+
+    // ── ParsesApiInput ────────────────────────────────────────────
+    // Parse the API client's input. MUST accept whatever toApiRepresentation() returns.
+    public static function fromApiInput(mixed $input): static { return new static((string) $input); }
+
+    // ── GeneratesFakerValue ───────────────────────────────────────
+    // PHP expression injected verbatim into the generated factory — $faker is in scope.
+    public static function fakerExpression(ColumnDefinition $column): string
+    {
+        return '$faker->word()';
+    }
+
+    // ── GeneratesSdkType ──────────────────────────────────────────
+    // PHP type hint used in generated SDK Data classes (@var / @param).
+    public static function sdkType(): string { return 'string'; }
+
+    // ── FilamentRenderable ────────────────────────────────────────
+    // Three distinct contexts — return a single component expression, no leading
+    // whitespace, no trailing comma. The caller adds indentation and separators.
+
+    // Editable form field (Create / Edit resource pages).
+    public static function asFilamentField(GeneratorColumn $column): string
+    {
+        return "Forms\\Components\\TextInput::make('{$column->name}')";
+    }
+
+    // Read-only table column (List resource page).
+    public static function asFilamentColumn(GeneratorColumn $column): string
+    {
+        return "Tables\\Columns\\TextColumn::make('{$column->name}')";
+    }
+
+    // Read-only detail entry (View resource page / infolist).
+    public static function asFilamentEntry(GeneratorColumn $column): string
+    {
+        return "Infolists\\Components\\TextEntry::make('{$column->name}')";
+    }
+}
+```
+
+---
+
+### The Three Filament Contexts
+
+The three rendering contexts are meaningfully different — they serve different pages and user interactions:
+
+| Context | Method | Where it appears | User interaction |
+|---|---|---|---|
+| Form field | `asFilamentField()` | Create and Edit pages | Editable input — must accept and validate input |
+| Table column | `asFilamentColumn()` | List page rows | Read-only, compact — favor short output (badges, truncation) |
+| Infolist entry | `asFilamentEntry()` | View / detail pages | Read-only, spacious — can show full structure |
+
+Always implement all three even if two are identical — they will diverge over time as the resource grows.
+
+**Backed enums** do not need to implement `SchemaCraftColumn`. The scanner reads the backing type via reflection. The built-in mapper renders them as `->badge()` automatically. If you want custom Filament rendering for a specific enum, you can still implement `SchemaCraftColumn` on it and the custom methods take precedence.
 
 ---
 
@@ -3035,9 +3324,9 @@ Each column in `$schema->columns` provides:
 | `$col->studlyName()` | `'FirstName'` |
 | `$col->humanName()` | `'First Name'` |
 | `$col->fakerValue()` | `'$faker->safeEmail()'` |
-| `$col->asFilamentField()` | Filament form field component string (honors `FilamentRenderable` custom types) |
-| `$col->asFilamentColumn()` | Filament table column component string (honors `FilamentRenderable` custom types) |
-| `$col->asFilamentEntry()` | Filament infolist entry component string (honors `FilamentRenderable` custom types) |
+| `$col->asFilamentField()` | Filament form field component string (delegates to `SchemaCraftColumn::asFilamentField()` on custom types) |
+| `$col->asFilamentColumn()` | Filament table column component string (delegates to `SchemaCraftColumn::asFilamentColumn()` on custom types) |
+| `$col->asFilamentEntry()` | Filament infolist entry component string (delegates to `SchemaCraftColumn::asFilamentEntry()` on custom types) |
 | `$col->asMethodParam()` | `'string $firstName'` or `'?string $firstName = null'` |
 | `$col->asAssignment('$model')` | `'$model->first_name = $firstName;'` |
 | `$col->isFK()` | `true` if column ends with `_id` |
@@ -3105,14 +3394,22 @@ The `$phpOpenTag` variable (`<?php`) is always available — use it instead of a
 
 `$col->asFilamentColumn()`, `$col->asFilamentEntry()`, and `$col->asFilamentField()` use a built-in mapper that handles strings, numerics, booleans, dates, JSON, UUID/ULID, and backed enums out of the box. **Backed enums automatically render as `->badge()`** — no interface is required on the enum class. If the enum also implements Filament's `HasLabel` / `HasColor` / `HasIcon` contracts, Filament will pick those up at runtime.
 
-For domain-specific custom types (bitmasks, collection/JSON DTOs, rich value objects) the built-in mapper can't guess the right component. Implement `SchemaCraft\Contracts\FilamentRenderable` on your cast class and the generator will delegate to it:
+For domain-specific custom types (bitmasks, collection/JSON DTOs, rich value objects) the built-in mapper can't guess the right component. Any class used as a cast **must implement `SchemaCraft\Contracts\SchemaCraftColumn`**, which includes the three Filament rendering methods. The generator delegates to them automatically:
 
 ```php
-use SchemaCraft\Contracts\FilamentRenderable;
+use SchemaCraft\Contracts\SchemaCraftColumn;
 use SchemaCraft\Generators\GeneratorColumn;
+use SchemaCraft\Scanner\ColumnDefinition;
 
-class TinyBitmaskColumn extends AbstractBitmaskHandler implements FilamentRenderable
+class PermissionFlags extends AbstractBitmaskType
 {
+    protected static function flags(): array
+    {
+        return ['READ' => 1, 'WRITE' => 2, 'ADMIN' => 4];
+    }
+
+    // Override the AbstractBitmaskType defaults to customise Filament output:
+
     public static function asFilamentColumn(GeneratorColumn $column): string
     {
         return "Tables\\Columns\\TextColumn::make('{$column->name}')->badge()->separator(',')";
@@ -3130,7 +3427,7 @@ class TinyBitmaskColumn extends AbstractBitmaskHandler implements FilamentRender
 }
 ```
 
-The hook fires when `$column->definition->castType` is a class that implements `FilamentRenderable`. Enums may also implement it to override the default `->badge()` rendering for specific domains. Return a single component expression without leading whitespace or a trailing comma — the caller handles indentation.
+The three methods receive the `GeneratorColumn` context so you can reference `$column->name`, `$column->definition`, etc. Return a single component expression without leading whitespace or a trailing comma — the caller handles indentation. See [The Three Filament Contexts](#the-three-filament-contexts) for guidance on which component suits each context.
 
 ### Composable Templates with `@include`
 

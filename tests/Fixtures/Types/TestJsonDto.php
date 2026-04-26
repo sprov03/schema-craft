@@ -2,34 +2,24 @@
 
 namespace SchemaCraft\Tests\Fixtures\Types;
 
-use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
-use Illuminate\Database\Eloquent\Model;
-use SchemaCraft\Contracts\SchemaCraftType;
+use SchemaCraft\Types\AbstractJsonDtoType;
 
-class TestJsonDto implements CastsAttributes, SchemaCraftType
+class TestJsonDto extends AbstractJsonDtoType
 {
-    public function get(Model $model, string $key, mixed $value, array $attributes): ?array
+    private array $data;
+
+    public function __construct(array $data = [])
     {
-        return $value === null ? null : json_decode($value, true);
+        $this->data = $data;
     }
 
-    public function set(Model $model, string $key, mixed $value, array $attributes): mixed
+    public static function fromArray(array $data): static
     {
-        return $value === null ? null : json_encode($value);
+        return new static($data);
     }
 
-    public static function schemaColumnType(): string
+    public function toArray(): array
     {
-        return 'json';
-    }
-
-    public static function schemaColumnModifiers(): array
-    {
-        return [];
-    }
-
-    public static function schemaValidationRules(): array
-    {
-        return ['array'];
+        return $this->data;
     }
 }

@@ -2,8 +2,10 @@
 
 namespace SchemaCraft\Generators;
 
+use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Support\Str;
-use SchemaCraft\Contracts\FilamentRenderable;
+use RuntimeException;
+use SchemaCraft\Contracts\SchemaCraftColumn;
 use SchemaCraft\Generator\FakerMethodMapper;
 use SchemaCraft\Generator\Filament\FilamentColumnMapper;
 use SchemaCraft\Generator\Filament\FilamentEntryMapper;
@@ -195,9 +197,29 @@ class GeneratorColumn
 
     /**
      * Returns a Faker expression string for this column (e.g. '$faker->safeEmail()').
+     *
+     * If the cast type implements SchemaCraftColumn, its fakerExpression() is used.
+     * BackedEnum is handled separately. Any other existing class that does NOT
+     * implement SchemaCraftColumn throws — there is no silent fallback.
      */
     public function fakerValue(): string
     {
+        $cast = $this->definition->castType;
+
+        if ($cast !== null && class_exists($cast) && ! is_subclass_of($cast, \BackedEnum::class)) {
+            if (is_subclass_of($cast, SchemaCraftColumn::class)) {
+                return $cast::fakerExpression($this->definition);
+            }
+
+            if (is_subclass_of($cast, CastsAttributes::class)) {
+                throw new RuntimeException(
+                    "Cast class [{$cast}] must implement SchemaCraftColumn. "
+                    .'Extend AbstractBitmaskType, AbstractJsonDtoType, or AbstractCollectionType, '
+                    .'or implement SchemaCraftColumn directly. No fallback is provided.'
+                );
+            }
+        }
+
         self::$fakerMapperInstance ??= new FakerMethodMapper;
 
         return self::$fakerMapperInstance->map($this->definition);
@@ -206,12 +228,12 @@ class GeneratorColumn
     /**
      * Returns a trimmed Filament form field component string for this column.
      *
-     * Custom cast classes that implement `SchemaCraft\Contracts\FilamentRenderable`
-     * get first chance to render. Otherwise the built-in mapper is used.
+     * SchemaCraftColumn types must implement asFilamentField() themselves.
+     * Any existing class that does NOT implement SchemaCraftColumn throws.
      */
     public function asFilamentField(): string
     {
-        if ($custom = $this->customRenderableClass()) {
+        if ($custom = $this->getSchemaCraftColumnClass()) {
             return trim($custom::asFilamentField($this));
         }
 
@@ -223,12 +245,12 @@ class GeneratorColumn
     /**
      * Returns a trimmed Filament table column component string for this column.
      *
-     * Custom cast classes that implement `SchemaCraft\Contracts\FilamentRenderable`
-     * get first chance to render. Otherwise the built-in mapper is used.
+     * SchemaCraftColumn types must implement asFilamentColumn() themselves.
+     * Any existing class that does NOT implement SchemaCraftColumn throws.
      */
     public function asFilamentColumn(): string
     {
-        if ($custom = $this->customRenderableClass()) {
+        if ($custom = $this->getSchemaCraftColumnClass()) {
             return trim($custom::asFilamentColumn($this));
         }
 
@@ -240,12 +262,12 @@ class GeneratorColumn
     /**
      * Returns a trimmed Filament infolist entry component string for this column.
      *
-     * Custom cast classes that implement `SchemaCraft\Contracts\FilamentRenderable`
-     * get first chance to render. Otherwise the built-in entry mapper is used.
+     * SchemaCraftColumn types must implement asFilamentEntry() themselves.
+     * Any existing class that does NOT implement SchemaCraftColumn throws.
      */
     public function asFilamentEntry(): string
     {
-        if ($custom = $this->customRenderableClass()) {
+        if ($custom = $this->getSchemaCraftColumnClass()) {
             return trim($custom::asFilamentEntry($this));
         }
 
@@ -255,13 +277,13 @@ class GeneratorColumn
     }
 
     /**
-     * Returns the cast class FQCN when it implements FilamentRenderable, else null.
+     * Returns the cast class FQCN if it implements SchemaCraftColumn, else null.
      *
-     * This is the extensibility hook: custom column types (bitmasks, JSON DTOs,
-     * collection columns) can opt into rendering their own Filament output by
-     * implementing the contract on the cast class.
+     * BackedEnum is excluded — it is handled by the built-in enum mappers.
+     * Any other class that exists but does NOT implement SchemaCraftColumn throws
+     * immediately rather than falling back to generic rendering.
      */
-    private function customRenderableClass(): ?string
+    private function getSchemaCraftColumnClass(): ?string
     {
         $cast = $this->definition->castType;
 
@@ -269,6 +291,25 @@ class GeneratorColumn
             return null;
         }
 
-        return is_subclass_of($cast, FilamentRenderable::class) ? $cast : null;
+        if (is_subclass_of($cast, \BackedEnum::class)) {
+            return null;
+        }
+
+        // Fully compliant — delegate directly.
+        if (is_subclass_of($cast, SchemaCraftColumn::class)) {
+            return $cast;
+        }
+
+        // Custom Eloquent cast that doesn't implement SchemaCraftColumn — throw.
+        // Built-ins like DateTime and Carbon don't implement CastsAttributes and fall through.
+        if (is_subclass_of($cast, CastsAttributes::class)) {
+            throw new RuntimeException(
+                "Cast class [{$cast}] must implement SchemaCraftColumn. "
+                .'Extend AbstractBitmaskType, AbstractJsonDtoType, or AbstractCollectionType, '
+                .'or implement SchemaCraftColumn directly. No fallback is provided.'
+            );
+        }
+
+        return null;
     }
 }

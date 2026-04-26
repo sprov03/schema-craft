@@ -2,29 +2,16 @@
 
 namespace SchemaCraft\Tests\Fixtures\Types;
 
-use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
-use Illuminate\Database\Eloquent\Model;
-use SchemaCraft\Contracts\SchemaCraftType;
+use SchemaCraft\Types\AbstractBitmaskType;
 
-class TestBitmask implements CastsAttributes, SchemaCraftType
+class TestBitmask extends AbstractBitmaskType
 {
-    protected int $value;
-
-    public function __construct(int $value = 0)
+    protected static function flags(): array
     {
-        $this->value = $value;
+        return ['READ' => 1, 'WRITE' => 2, 'EXECUTE' => 4];
     }
 
-    public function get(Model $model, string $key, mixed $value, array $attributes): ?static
-    {
-        return $value === null ? null : new static((int) $value);
-    }
-
-    public function set(Model $model, string $key, mixed $value, array $attributes): mixed
-    {
-        return $value instanceof static ? $value->value : $value;
-    }
-
+    // Override the abstract base defaults so scanner tests keep their expected values.
     public static function schemaColumnType(): string
     {
         return 'mediumInteger';

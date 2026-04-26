@@ -2,7 +2,11 @@
 
 namespace SchemaCraft\Generator\Sdk;
 
+use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Support\Str;
+use ReflectionEnum;
+use RuntimeException;
+use SchemaCraft\Contracts\SchemaCraftColumn;
 use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Scanner\RelationshipDefinition;
 use SchemaCraft\Scanner\TableDefinition;
@@ -420,9 +424,34 @@ class SdkDataGenerator
 
     /**
      * Map a ColumnDefinition to its PHP type hint.
+     *
+     * If the column has a castType that is a SchemaCraftColumn, its sdkType() is used.
+     * BackedEnum backing types are resolved via reflection.
+     * Any other existing class that does NOT implement SchemaCraftColumn throws.
      */
     private function phpType(ColumnDefinition $column): string
     {
+        if ($column->castType !== null && class_exists($column->castType)) {
+            if (is_subclass_of($column->castType, \BackedEnum::class)) {
+                return (new ReflectionEnum($column->castType))->getBackingType()->getName();
+            }
+
+            // Fully compliant — delegate.
+            if (is_subclass_of($column->castType, SchemaCraftColumn::class)) {
+                return $column->castType::sdkType();
+            }
+
+            // Custom Eloquent cast without SchemaCraftColumn — throw.
+            // Built-ins like DateTime/Carbon don't implement CastsAttributes and fall through.
+            if (is_subclass_of($column->castType, CastsAttributes::class)) {
+                throw new RuntimeException(
+                    "Cast class [{$column->castType}] must implement SchemaCraftColumn. "
+                    .'Extend AbstractBitmaskType, AbstractJsonDtoType, or AbstractCollectionType, '
+                    .'or implement SchemaCraftColumn directly. No fallback is provided.'
+                );
+            }
+        }
+
         $typeMap = [
             'integer' => 'int',
             'bigInteger' => 'int',

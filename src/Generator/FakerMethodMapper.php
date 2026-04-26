@@ -3,6 +3,9 @@
 namespace SchemaCraft\Generator;
 
 use BackedEnum;
+use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
+use RuntimeException;
+use SchemaCraft\Contracts\SchemaCraftColumn;
 use SchemaCraft\Scanner\ColumnDefinition;
 
 /**
@@ -18,9 +21,26 @@ class FakerMethodMapper
      */
     public function map(ColumnDefinition $column): string
     {
-        // Enum casts get special handling
-        if ($column->castType !== null && $this->isEnumClass($column->castType)) {
-            return $this->enumExpression($column->castType);
+        if ($column->castType !== null && class_exists($column->castType)) {
+            // BackedEnum gets special handling before the SchemaCraftColumn check
+            if ($this->isEnumClass($column->castType)) {
+                return $this->enumExpression($column->castType);
+            }
+
+            // Fully compliant — delegate.
+            if (is_subclass_of($column->castType, SchemaCraftColumn::class)) {
+                return $column->castType::fakerExpression($column);
+            }
+
+            // Custom Eloquent cast without SchemaCraftColumn — throw.
+            // Built-ins like DateTime/Carbon don't implement CastsAttributes and fall through.
+            if (is_subclass_of($column->castType, CastsAttributes::class)) {
+                throw new RuntimeException(
+                    "Cast class [{$column->castType}] must implement SchemaCraftColumn. "
+                    .'Extend AbstractBitmaskType, AbstractJsonDtoType, or AbstractCollectionType, '
+                    .'or implement SchemaCraftColumn directly. No fallback is provided.'
+                );
+            }
         }
 
         // Name-based heuristics first (more specific)
