@@ -50,18 +50,21 @@ class SampleJsonDto extends AbstractJsonDtoType
 }
 
 /**
+ * Item shape for SampleCollection tests.
+ */
+class SampleItem extends \SchemaCraft\DataSchema
+{
+    public int $id;
+}
+
+/**
  * Concrete TestCollectionType for testing.
  */
 class SampleCollection extends AbstractCollectionType
 {
-    protected static function itemFromArray(array $item): mixed
+    protected static function itemClass(): string
     {
-        return $item;
-    }
-
-    protected static function itemToArray(mixed $item): array
-    {
-        return (array) $item;
+        return SampleItem::class;
     }
 }
 
@@ -278,9 +281,34 @@ class SchemaCraftColumnTest extends TestCase
 
     public function test_collection_to_api_representation(): void
     {
-        $col = SampleCollection::fromApiInput([['x' => 1]]);
+        $col = SampleCollection::fromApiInput([['id' => 1]]);
 
-        $this->assertSame([['x' => 1]], $col->toApiRepresentation());
+        $this->assertSame([['id' => 1]], $col->toApiRepresentation());
+    }
+
+    public function test_collection_items_are_typed_instances(): void
+    {
+        $col = SampleCollection::fromApiInput([['id' => 1], ['id' => 2]]);
+
+        $this->assertInstanceOf(SampleItem::class, $col->first());
+        $this->assertSame(1, $col->first()->id);
+    }
+
+    public function test_collection_supports_push_and_collection_api(): void
+    {
+        $col = SampleCollection::fromApiInput([['id' => 1]]);
+        $col->push(SampleItem::fromArray(['id' => 2]));
+
+        $this->assertSame(2, $col->count());
+        $this->assertSame(2, $col->last()->id);
+    }
+
+    public function test_collection_from_raw_hydrates_typed_items(): void
+    {
+        $col = SampleCollection::fromRaw(json_encode([['id' => 5]]));
+
+        $this->assertInstanceOf(SampleItem::class, $col->first());
+        $this->assertSame(5, $col->first()->id);
     }
 
     public function test_collection_sdk_type_is_array(): void

@@ -7,62 +7,84 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
 use SchemaCraft\Contracts\SchemaCraftColumn;
+use SchemaCraft\DataSchema;
 use SchemaCraft\Generators\GeneratorColumn;
 use SchemaCraft\Scanner\ColumnDefinition;
 
 /**
- * Base class for typed collection columns — JSON arrays of structured items.
+ * Base class for typed JSON array columns.
  *
- * Extend this class and implement itemFromArray() and itemToArray() to describe
- * each item in the collection. The column stores a JSON array in the DB:
+ * Extend this class and define your item shape in a co-located DataSchema class.
+ * Return that class from itemClass() — the base handles all serialization automatically.
  *
- *   class TagCollection extends AbstractCollectionType
+ * Define both classes in one file:
+ *
+ *   class WebhookAttemptItem extends DataSchema
  *   {
- *       protected static function itemFromArray(array $item): array
- *       {
- *           return ['name' => $item['name'] ?? '', 'color' => $item['color'] ?? '#000'];
- *       }
+ *       public string $event;
+ *       public int $status_code;
+ *       public ?string $response_body;
+ *   }
  *
- *       protected static function itemToArray(mixed $item): array
+ *   class WebhookAttemptCollection extends AbstractCollectionType
+ *   {
+ *       protected static function itemClass(): string
  *       {
- *           return is_array($item) ? $item : (array) $item;
+ *           return WebhookAttemptItem::class;
  *       }
  *   }
  *
+ * Usage in a schema:
+ *
+ *   public WebhookAttemptCollection $attempts;
+ *
+ * The column stores a JSON array in the DB. Items are hydrated as typed DataSchema
+ * instances — work with the collection directly without thinking about serialization:
+ *
+ *   $model->attempts->push(WebhookAttemptItem::fromArray([...]));
+ *   $model->attempts->filter(fn($a) => $a->success);
+ *   $model->attempts->first()->status_code;
+ *
  * DB storage: JSON array string.
  * API representation: array of item arrays.
- * API input: the same array shape.
+ * API input: same array shape.
  *
- * The internal representation is a Laravel Collection of item arrays.
- * If you need strongly typed item objects, override itemFromArray() to
- * return an object and itemToArray() to serialize it back.
+ * @template TItem of DataSchema
+ *
+ * @extends Collection<int, TItem>
  */
-abstract class AbstractCollectionType implements CastsAttributes, SchemaCraftColumn
+abstract class AbstractCollectionType extends Collection implements CastsAttributes, SchemaCraftColumn
 {
-    /** @var Collection<int, mixed> */
-    protected Collection $items;
-
-    public function __construct(Collection|array $items = [])
-    {
-        $this->items = $items instanceof Collection ? $items : collect($items);
-    }
-
     // ─── Abstract ────────────────────────────────────────────────
 
-    /** Hydrate a single item from its raw array representation. */
-    abstract protected static function itemFromArray(array $item): mixed;
-
-    /** Dehydrate a single item back to its raw array representation. */
-    abstract protected static function itemToArray(mixed $item): array;
+    /** Return the DataSchema subclass that defines the item shape. */
+    abstract protected static function itemClass(): string;
 
     // ─── CastsAttributes ─────────────────────────────────────────
 
-    public function get(Model $model, string $key, mixed $value, array $attributes): static
+    /**
+     * Unified get() — serves both Collection::get() and CastsAttributes::get().
+     *
+     * Eloquent always passes a Model as the first argument. Collection usage
+     * always passes a scalar key or null. We detect context by checking the
+     * first argument type and delegate accordingly.
+     */
+    public function get($keyOrModel = null, $defaultOrKey = null, mixed $value = null, array $attributes = []): mixed
+    {
+        if ($keyOrModel instanceof Model) {
+            return $this->castGet($keyOrModel, $defaultOrKey, $value, $attributes);
+        }
+
+        return parent::get($keyOrModel, $defaultOrKey);
+    }
+
+    private function castGet(Model $model, string $key, mixed $value, array $attributes): static
     {
         $raw = $value === null ? [] : (is_string($value) ? json_decode($value, true) : $value);
-        $items = collect(array_map(fn (array $item) => static::itemFromArray($item), $raw ?? []));
 
-        return new static($items);
+        return new static(
+            array_map(fn (array $item) => static::itemClass()::fromArray($item), $raw ?? [])
+        );
     }
 
     public function set(Model $model, string $key, mixed $value, array $attributes): ?string
@@ -103,13 +125,11 @@ abstract class AbstractCollectionType implements CastsAttributes, SchemaCraftCol
 
     public static function fromRaw(mixed $value): static
     {
-        if (is_string($value)) {
-            $value = json_decode($value, true);
-        }
+        $decoded = is_string($value) ? json_decode($value, true) : ($value ?? []);
 
-        $items = collect(array_map(fn (array $item) => static::itemFromArray($item), $value ?? []));
-
-        return new static($items);
+        return new static(
+            array_map(fn (array $item) => static::itemClass()::fromArray($item), $decoded ?? [])
+        );
     }
 
     public function toRaw(): array
@@ -134,9 +154,9 @@ abstract class AbstractCollectionType implements CastsAttributes, SchemaCraftCol
             );
         }
 
-        $items = collect(array_map(fn (array $item) => static::itemFromArray($item), $input));
-
-        return new static($items);
+        return new static(
+            array_map(fn (array $item) => static::itemClass()::fromArray($item), $input)
+        );
     }
 
     // ─── GeneratesFakerValue ─────────────────────────────────────
@@ -170,21 +190,14 @@ abstract class AbstractCollectionType implements CastsAttributes, SchemaCraftCol
         return "Infolists\\Components\\RepeatableEntry::make('{$column->name}')->schema([])";
     }
 
-    // ─── Public helpers ──────────────────────────────────────────
+    // ─── Collection overrides ────────────────────────────────────
 
-    /** @return Collection<int, mixed> */
-    public function getItems(): Collection
-    {
-        return $this->items;
-    }
-
-    public function count(): int
-    {
-        return $this->items->count();
-    }
-
+    /**
+     * Serialize each item via DataSchema::toArray() rather than casting the
+     * raw Collection items directly.
+     */
     public function toArray(): array
     {
-        return $this->items->map(fn (mixed $item) => static::itemToArray($item))->values()->all();
+        return $this->map(fn (DataSchema $item) => $item->toArray())->values()->all();
     }
 }
