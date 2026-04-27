@@ -6558,6 +6558,7 @@
                         '<button class="sc-btn" id="sc-import-preview">Preview</button>' +
                         '<button class="sc-btn primary" id="sc-import-submit">Import</button>' +
                         '<button class="sc-btn primary" id="sc-migrate-btn" style="margin-left:auto;">Generate Migrations</button>' +
+                        '<button class="sc-btn primary" id="sc-migrate-run-btn">Write &amp; Run</button>' +
                     '</div>' +
                 '</div>';
 
@@ -6566,7 +6567,8 @@
             document.getElementById('sc-new-schema-btn').addEventListener('click', showCreateSchemaModal);
             document.getElementById('sc-import-preview').addEventListener('click', function() { doImportSchema(true); });
             document.getElementById('sc-import-submit').addEventListener('click', function() { doImportSchema(false); });
-            document.getElementById('sc-migrate-btn').addEventListener('click', function() { doBatchMigrate(); });
+            document.getElementById('sc-migrate-btn').addEventListener('click', function() { doBatchMigrate(false); });
+            document.getElementById('sc-migrate-run-btn').addEventListener('click', function() { doBatchMigrate(true); });
             document.getElementById('sc-import-search').addEventListener('input', function(e) {
                 schemasState.tableSearchQuery = e.target.value.toLowerCase();
                 renderTableList();
@@ -7338,7 +7340,7 @@
         }
 
         // ── Batch Migration ─────────────────────────────
-        function doBatchMigrate() {
+        function doBatchMigrate(andRun) {
             var manuallySelected = getSelectedTables();
             var selected = manuallySelected.length > 0
                 ? manuallySelected.filter(function(t) { return t.needsMigration; })
@@ -7349,6 +7351,8 @@
             }
 
             var tableNames = selected.map(function(t) { return t.name; });
+            var writeEndpoint = andRun ? '/_schema-craft/api/migrate/run' : '/_schema-craft/api/migrate';
+            var confirmLabel = andRun ? 'Write & Run Migrations' : 'Write Migrations';
 
             fetch('/_schema-craft/api/migrate/preview', {
                 method: 'POST',
@@ -7361,8 +7365,8 @@
                     showToast('No migrations needed for selected schemas.', 'info');
                     return;
                 }
-                showFilePreviewModal(data.files, 'Write Migrations', function() {
-                    fetch('/_schema-craft/api/migrate', {
+                showFilePreviewModal(data.files, confirmLabel, function() {
+                    fetch(writeEndpoint, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                         body: JSON.stringify({ tables: tableNames }),
@@ -7371,8 +7375,12 @@
                     .then(function(result) {
                         if (result.success) {
                             showToast(result.message, 'success');
-                            loadDatabaseTables();
-                            refreshSchemaData();
+                            if (result.migrateOutput) {
+                                showToast('Migrate: ' + result.migrateOutput, 'info');
+                            }
+                            statusInitialized = false;
+                            statusData = null;
+                            initStatusTab();
                         } else {
                             showToast(result.message || 'Migration failed', 'error');
                         }
