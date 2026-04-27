@@ -7339,9 +7339,12 @@
 
         // ── Batch Migration ─────────────────────────────
         function doBatchMigrate() {
-            var selected = getSelectedTables().filter(function(t) { return t.needsMigration; });
+            var manuallySelected = getSelectedTables();
+            var selected = manuallySelected.length > 0
+                ? manuallySelected.filter(function(t) { return t.needsMigration; })
+                : (schemasState.tables || []).filter(function(t) { return t.needsMigration; });
             if (selected.length === 0) {
-                showToast('Select schemas that need migration first', 'warning');
+                showToast('No schemas need migration', 'info');
                 return;
             }
 
