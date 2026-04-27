@@ -5,7 +5,7 @@ namespace SchemaCraft\Generators;
 /**
  * Factory for creating InputDefinition instances.
  *
- * ## Input types
+ * ## Built-in input types
  *
  * - `Input::text('key', 'Label')` — Free text field
  * - `Input::select('key', 'Label', ['a' => 'A'])` — Dropdown select
@@ -14,6 +14,13 @@ namespace SchemaCraft\Generators;
  * - `Input::schemaColumn('key', 'Label', 'schema')` — Single column picker from a schemaSelector
  * - `Input::schemaColumns('key', 'Label', 'schema')` — Multi column picker from a schemaSelector
  * - `Input::selectResourceDirectory('key', 'Label')` — Filament resource directory picker
+ * - `Input::filamentPlacements('key', 'Label')` — Filament panel/resource/page/slot cascade picker
+ *
+ * ## Custom input types
+ *
+ * Register a custom type via InputTypeRegistry, then reference it:
+ *
+ *     Input::custom('myCustomType', 'key', 'Label', extra: ['option' => 'value'])
  */
 class Input
 {
@@ -90,5 +97,34 @@ class Input
     public static function selectResourceDirectory(string $key, string $label): InputDefinition
     {
         return new InputDefinition(key: $key, label: $label, type: 'selectResourceDirectory');
+    }
+
+    /**
+     * Filament placement picker — cascading panel → resource → page → slot selection.
+     *
+     * Resolves to an array of placement targets for use in inlineTemplates():
+     *
+     *     [
+     *         ['file' => 'app/Filament/.../Pages/ListPosts.php', 'anchor' => 'getHeaderActions(): array', 'searchPattern' => 'return ['],
+     *         ...
+     *     ]
+     *
+     * The generator's inlineTemplates() loops over these to wire actions into pages.
+     */
+    public static function filamentPlacements(string $key, string $label): InputDefinition
+    {
+        return new InputDefinition(key: $key, label: $label, type: 'filamentPlacements');
+    }
+
+    /**
+     * Create an input for a project-registered custom type.
+     *
+     * The type name must be registered in InputTypeRegistry before use.
+     *
+     * @param  array<string, mixed>  $extra  Arbitrary config passed to the InputType handler.
+     */
+    public static function custom(string $type, string $key, string $label, array $extra = [], mixed $default = null): InputDefinition
+    {
+        return new InputDefinition(key: $key, label: $label, type: $type, default: $default, extra: $extra);
     }
 }

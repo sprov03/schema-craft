@@ -16,5 +16,7 @@ class InputDefinition
         public readonly bool $selectRelationships = false,
         /** The schemaSelector key that schemaColumn/schemaColumns reference. */
         public readonly ?string $selectorKey = null,
+        /** Arbitrary extra config for custom input types. */
+        public readonly array $extra = [],
     ) {}
 }

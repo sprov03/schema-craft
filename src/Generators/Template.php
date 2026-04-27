@@ -79,4 +79,20 @@ class Template
     {
         return self::forEach("{$schemaKey}.relationships", $as, $templates, $filter);
     }
+
+    /**
+     * Start building an inline template — an insertion into an existing file.
+     *
+     * Returns an InlineTemplate fluent builder. Call ->build() or pass the builder
+     * directly to inlineTemplates() (the runner calls build() automatically).
+     *
+     *     Template::inline('generators.filament.action-wire')
+     *         ->into($placement['file'])
+     *         ->anchor($placement['anchor'])
+     *         ->after($placement['searchPattern'])
+     */
+    public static function inline(string $viewName): InlineTemplate
+    {
+        return InlineTemplate::make($viewName);
+    }
 }

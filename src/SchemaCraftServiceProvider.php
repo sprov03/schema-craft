@@ -17,6 +17,15 @@ use SchemaCraft\Console\SchemaMigrateCommand;
 use SchemaCraft\Console\SchemaStatusCommand;
 use SchemaCraft\Generators\GeneratorRegistry;
 use SchemaCraft\Generators\GeneratorRunner;
+use SchemaCraft\Generators\InputTypeRegistry;
+use SchemaCraft\Generators\InputTypes\BooleanInputType;
+use SchemaCraft\Generators\InputTypes\FilamentPlacementsInputType;
+use SchemaCraft\Generators\InputTypes\SchemaColumnInputType;
+use SchemaCraft\Generators\InputTypes\SchemaColumnsInputType;
+use SchemaCraft\Generators\InputTypes\SchemaSelectorInputType;
+use SchemaCraft\Generators\InputTypes\SelectInputType;
+use SchemaCraft\Generators\InputTypes\SelectResourceDirectoryInputType;
+use SchemaCraft\Generators\InputTypes\TextInputType;
 use SchemaCraft\Visualizer\ActionsController;
 use SchemaCraft\Visualizer\DocsController;
 use SchemaCraft\Visualizer\GenerateController;
@@ -50,6 +59,21 @@ class SchemaCraftServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(GeneratorRunner::class);
+
+        $this->app->singleton(InputTypeRegistry::class, function () {
+            $registry = new InputTypeRegistry;
+
+            $registry->register('text', TextInputType::class);
+            $registry->register('select', SelectInputType::class);
+            $registry->register('boolean', BooleanInputType::class);
+            $registry->register('schemaSelector', SchemaSelectorInputType::class);
+            $registry->register('schemaColumn', SchemaColumnInputType::class);
+            $registry->register('schemaColumns', SchemaColumnsInputType::class);
+            $registry->register('selectResourceDirectory', SelectResourceDirectoryInputType::class);
+            $registry->register('filamentPlacements', FilamentPlacementsInputType::class);
+
+            return $registry;
+        });
     }
 
     public function boot(): void

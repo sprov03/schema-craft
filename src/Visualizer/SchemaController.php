@@ -951,10 +951,10 @@ class SchemaController
         $schemaExists = file_exists($schemaFullPath);
 
         $schemaEntry = [
-            'path'    => $schemaRelPath,
+            'path' => $schemaRelPath,
             'content' => $schemaContent,
-            'exists'  => $schemaExists,
-            'type'    => 'schema',
+            'exists' => $schemaExists,
+            'type' => 'schema',
         ];
         if ($schemaExists) {
             // Reading the current content here (not after writing) gives a true before/after diff.
@@ -979,10 +979,10 @@ class SchemaController
             $modelExists = file_exists($modelFullPath);
 
             $modelEntry = [
-                'path'    => $modelRelPath,
+                'path' => $modelRelPath,
                 'content' => $modelContent,
-                'exists'  => $modelExists,
-                'type'    => 'model',
+                'exists' => $modelExists,
+                'type' => 'model',
             ];
             if ($modelExists) {
                 $modelEntry['existingContent'] = file_get_contents($modelFullPath);

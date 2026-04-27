@@ -73,6 +73,37 @@ abstract class SchemaCraftGenerator
     abstract public function templates(): array;
 
     /**
+     * Inline template insertions into existing files.
+     *
+     * Return InlineTemplate builders or InlineTemplateDefinition instances.
+     * The runner processes these after generating new files, inserting rendered
+     * content at the specified location in each target file.
+     *
+     * Duplicate detection is built in — if the rendered snippet already exists
+     * in the file, the insertion is skipped automatically.
+     *
+     * Example wiring an action into Filament pages chosen by the user:
+     *
+     *     public function inlineTemplates(array $data): array
+     *     {
+     *         return collect($data['placements'] ?? [])
+     *             ->map(fn ($p) =>
+     *                 Template::inline('generators.filament.action-wire')
+     *                     ->into($p['file'])
+     *                     ->anchor($p['anchor'])
+     *                     ->after($p['searchPattern'])
+     *             )
+     *             ->all();
+     *     }
+     *
+     * @return array<InlineTemplate|InlineTemplateDefinition>
+     */
+    public function inlineTemplates(array $data): array
+    {
+        return [];
+    }
+
+    /**
      * Extra data injected into all templates at render time.
      *
      * Override to provide custom variables beyond schema contexts and inputs.

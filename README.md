@@ -114,9 +114,22 @@ PostSchema::updateRules(['title', 'slug'])->toArray();  // for update
 Input::schemaSelector('schema', 'Schema')              // schema dropdown
 Input::text('class_name', 'Class Name')                // text input
 Input::schemaColumn('group_by', 'Group By', 'schema')  // column picker
+Input::filamentPlacements('placements', 'Wire Up To')  // panel → page → slot picker
+Input::custom('myType', 'key', 'Label')                // project-registered custom type
 
 Template::file('[schema.model.title].php', 'generators.my-template')
 ...Template::forEachRelationship('schema', 'rel', [...], 'collection')
+
+// Inline templates — insert into existing files (duplicate-safe)
+Template::inline('generators.action-wire')
+    ->into($placement['file'])     // supports [bracket] placeholders
+    ->anchor($placement['anchor']) // optional: find pattern only after this
+    ->after($placement['searchPattern'])     // literal after
+    // ->before($pattern)                   // literal before
+    // ->afterRegex('/class\s+\w+\s*\{/')   // regex after
+    // ->beforeRegex('/^}/m')               // regex before
+    // ->append()                           // end of file
+    // ->prepend()                          // start of file
 
 // NameChain — order-independent modifiers
 $schema->model->title           // "UserProfile"
@@ -697,31 +710,54 @@ public ?AddressDto $shippingAddress;
 
 ### AbstractCollectionType
 
-Declare how each item is hydrated and dehydrated.
+Define the item shape as typed properties in a co-located `DataSchema` class. The base handles all serialization automatically — you work with the collection directly without thinking about JSON encoding or type conversion.
+
+Define both classes in the same file:
 
 ```php
+// WebhookAttemptCollection.php
+
+use SchemaCraft\DataSchema;
 use SchemaCraft\Types\AbstractCollectionType;
 
-class TagCollection extends AbstractCollectionType
+class WebhookAttemptItem extends DataSchema
 {
-    // Hydrate one item from its raw array.
-    protected static function itemFromArray(array $item): mixed
-    {
-        return ['name' => $item['name'] ?? '', 'color' => $item['color'] ?? '#000000'];
-    }
+    public string $event;
+    public int $status_code;
+    public ?string $response_body;
+    public bool $success;
+}
 
-    // Dehydrate one item back to its raw array.
-    protected static function itemToArray(mixed $item): array
+class WebhookAttemptCollection extends AbstractCollectionType
+{
+    protected static function itemClass(): string
     {
-        return is_array($item) ? $item : (array) $item;
+        return WebhookAttemptItem::class;
     }
 }
 ```
 
 **Schema usage:**
 ```php
-public TagCollection $tags;
+public WebhookAttemptCollection $attempts;
 ```
+
+**Working with the collection — it's a first-class Laravel Collection:**
+```php
+// Items are typed DataSchema instances, not raw arrays
+$model->attempts->push(WebhookAttemptItem::fromArray([
+    'event'       => 'order.created',
+    'status_code' => 200,
+    'success'     => true,
+]));
+
+$model->attempts->filter(fn($a) => $a->success);
+$model->attempts->first()->status_code;
+$model->attempts->count();
+$model->attempts->map(fn($a) => $a->event);
+```
+
+All standard Laravel Collection methods work — `push`, `filter`, `map`, `first`, `last`, `count`, `where`, `sortBy`, etc. Serialization to/from JSON happens automatically on save and load.
 
 **What the base class provides (override as needed):**
 
@@ -731,16 +767,9 @@ public TagCollection $tags;
 | `schemaValidationRules()` | `['array']` | When you need item-level rules |
 | `fakerExpression()` | `'[]'` | When you want populated fake items |
 | `sdkType()` | `'array'` | Almost never |
-| `asFilamentField()` | `Repeater::make(...)->schema([])` | When you want a real repeater schema |
+| `asFilamentField()` | `Repeater::make(...)->schema([])` | When you want a configured repeater |
 | `asFilamentColumn()` | `TextColumn::make(...)` | When you want badge/tag display |
-| `asFilamentEntry()` | `RepeatableEntry::make(...)->schema([])` | When you want a real infolist schema |
-
-**Helper methods:**
-```php
-$col->getItems()    // Collection of hydrated items
-$col->count()       // item count
-$col->toArray()     // array of dehydrated items
-```
+| `asFilamentEntry()` | `RepeatableEntry::make(...)->schema([])` | When you want a configured entry |
 
 ---
 
@@ -3128,6 +3157,8 @@ Inputs define the form fields shown in the Visualizer when configuring a generat
 | `Input::schemaColumn($key, $label, $selectorKey)` | Single column picker (from a schemaSelector) |
 | `Input::schemaColumns($key, $label, $selectorKey)` | Multi column picker (from a schemaSelector) |
 | `Input::selectResourceDirectory($key, $label)` | Filament resource directory picker |
+| `Input::filamentPlacements($key, $label)` | Filament panel → resource → page → slot cascade picker |
+| `Input::custom($type, $key, $label, $extra)` | Project-registered custom input type |
 
 #### Schema Selector
 
@@ -3171,6 +3202,86 @@ namespace {!! $resource_directory->namespace !!}\{!! $schema->model->plural->tit
 | `{{ $resource_directory }}` / `[resource_directory]` | Stringifies to the path (via `__toString`) | `app/Filament/Admin/Resources` |
 
 The namespace derivation follows the Laravel convention: the first path segment is capitalized (`app` → `App`) and subsequent segments are joined with `\` as-is, since Filament directory names are already PascalCase (`Filament`, `Admin`, `Resources`). Output-path interpolation (`[resource_directory]/[schema.model.plural.title]/...`) keeps working unchanged because the object stringifies to the raw path.
+
+#### Filament Placements — FilamentPlacementsInputType
+
+`Input::filamentPlacements()` renders a cascading panel → resource → page → slot picker in the Visualizer. The user selects one or more Filament page action slots (e.g. List page header actions, View page header actions) as insertion targets for inline templates.
+
+```php
+Input::filamentPlacements('placements', 'Wire Up To'),
+```
+
+The resolved value in `inlineTemplates()` is an array of placement targets, each containing the file path and insertion context for the runner:
+
+```php
+[
+    ['file' => 'app/Filament/Admin/Resources/PostResource/Pages/ListPosts.php', 'anchor' => 'getHeaderActions(): array', 'searchPattern' => 'return ['],
+    ['file' => 'app/Filament/Admin/Resources/PostResource/Pages/ViewPost.php',  'anchor' => 'getHeaderActions(): array', 'searchPattern' => 'return ['],
+]
+```
+
+| Slot selected | `anchor` value |
+|---|---|
+| Header Actions | `'getHeaderActions(): array'` |
+| Table Actions | `'getTableActions(): array'` |
+| Table Row Actions | `'getTableRecordActions(): array'` |
+
+The picker discovers panels from `FilamentPanelDiscovery` (same source as `selectResourceDirectory`), then scans each resource's `Pages/` directory to detect which slots are available per page. Only pages with at least one detectable slot are shown.
+
+#### Custom Input Types
+
+The input system is fully extensible. Register project-specific input types in a service provider and reference them with `Input::custom()`.
+
+**Step 1 — Implement the interface:**
+
+```php
+<?php
+
+namespace App\Generators\InputTypes;
+
+use SchemaCraft\Generators\InputDefinition;
+use SchemaCraft\Generators\InputTypes\InputType;
+
+class MyCustomInputType implements InputType
+{
+    public function resolutionPass(): int
+    {
+        return 2; // 1 = first pass (independent), 2 = after schemaSelector resolves
+    }
+
+    public function resolve(mixed $rawValue, InputDefinition $definition, array $resolved): mixed
+    {
+        // $rawValue is the raw submission from the frontend
+        // $resolved holds all values from earlier passes
+        return $rawValue; // return whatever the template needs
+    }
+
+    public function toFrontend(InputDefinition $definition): array
+    {
+        // Extra fields merged into the frontend input definition payload.
+        // Base fields (key, label, type, default) are always included automatically.
+        return ['myOption' => $definition->extra['myOption'] ?? null];
+    }
+}
+```
+
+**Step 2 — Register in a service provider:**
+
+```php
+public function boot(): void
+{
+    $registry = app(\SchemaCraft\Generators\InputTypeRegistry::class);
+    $registry->register('myCustomType', \App\Generators\InputTypes\MyCustomInputType::class);
+}
+```
+
+**Step 3 — Use in a generator:**
+
+```php
+Input::custom('myCustomType', 'my_field', 'My Field', extra: ['myOption' => 'value'])
+```
+
+Resolution follows a two-pass algorithm — return `1` from `resolutionPass()` for independent inputs (resolved first, like `schemaSelector`), or `2` for inputs that depend on pass-1 results (like `schemaColumn` which needs the resolved schema context).
 
 ### NameChain — Model Name Helper
 
@@ -3503,7 +3614,125 @@ class {!! $schema->model->plural->title !!}Table
 - The `['column' => $column]` array on `@include` scopes the loop variable for that partial invocation.
 - Dotted view names map to filesystem paths: `generators.foo.bar.baz` → `resources/views/generators/foo/bar/baz.blade.php`.
 
+### Inline Templates
+
+While `templates()` generates new files, `inlineTemplates()` inserts rendered snippets into **existing** files. This is how generators wire generated code (like actions) into already-generated resources without requiring any manual editing.
+
+**Duplicate detection is built in** — if the rendered snippet already exists in the target file, the insertion is skipped automatically. Running a generator twice is always safe.
+
+#### How It Works
+
+1. The runner finds the `$anchor` string in the file (optional — used to disambiguate when the insertion pattern appears multiple times)
+2. Starting from after the anchor, it finds `$searchPattern`
+3. The rendered template snippet is inserted immediately after (or before) the pattern
+4. If the snippet (trimmed) is already present anywhere in the file, it skips
+
+#### InlineTemplate Fluent Builder
+
+Use `Template::inline()` or `InlineTemplate::make()` to build insertion definitions:
+
+```php
+Template::inline('generators.filament.action-wire')
+    ->into('app/Filament/Resources/PostResource/Pages/ListPosts.php')
+    ->anchor('getHeaderActions(): array')  // find this first (optional)
+    ->after('return [')                    // then insert after this
+    ->with(['extraVar' => 'value'])        // optional extra template variables
+```
+
+| Method | Description |
+|--------|-------------|
+| `->into($path)` | Target file path (supports `[bracket]` placeholders) |
+| `->anchor($string)` | Optional context string — search for pattern only after this anchor |
+| `->after($pattern)` | Find literal pattern, insert immediately after it |
+| `->before($pattern)` | Find literal pattern, insert immediately before it |
+| `->afterRegex($pattern)` | Find PCRE regex match, insert immediately after it |
+| `->beforeRegex($pattern)` | Find PCRE regex match, insert immediately before it |
+| `->append()` | Append snippet to the very end of the file (no pattern needed) |
+| `->prepend()` | Prepend snippet to the very start of the file (no pattern needed) |
+| `->with($vars)` | Extra variables merged into the Blade template for this insertion |
+
+All `[bracket]` placeholders in `->into()`, `->anchor()`, `->after()`, and `->before()` are resolved against the full generator data before the search is performed.
+
+#### Skip Reasons
+
+When an insertion is skipped, the result includes a `skipReason` explaining why:
+
+| Skip Reason | Meaning |
+|-------------|---------|
+| `already_present` | The rendered snippet (trimmed) already exists in the file — safe to re-run generators |
+| `file_not_found` | The target file does not exist on disk |
+| `anchor_not_found` | An `->anchor()` was specified but not found in the file |
+| `pattern_not_found` | The search pattern was not found (or not found after the anchor) |
+
+#### Preview vs Run Mode
+
+The runner uses a **per-run file cache** to handle multiple insertions into the same file:
+
+- **Preview** (default): All insertions are computed in memory only. Multiple insertions into the same file compound correctly — each insertion sees the result of the previous one — but nothing is written to disk.
+- **Run**: Each successful insertion is written to disk immediately, then the cache is updated. Subsequent insertions into the same file operate on the already-modified on-disk content.
+
+#### Using with Filament Placements
+
+The canonical use case is looping over a `filamentPlacements` input and generating one insertion per selected slot:
+
+```php
+public function inputs(): array
+{
+    return [
+        Input::schemaSelector('schema', 'Schema'),
+        Input::filamentPlacements('placements', 'Wire Up To'),
+    ];
+}
+
+public function inlineTemplates(array $data): array
+{
+    return collect($data['placements'] ?? [])
+        ->map(fn ($placement) =>
+            Template::inline('generators.filament.action-wire')
+                ->into($placement['file'])
+                ->anchor($placement['anchor'])
+                ->after($placement['searchPattern'])
+        )
+        ->all();
+}
+```
+
+The Blade template `generators/filament/action-wire.blade.php` receives the full generator data (`$schema`, `$phpOpenTag`, etc.) and renders only the line(s) to be inserted:
+
+```blade
+
+            {!! $schema->model->title !!}Actions::create()->filamentAction(),
+```
+
+#### Visualizer Preview
+
+In the Visualizer, inline insertions appear alongside generated files in the preview panel with a `type: 'inline'` indicator showing:
+- The target file path
+- The rendered snippet to be inserted
+- Whether the insertion would be skipped and the `skipReason` if so
+
+When you click **Run**, existing files are modified in-place by the runner directly. Inline results are reported separately from new file creations in the response, with human-readable skip messages for each skip reason.
+
+#### Standalone Inline Templates (No Placement Input)
+
+You can use `inlineTemplates()` without `filamentPlacements` for any fixed insertion:
+
+```php
+public function inlineTemplates(array $data): array
+{
+    return [
+        Template::inline('generators.routes.api-entry')
+            ->into('routes/api.php')
+            ->anchor('// API Routes')
+            ->after(PHP_EOL)
+            ->with(['modelName' => $data['schema']->model->title]),
+    ];
+}
+```
+
 ### Complete Generator Example
+
+A generator that creates a Filament action class and wires it into the user-selected page slot:
 
 ```php
 <?php
@@ -3514,6 +3743,51 @@ use SchemaCraft\Generators\Input;
 use SchemaCraft\Generators\SchemaCraftGenerator;
 use SchemaCraft\Generators\Template;
 
+class FilamentActionGenerator extends SchemaCraftGenerator
+{
+    public function name(): string
+    {
+        return 'Filament Action';
+    }
+
+    public function inputs(): array
+    {
+        return [
+            Input::schemaSelector('schema', 'Schema'),
+            Input::text('action_name', 'Action Name'),
+            Input::filamentPlacements('placements', 'Wire Up To'),
+        ];
+    }
+
+    public function templates(): array
+    {
+        return [
+            // Generate the Action class
+            Template::file(
+                'app/Actions/[schema.model.title]/[action_name]Action.php',
+                'generators.actions.action',
+            ),
+        ];
+    }
+
+    public function inlineTemplates(array $data): array
+    {
+        // Insert the action call into every page slot the user selected
+        return collect($data['placements'] ?? [])
+            ->map(fn ($placement) =>
+                Template::inline('generators.actions.wire-action')
+                    ->into($placement['file'])
+                    ->anchor($placement['anchor'])
+                    ->after($placement['searchPattern'])
+            )
+            ->all();
+    }
+}
+```
+
+A generator that creates a full resource with relation managers:
+
+```php
 class FilamentResourceGenerator extends SchemaCraftGenerator
 {
     public function name(): string

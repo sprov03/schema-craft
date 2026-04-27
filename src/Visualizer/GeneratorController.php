@@ -7,12 +7,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\Generator\Api\GeneratedFile;
+use SchemaCraft\Generator\Api\InlineGeneratedFile;
 use SchemaCraft\Generators\FilamentPanelDiscovery;
-use SchemaCraft\Generators\GeneratorColumn;
 use SchemaCraft\Generators\GeneratorRegistry;
 use SchemaCraft\Generators\GeneratorRunner;
-use SchemaCraft\Generators\GeneratorSchemaContext;
-use SchemaCraft\Generators\ResourceDirectoryValue;
+use SchemaCraft\Generators\InputTypeRegistry;
+use SchemaCraft\Generators\SchemaCraftGenerator;
 use SchemaCraft\Migration\SchemaDiscovery;
 use SchemaCraft\Scanner\SchemaScanner;
 
@@ -21,6 +22,7 @@ class GeneratorController
     public function __construct(
         private readonly GeneratorRegistry $registry,
         private readonly GeneratorRunner $runner,
+        private readonly InputTypeRegistry $inputTypeRegistry,
     ) {}
 
     /**
@@ -32,16 +34,16 @@ class GeneratorController
         $generators = [];
 
         foreach ($this->registry->all() as $class => $generator) {
-            $inputs = array_map(fn ($input) => [
-                'key' => $input->key,
-                'label' => $input->label,
-                'type' => $input->type,
-                'default' => $input->default,
-                'options' => $input->options,
-                'selectColumns' => $input->selectColumns,
-                'selectRelationships' => $input->selectRelationships,
-                'selectorKey' => $input->selectorKey,
-            ], $generator->inputs());
+            $inputs = array_map(function ($input) {
+                $handler = $this->inputTypeRegistry->get($input->type);
+
+                return array_merge([
+                    'key' => $input->key,
+                    'label' => $input->label,
+                    'type' => $input->type,
+                    'default' => $input->default,
+                ], $handler->toFrontend($input));
+            }, $generator->inputs());
 
             $generators[] = [
                 'class' => $class,
@@ -58,7 +60,6 @@ class GeneratorController
             'modelName' => $this->resolveModelName($schemaClass),
         ], $schemaClasses);
 
-        // Discover resource directories for selectResourceDirectory inputs
         $resourceDirectories = (new FilamentPanelDiscovery)->discover();
 
         return new JsonResponse([
@@ -129,13 +130,27 @@ class GeneratorController
         $generator = $this->registry->resolve($request->input('generator'));
         $inputValues = $this->resolveGeneratorData($request, $generator);
 
-        $generatedFiles = $this->runner->run($generator, $inputValues);
+        $results = $this->runner->run($generator, $inputValues);
 
-        $files = array_map(fn ($file) => [
-            'path' => $file->path,
-            'content' => $file->content,
-            'exists' => file_exists(base_path($file->path)),
-        ], $generatedFiles);
+        $files = array_map(function ($result) {
+            if ($result instanceof InlineGeneratedFile) {
+                return [
+                    'type' => 'inline',
+                    'path' => $result->path,
+                    'content' => $result->content,
+                    'snippet' => $result->snippet,
+                    'skipped' => $result->skipped,
+                    'exists' => file_exists(base_path($result->path)),
+                ];
+            }
+
+            return [
+                'type' => 'file',
+                'path' => $result->path,
+                'content' => $result->content,
+                'exists' => file_exists(base_path($result->path)),
+            ];
+        }, $results);
 
         return new JsonResponse(['success' => true, 'files' => $files]);
     }
@@ -153,131 +168,112 @@ class GeneratorController
         $force = (bool) $request->input('force', false);
         $inputValues = $this->resolveGeneratorData($request, $generator);
 
-        $generatedFiles = $this->runner->run($generator, $inputValues);
+        $results = $this->runner->run($generator, $inputValues, writeInlineResults: true);
 
         $resultFiles = [];
         $createdCount = 0;
 
-        foreach ($generatedFiles as $file) {
-            $absPath = base_path($file->path);
+        foreach ($results as $result) {
+            if ($result instanceof InlineGeneratedFile) {
+                $resultFiles[] = $this->writeInlineResult($result);
+
+                if (! $result->skipped) {
+                    $createdCount++;
+                }
+
+                continue;
+            }
+
+            /** @var GeneratedFile $result */
+            $absPath = base_path($result->path);
 
             if (file_exists($absPath) && ! $force) {
                 $resultFiles[] = [
-                    'path' => $file->path,
+                    'type' => 'file',
+                    'path' => $result->path,
                     'skipped' => true,
-                    'message' => basename($file->path).' already exists.',
+                    'message' => basename($result->path).' already exists.',
                 ];
 
                 continue;
             }
 
             $fs->ensureDirectoryExists(dirname($absPath));
-            $fs->put($absPath, $file->content);
+            $fs->put($absPath, $result->content);
             $createdCount++;
             $resultFiles[] = [
-                'path' => $file->path,
+                'type' => 'file',
+                'path' => $result->path,
                 'created' => true,
-                'message' => basename($file->path).' created.',
+                'message' => basename($result->path).' created.',
             ];
         }
 
         return new JsonResponse([
             'success' => true,
             'files' => $resultFiles,
-            'message' => "{$createdCount} file(s) created.",
+            'message' => "{$createdCount} file(s) created or modified.",
         ]);
     }
 
     /**
-     * Resolve input values from the request, building GeneratorSchemaContext
-     * for schemaSelector inputs and resolving schemaColumn references.
+     * Resolve input values from the request using registered InputType handlers.
+     *
+     * Pass 1: resolve all pass-1 inputs (e.g. schemaSelector — independent)
+     * Pass 2: resolve all pass-2 inputs (e.g. schemaColumn — depend on pass-1 results)
      *
      * @return array<string, mixed>
      */
-    private function resolveGeneratorData(Request $request, $generator): array
+    private function resolveGeneratorData(Request $request, SchemaCraftGenerator $generator): array
     {
         $rawInputs = $request->input('inputs', []);
-        $inputValues = [];
-        $schemaContexts = []; // Track schema contexts for schemaColumn resolution
+        $resolved = [];
 
-        // First pass: resolve schemaSelector inputs to GeneratorSchemaContext
-        foreach ($generator->inputs() as $inputDef) {
-            if ($inputDef->type !== 'schemaSelector') {
-                continue;
+        foreach ([1, 2] as $pass) {
+            foreach ($generator->inputs() as $inputDef) {
+                $handler = $this->inputTypeRegistry->get($inputDef->type);
+
+                if ($handler->resolutionPass() !== $pass) {
+                    continue;
+                }
+
+                $resolved[$inputDef->key] = $handler->resolve(
+                    $rawInputs[$inputDef->key] ?? $inputDef->default,
+                    $inputDef,
+                    $resolved,
+                );
             }
-
-            $selectorData = $rawInputs[$inputDef->key] ?? null;
-
-            if (! $selectorData || empty($selectorData['class']) || ! class_exists($selectorData['class'])) {
-                continue;
-            }
-
-            $table = (new SchemaScanner($selectorData['class']))->scan();
-
-            // null = "no selection UI, include all"; [] = "user selected nothing"
-            $selectedColumns = $inputDef->selectColumns
-                ? ($selectorData['selectedColumns'] ?? [])
-                : null;
-            $selectedRelationships = $inputDef->selectRelationships
-                ? ($selectorData['selectedRelationships'] ?? [])
-                : null;
-
-            $context = new GeneratorSchemaContext($table, $selectedColumns, $selectedRelationships);
-            $inputValues[$inputDef->key] = $context;
-            $schemaContexts[$inputDef->key] = $context;
         }
 
-        // Second pass: resolve all other inputs
-        foreach ($generator->inputs() as $inputDef) {
-            if ($inputDef->type === 'schemaSelector') {
-                continue; // Already handled
-            }
-
-            $value = $rawInputs[$inputDef->key] ?? $inputDef->default;
-
-            if ($inputDef->type === 'schemaColumn') {
-                $value = $this->resolveColumnValue($value, $schemaContexts, $inputDef->selectorKey);
-            } elseif ($inputDef->type === 'schemaColumns') {
-                $value = is_array($value)
-                    ? array_filter(array_map(
-                        fn ($name) => $this->resolveColumnValue($name, $schemaContexts, $inputDef->selectorKey),
-                        $value,
-                    ))
-                    : [];
-            } elseif ($inputDef->type === 'selectResourceDirectory') {
-                $value = is_string($value) && $value !== ''
-                    ? new ResourceDirectoryValue($value)
-                    : null;
-            }
-
-            $inputValues[$inputDef->key] = $value;
-        }
-
-        return $inputValues;
+        return $resolved;
     }
 
-    /**
-     * Resolve a column name string to a GeneratorColumn from a schema context.
-     */
-    private function resolveColumnValue(mixed $columnName, array $schemaContexts, ?string $selectorKey): ?GeneratorColumn
+    private function writeInlineResult(InlineGeneratedFile $result): array
     {
-        if (! is_string($columnName) || empty($columnName)) {
-            return null;
+        if ($result->skipped) {
+            $reason = match ($result->skipReason) {
+                'file_not_found' => 'file not found',
+                'already_present' => 'already inserted',
+                'anchor_not_found' => 'anchor not found in file',
+                'pattern_not_found' => 'insertion pattern not found',
+                default => $result->skipReason ?? 'skipped',
+            };
+
+            return [
+                'type' => 'inline',
+                'path' => $result->path,
+                'skipped' => true,
+                'skipReason' => $result->skipReason,
+                'message' => basename($result->path).' — '.$reason.'.',
+            ];
         }
 
-        $context = $schemaContexts[$selectorKey ?? 'schema'] ?? null;
-
-        if ($context === null) {
-            return null;
-        }
-
-        foreach ($context->allColumns as $col) {
-            if ($col->name === $columnName) {
-                return $col;
-            }
-        }
-
-        return null;
+        return [
+            'type' => 'inline',
+            'path' => $result->path,
+            'inserted' => true,
+            'message' => basename($result->path).' — snippet inserted.',
+        ];
     }
 
     private function resolveModelName(string $schemaClass): string
