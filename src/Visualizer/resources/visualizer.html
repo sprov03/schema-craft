@@ -2169,6 +2169,22 @@
 
         .act-create-actions { display: flex; gap: 8px; margin-top: 20px; }
 
+        /* ── Generator collection input ───────────────────────────── */
+        .genr-collection { display: flex; flex-direction: column; gap: 6px; }
+        .genr-collection-item {
+            display: flex; align-items: center; gap: 8px;
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            border-radius: 6px; padding: 6px 10px;
+        }
+        .genr-collection-item select { flex: 1; min-width: 0; }
+        .genr-collection-remove {
+            flex-shrink: 0; background: none; border: 1px solid var(--border);
+            border-radius: 4px; cursor: pointer; color: var(--text-muted);
+            font-size: 14px; line-height: 1; padding: 2px 7px;
+        }
+        .genr-collection-remove:hover { border-color: #ef4444; color: #ef4444; }
+        .genr-collection-add { margin-top: 4px; }
+
         .act-nullable-toggle {
             font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 4px;
             border: 1px solid var(--border); cursor: pointer; transition: all 0.12s;
@@ -12085,6 +12101,135 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
             renderGeneratorForm(generatorDef);
         }
 
+        // ── Generic collection input renderer ─────────────────────────────────
+        // Renders any input whose toFrontend() returns renderAs:'collection'.
+        // Sub-fields are rendered using the same generic type renderers.
+        // The only sub-field type currently used is 'groupedSelect' (an extended
+        // <select> with <optgroup> grouping). Adding new sub-field types here
+        // automatically works for any future input type that uses renderAs:'collection'.
+
+        function renderCollectionSubField(field) {
+            if (field.type === 'groupedSelect') {
+                var html = '<select class="sc-input genr-collection-field" data-field-key="' + escapeAttr(field.key) + '">';
+                html += '<option value="">-- Select --</option>';
+                (field.groups || []).forEach(function(group) {
+                    html += '<optgroup label="' + escapeAttr(group.label) + '">';
+                    (group.options || []).forEach(function(opt) {
+                        html += '<option value="' + escapeAttr(opt.value) + '">' + escapeHtml(opt.label) + '</option>';
+                    });
+                    html += '</optgroup>';
+                });
+                html += '</select>';
+                return html;
+            }
+            if (field.type === 'text') {
+                return '<input type="text" class="sc-input genr-collection-field" data-field-key="' + escapeAttr(field.key) + '" value="">';
+            }
+            return '';
+        }
+
+        function renderCollectionItem(fields) {
+            var fieldsHtml = fields.map(renderCollectionSubField).join('');
+            return '<div class="genr-collection-item">' +
+                fieldsHtml +
+                '<button type="button" class="genr-collection-remove" title="Remove">&times;</button>' +
+            '</div>';
+        }
+
+        function renderCollectionInput(input) {
+            var fields = input.fields || [];
+            var addLabel = input.addLabel || 'Add Item';
+            var html = '<div class="genr-collection" data-collection-key="' + escapeAttr(input.key) + '" data-fields="' + escapeAttr(JSON.stringify(fields)) + '">';
+            html += '</div>';
+            html += '<button type="button" class="sc-btn sm genr-collection-add" data-collection-key="' + escapeAttr(input.key) + '">+ ' + escapeHtml(addLabel) + '</button>';
+            return html;
+        }
+
+        function bindCollectionEvents(container) {
+            // Add item
+            container.querySelectorAll('.genr-collection-add').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var key = btn.dataset.collectionKey;
+                    var collectionEl = container.querySelector('.genr-collection[data-collection-key="' + key + '"]');
+                    if (!collectionEl) { return; }
+                    var fields = JSON.parse(collectionEl.dataset.fields || '[]');
+                    collectionEl.insertAdjacentHTML('beforeend', renderCollectionItem(fields));
+                });
+            });
+
+            // Remove item (delegated)
+            container.addEventListener('click', function(e) {
+                if (e.target.classList.contains('genr-collection-remove')) {
+                    e.target.closest('.genr-collection-item').remove();
+                }
+            });
+        }
+
+        function genCollectInputValues(generatorDef) {
+            var content = document.getElementById('genr-content');
+            var payload = {
+                generator: generatorDef.class,
+                inputs: {},
+            };
+
+            // Schema selectors → send as { class, selectedColumns, selectedRelationships }
+            content.querySelectorAll('.genr-schema-selector').forEach(function(select) {
+                var key = select.dataset.key;
+                if (!select.value) { return; }
+
+                var selectedCols = [];
+                content.querySelectorAll('.genr-col-check[data-selector="' + key + '"]:checked').forEach(function(cb) {
+                    selectedCols.push(cb.dataset.col);
+                });
+
+                var selectedRels = [];
+                content.querySelectorAll('.genr-rel-check[data-selector="' + key + '"]:checked').forEach(function(cb) {
+                    selectedRels.push(cb.dataset.rel);
+                });
+
+                payload.inputs[key] = {
+                    class: select.value,
+                    selectedColumns: selectedCols,
+                    selectedRelationships: selectedRels,
+                };
+            });
+
+            // Regular inputs
+            content.querySelectorAll('.genr-input').forEach(function(el) {
+                var key = el.dataset.key;
+                if (!key) { return; }
+                payload.inputs[key] = el.type === 'checkbox' ? el.checked : el.value;
+            });
+
+            // schemaColumns multi-select
+            var colsByKey = {};
+            content.querySelectorAll('.genr-cols-check:checked').forEach(function(cb) {
+                var key = cb.dataset.key;
+                if (!colsByKey[key]) { colsByKey[key] = []; }
+                colsByKey[key].push(cb.dataset.col);
+            });
+            Object.keys(colsByKey).forEach(function(key) {
+                payload.inputs[key] = colsByKey[key];
+            });
+
+            // Collection inputs → array of sub-field objects
+            content.querySelectorAll('.genr-collection').forEach(function(collectionEl) {
+                var key = collectionEl.dataset.collectionKey;
+                var items = [];
+                collectionEl.querySelectorAll('.genr-collection-item').forEach(function(item) {
+                    var itemData = {};
+                    item.querySelectorAll('.genr-collection-field').forEach(function(el) {
+                        itemData[el.dataset.fieldKey] = el.value;
+                    });
+                    items.push(itemData);
+                });
+                payload.inputs[key] = items;
+            });
+
+            return payload;
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         function renderGeneratorForm(generatorDef) {
             var content = document.getElementById('genr-content');
             var schemas = (generatorsConfig && generatorsConfig.schemas) ? generatorsConfig.schemas : [];
@@ -12156,6 +12301,8 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                         dirOpts += '<option value="' + escapeAttr(resourceDirs[label]) + '">' + escapeHtml(label) + ' (' + escapeHtml(resourceDirs[label]) + ')</option>';
                     });
                     inputsHtml += '<select class="sc-input genr-input" data-key="' + escapeAttr(input.key) + '">' + dirOpts + '</select>';
+                } else if (input.renderAs === 'collection') {
+                    inputsHtml += renderCollectionInput(input);
                 }
 
                 inputsHtml += '</div>';
@@ -12181,6 +12328,9 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     genLoadSelectorData(generatorDef, select.dataset.key, select.value, select.dataset.selectColumns === '1', select.dataset.selectRelationships === '1');
                 });
             });
+
+            // Collection add/remove events
+            bindCollectionEvents(content);
 
             // Preview button
             document.getElementById('genr-preview-btn').addEventListener('click', function() {
@@ -12295,62 +12445,8 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
             });
         }
 
-        function genBuildPayload(generatorDef) {
-            var content = document.getElementById('genr-content');
-            var payload = {
-                generator: generatorDef.class,
-                inputs: {},
-            };
-
-            // Schema selectors → send as { class, selectedColumns, selectedRelationships }
-            content.querySelectorAll('.genr-schema-selector').forEach(function(select) {
-                var key = select.dataset.key;
-                if (!select.value) return;
-
-                var selectedCols = [];
-                content.querySelectorAll('.genr-col-check[data-selector="' + key + '"]:checked').forEach(function(cb) {
-                    selectedCols.push(cb.dataset.col);
-                });
-
-                var selectedRels = [];
-                content.querySelectorAll('.genr-rel-check[data-selector="' + key + '"]:checked').forEach(function(cb) {
-                    selectedRels.push(cb.dataset.rel);
-                });
-
-                payload.inputs[key] = {
-                    class: select.value,
-                    selectedColumns: selectedCols,
-                    selectedRelationships: selectedRels,
-                };
-            });
-
-            // Regular inputs
-            content.querySelectorAll('.genr-input').forEach(function(el) {
-                var key = el.dataset.key;
-                if (!key) return;
-                if (el.type === 'checkbox') {
-                    payload.inputs[key] = el.checked;
-                } else {
-                    payload.inputs[key] = el.value;
-                }
-            });
-
-            // schemaColumns multi-select
-            var colsByKey = {};
-            content.querySelectorAll('.genr-cols-check:checked').forEach(function(cb) {
-                var key = cb.dataset.key;
-                if (!colsByKey[key]) colsByKey[key] = [];
-                colsByKey[key].push(cb.dataset.col);
-            });
-            Object.keys(colsByKey).forEach(function(key) {
-                payload.inputs[key] = colsByKey[key];
-            });
-
-            return payload;
-        }
-
         function genPreview(generatorDef) {
-            var payload = genBuildPayload(generatorDef);
+            var payload = genCollectInputValues(generatorDef);
 
             fetch('/_schema-craft/api/generators/preview', {
                 method: 'POST',
@@ -12368,7 +12464,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
         }
 
         function genRun(generatorDef) {
-            var payload = genBuildPayload(generatorDef);
+            var payload = genCollectInputValues(generatorDef);
             payload.force = false;
 
             fetch('/_schema-craft/api/generators/run', {

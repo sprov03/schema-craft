@@ -3,6 +3,7 @@
 namespace SchemaCraft\Generators;
 
 use Illuminate\Support\Str;
+use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Scanner\TableDefinition;
 
 /**
@@ -72,6 +73,12 @@ class GeneratorSchemaContext
     /** FQCN of the Eloquent model, derived from the schema class. */
     public readonly string $modelClass;
 
+    /** Actions namespace for this schema's connection, e.g. 'App\Models\Actions'. */
+    public readonly string $actionsNamespace;
+
+    /** Actions directory path relative to base_path(), e.g. 'app/Models/Actions'. */
+    public readonly string $actionsPath;
+
     /** DB connection name, or null for default. */
     public readonly ?string $connection;
 
@@ -128,6 +135,11 @@ class GeneratorSchemaContext
         // Schema metadata
         $this->schemaClass = $table->schemaClass;
         $this->modelClass = $this->resolveModelClass($table->schemaClass);
+
+        $connConfig = ConfigResolver::resolveForSchema($table->schemaClass);
+        $this->actionsNamespace = $connConfig->actionNamespace;
+        $this->actionsPath = $connConfig->actionDirectory();
+
         $this->connection = $table->connection;
         $this->fillable = $table->fillable;
         $this->hidden = $table->hidden;

@@ -9,9 +9,8 @@ use SchemaCraft\Generators\InputDefinition;
  * Input type that lets the user pick one or more Filament page action slots
  * (e.g. List page header actions, View page header actions) as insertion targets.
  *
- * Frontend receives a full panel → resource → page → slot tree.
- * Resolution converts the user's selections into an array of placement targets,
- * each containing the file path and insertion anchor for the runner.
+ * Renders as a generic collection of grouped selects — no custom frontend logic
+ * required. Each item in the collection encodes a single file+slot pair.
  *
  * Usage in a generator:
  *
@@ -38,14 +37,63 @@ class FilamentPlacementsInputType implements InputType
         }
 
         return array_values(array_filter(array_map(
-            fn (mixed $placement) => $this->resolvePlacement($placement),
+            function (mixed $item) {
+                if (! is_array($item) || empty($item['placement'])) {
+                    return null;
+                }
+
+                $decoded = is_string($item['placement'])
+                    ? json_decode($item['placement'], true)
+                    : $item['placement'];
+
+                if (! is_array($decoded) || empty($decoded['file']) || empty($decoded['slot'])) {
+                    return null;
+                }
+
+                return $this->resolvePlacement($decoded);
+            },
             $rawValue,
         )));
     }
 
     public function toFrontend(InputDefinition $definition): array
     {
-        return ['panels' => $this->discoverPanelTree()];
+        $groups = [];
+
+        foreach ($this->discoverPanelTree() as $panel) {
+            foreach ($panel['resources'] as $resource) {
+                foreach ($resource['pages'] as $page) {
+                    $slotOptions = [];
+
+                    foreach ($page['slots'] as $slot) {
+                        $slotOptions[] = [
+                            'label' => $slot['label'],
+                            'value' => json_encode(['file' => $page['file'], 'slot' => $slot['key']]),
+                        ];
+                    }
+
+                    if (! empty($slotOptions)) {
+                        $groups[] = [
+                            'label' => $resource['name'].' › '.$page['name'],
+                            'options' => $slotOptions,
+                        ];
+                    }
+                }
+            }
+        }
+
+        return [
+            'renderAs' => 'collection',
+            'addLabel' => 'Add Location',
+            'fields' => [
+                [
+                    'key' => 'placement',
+                    'label' => 'Location',
+                    'type' => 'groupedSelect',
+                    'groups' => $groups,
+                ],
+            ],
+        ];
     }
 
     // ─── Panel tree discovery ─────────────────────────────────────
@@ -138,12 +186,9 @@ class FilamentPlacementsInputType implements InputType
 
     // ─── Placement resolution ─────────────────────────────────────
 
-    private function resolvePlacement(mixed $placement): ?array
+    private function resolvePlacement(array $placement): ?array
     {
-        if (! is_array($placement)
-            || empty($placement['file'])
-            || empty($placement['slot'])
-        ) {
+        if (empty($placement['file']) || empty($placement['slot'])) {
             return null;
         }
 
