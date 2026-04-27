@@ -289,4 +289,77 @@ PHP;
         $this->assertNotNull($owlFile);
         $this->assertFileExists($this->tempDir.'/'.$owlFile['path']);
     }
+
+    // ─── Batch migration (multiple tables → single file) ──────────────────
+
+    public function test_migrate_preview_returns_single_batch_file_for_multiple_tables(): void
+    {
+        $this->createSchemaFile('StatusPanther', [['name' => 'spots', 'phpType' => 'int']]);
+        $this->createSchemaFile('StatusTiger', [['name' => 'stripes', 'phpType' => 'int']]);
+
+        $response = $this->postJson('/_schema-craft/api/migrate/preview');
+
+        $response->assertOk();
+        $files = $response->json('files');
+
+        // Two new-table diffs → single batch file
+        $this->assertCount(1, $files);
+        $this->assertEquals('batch', $files[0]['type']);
+        $this->assertArrayHasKey('tables', $files[0]);
+        $this->assertCount(2, $files[0]['tables']);
+
+        // Content should include both create blocks
+        $this->assertStringContainsString("Schema::create('status_panthers'", $files[0]['content']);
+        $this->assertStringContainsString("Schema::create('status_tigers'", $files[0]['content']);
+
+        // No files written to disk
+        $this->assertEmpty(glob($this->tempDir.'/database/migrations/*.php'));
+    }
+
+    public function test_migrate_writes_single_batch_file_for_multiple_tables(): void
+    {
+        $this->createSchemaFile('StatusPigeon', [['name' => 'color', 'phpType' => 'string']]);
+        $this->createSchemaFile('StatusSparrow', [['name' => 'size', 'phpType' => 'string']]);
+
+        $response = $this->postJson('/_schema-craft/api/migrate');
+
+        $response->assertOk();
+        $files = $response->json('files');
+
+        // Two new-table diffs → single batch file entry in response
+        $this->assertCount(1, $files);
+        $this->assertEquals('batch', $files[0]['type']);
+        $this->assertArrayHasKey('tables', $files[0]);
+        $this->assertCount(2, $files[0]['tables']);
+
+        // Exactly one file written to disk
+        $diskFiles = glob($this->tempDir.'/database/migrations/*.php');
+        $this->assertCount(1, $diskFiles);
+        $this->assertStringContainsString('batch_migration.php', $diskFiles[0]);
+
+        // File should contain both create blocks
+        $content = file_get_contents($diskFiles[0]);
+        $this->assertStringContainsString("Schema::create('status_pigeons'", $content);
+        $this->assertStringContainsString("Schema::create('status_sparrows'", $content);
+    }
+
+    public function test_migrate_and_run_writes_single_batch_file_for_multiple_tables(): void
+    {
+        $this->createSchemaFile('StatusFalcon', [['name' => 'speed', 'phpType' => 'int']]);
+        $this->createSchemaFile('StatusHawk', [['name' => 'wingspan', 'phpType' => 'int']]);
+
+        $response = $this->postJson('/_schema-craft/api/migrate/run');
+
+        $response->assertOk();
+        $files = $response->json('files');
+
+        $this->assertCount(1, $files);
+        $this->assertEquals('batch', $files[0]['type']);
+        $this->assertArrayHasKey('migrateOutput', $response->json());
+
+        // Exactly one file written to disk
+        $diskFiles = glob($this->tempDir.'/database/migrations/*.php');
+        $this->assertCount(1, $diskFiles);
+        $this->assertStringContainsString('batch_migration.php', $diskFiles[0]);
+    }
 }

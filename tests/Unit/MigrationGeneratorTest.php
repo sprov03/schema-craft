@@ -657,4 +657,238 @@ class MigrationGeneratorTest extends TestCase
         $this->assertStringContainsString("->default(DB::raw('CURRENT_TIMESTAMP'))", $code);
         $this->assertStringContainsString('use Illuminate\Support\Facades\DB;', $code);
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  Batch (two-pass) migration tests
+    // ──────────────────────────────────────────────────────────────────────
+
+    public function test_batch_creates_tables_without_fks_in_pass_one(): void
+    {
+        // Circular dependency: rabbits → litters, litters → rabbits
+        $rabbits = new TableDiff(
+            tableName: 'rabbits',
+            type: 'create',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'id', desired: new CanonicalColumn(name: 'id', type: 'unsignedBigInteger', primary: true, autoIncrement: true)),
+                new ColumnDiff(action: 'add', columnName: 'litter_id', desired: new CanonicalColumn(name: 'litter_id', type: 'unsignedBigInteger', nullable: true)),
+            ],
+            fkDiffs: [
+                new ForeignKeyDiff(action: 'add', column: 'litter_id', foreignTable: 'litters', foreignColumn: 'id', onDelete: 'set null'),
+            ],
+        );
+
+        $litters = new TableDiff(
+            tableName: 'litters',
+            type: 'create',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'id', desired: new CanonicalColumn(name: 'id', type: 'unsignedBigInteger', primary: true, autoIncrement: true)),
+                new ColumnDiff(action: 'add', columnName: 'rabbit_id', desired: new CanonicalColumn(name: 'rabbit_id', type: 'unsignedBigInteger')),
+            ],
+            fkDiffs: [
+                new ForeignKeyDiff(action: 'add', column: 'rabbit_id', foreignTable: 'rabbits', foreignColumn: 'id', onDelete: 'cascade'),
+            ],
+        );
+
+        $code = $this->generator->generateBatch([$rabbits, $litters]);
+
+        // Both tables should be created (without FKs) before any FK constraints are added
+        $rabbitsCreatePos = strpos($code, "Schema::create('rabbits'");
+        $littersCreatePos = strpos($code, "Schema::create('litters'");
+        $rabbitsTablePos = strpos($code, "Schema::table('rabbits'");
+        $littersTablePos = strpos($code, "Schema::table('litters'");
+
+        $this->assertNotFalse($rabbitsCreatePos, 'rabbits Schema::create not found');
+        $this->assertNotFalse($littersCreatePos, 'litters Schema::create not found');
+        $this->assertNotFalse($rabbitsTablePos, 'rabbits Schema::table (FK pass) not found');
+        $this->assertNotFalse($littersTablePos, 'litters Schema::table (FK pass) not found');
+
+        // Creates should come before FK table blocks in up()
+        $upStart = strpos($code, 'public function up()');
+        $downStart = strpos($code, 'public function down()');
+        $upSection = substr($code, $upStart, $downStart - $upStart);
+
+        $upRabbitsCreate = strpos($upSection, "Schema::create('rabbits'");
+        $upLittersCreate = strpos($upSection, "Schema::create('litters'");
+        $upRabbitsTable = strpos($upSection, "Schema::table('rabbits'");
+        $upLittersTable = strpos($upSection, "Schema::table('litters'");
+
+        $this->assertLessThan($upRabbitsTable, $upRabbitsCreate, 'rabbits create should precede its FK table block');
+        $this->assertLessThan($upLittersTable, $upLittersCreate, 'litters create should precede its FK table block');
+        $this->assertLessThan($upRabbitsTable, $upLittersCreate, 'both creates should precede FK blocks');
+    }
+
+    public function test_batch_fk_constraints_added_in_pass_two(): void
+    {
+        $diff = new TableDiff(
+            tableName: 'posts',
+            type: 'create',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'id', desired: new CanonicalColumn(name: 'id', type: 'unsignedBigInteger', primary: true, autoIncrement: true)),
+                new ColumnDiff(action: 'add', columnName: 'user_id', desired: new CanonicalColumn(name: 'user_id', type: 'unsignedBigInteger')),
+            ],
+            fkDiffs: [
+                new ForeignKeyDiff(action: 'add', column: 'user_id', foreignTable: 'users', foreignColumn: 'id', onDelete: 'cascade'),
+            ],
+        );
+
+        $code = $this->generator->generateBatch([$diff]);
+
+        // Schema::create should NOT contain the FK
+        $createBlock = substr($code, strpos($code, "Schema::create('posts'"), strpos($code, "Schema::table('posts'") - strpos($code, "Schema::create('posts'"));
+        $this->assertStringNotContainsString('foreign', $createBlock);
+
+        // Schema::table should contain the FK
+        $tablePos = strpos($code, "Schema::table('posts'");
+        $tableBlock = substr($code, $tablePos, 300);
+        $this->assertStringContainsString("->foreign('user_id')", $tableBlock);
+    }
+
+    public function test_batch_includes_updates_inline_in_pass_one(): void
+    {
+        $createDiff = new TableDiff(
+            tableName: 'cats',
+            type: 'create',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'id', desired: new CanonicalColumn(name: 'id', type: 'unsignedBigInteger', primary: true, autoIncrement: true)),
+                new ColumnDiff(action: 'add', columnName: 'name', desired: new CanonicalColumn(name: 'name', type: 'string')),
+            ],
+        );
+
+        $updateDiff = new TableDiff(
+            tableName: 'dogs',
+            type: 'update',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'breed', desired: new CanonicalColumn(name: 'breed', type: 'string', nullable: true)),
+            ],
+        );
+
+        $code = $this->generator->generateBatch([$createDiff, $updateDiff]);
+
+        // Both create and table blocks should be present
+        $this->assertStringContainsString("Schema::create('cats'", $code);
+        $this->assertStringContainsString("Schema::table('dogs'", $code);
+        $this->assertStringContainsString("string('breed')", $code);
+    }
+
+    public function test_batch_down_drops_fks_before_tables(): void
+    {
+        $diff = new TableDiff(
+            tableName: 'orders',
+            type: 'create',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'id', desired: new CanonicalColumn(name: 'id', type: 'unsignedBigInteger', primary: true, autoIncrement: true)),
+                new ColumnDiff(action: 'add', columnName: 'user_id', desired: new CanonicalColumn(name: 'user_id', type: 'unsignedBigInteger')),
+            ],
+            fkDiffs: [
+                new ForeignKeyDiff(action: 'add', column: 'user_id', foreignTable: 'users', foreignColumn: 'id'),
+            ],
+        );
+
+        $code = $this->generator->generateBatch([$diff]);
+
+        $downStart = strpos($code, 'public function down()');
+        $downSection = substr($code, $downStart);
+
+        $dropFkPos = strpos($downSection, "dropForeign(['user_id'])");
+        $dropTablePos = strpos($downSection, "Schema::dropIfExists('orders')");
+
+        $this->assertNotFalse($dropFkPos, 'down() should dropForeign for user_id');
+        $this->assertNotFalse($dropTablePos, 'down() should dropIfExists for orders');
+        $this->assertLessThan($dropTablePos, $dropFkPos, 'FK drop should come before table drop in down()');
+    }
+
+    public function test_batch_down_reverses_update_diffs(): void
+    {
+        $updateDiff = new TableDiff(
+            tableName: 'users',
+            type: 'update',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'bio', desired: new CanonicalColumn(name: 'bio', type: 'text', nullable: true)),
+            ],
+        );
+
+        $code = $this->generator->generateBatch([$updateDiff]);
+
+        $this->assertStringContainsString("text('bio')->nullable()", $code);
+        $this->assertStringContainsString("dropColumn('bio')", $code);
+    }
+
+    public function test_batch_generates_valid_php_syntax(): void
+    {
+        $tableA = new TableDiff(
+            tableName: 'batch_a',
+            type: 'create',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'id', desired: new CanonicalColumn(name: 'id', type: 'unsignedBigInteger', primary: true, autoIncrement: true)),
+                new ColumnDiff(action: 'add', columnName: 'b_id', desired: new CanonicalColumn(name: 'b_id', type: 'unsignedBigInteger', nullable: true)),
+            ],
+            fkDiffs: [
+                new ForeignKeyDiff(action: 'add', column: 'b_id', foreignTable: 'batch_b', foreignColumn: 'id'),
+            ],
+        );
+
+        $tableB = new TableDiff(
+            tableName: 'batch_b',
+            type: 'create',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'id', desired: new CanonicalColumn(name: 'id', type: 'unsignedBigInteger', primary: true, autoIncrement: true)),
+                new ColumnDiff(action: 'add', columnName: 'a_id', desired: new CanonicalColumn(name: 'a_id', type: 'unsignedBigInteger', nullable: true)),
+            ],
+            fkDiffs: [
+                new ForeignKeyDiff(action: 'add', column: 'a_id', foreignTable: 'batch_a', foreignColumn: 'id'),
+            ],
+        );
+
+        $code = $this->generator->generateBatch([$tableA, $tableB]);
+
+        $tmpFile = tempnam(sys_get_temp_dir(), 'batch_migration_test_');
+        file_put_contents($tmpFile, $code);
+
+        $output = [];
+        $exitCode = 0;
+        exec("php -l {$tmpFile} 2>&1", $output, $exitCode);
+        unlink($tmpFile);
+
+        $this->assertSame(0, $exitCode, 'Batch migration has syntax errors: '.implode("\n", $output));
+    }
+
+    public function test_write_batch_creates_single_file(): void
+    {
+        $tableA = new TableDiff(
+            tableName: 'batch_x',
+            type: 'create',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'id', desired: new CanonicalColumn(name: 'id', type: 'unsignedBigInteger', primary: true, autoIncrement: true)),
+            ],
+        );
+
+        $tableB = new TableDiff(
+            tableName: 'batch_y',
+            type: 'create',
+            columnDiffs: [
+                new ColumnDiff(action: 'add', columnName: 'id', desired: new CanonicalColumn(name: 'id', type: 'unsignedBigInteger', primary: true, autoIncrement: true)),
+            ],
+        );
+
+        $tmpDir = sys_get_temp_dir().'/schema_craft_batch_'.uniqid();
+        mkdir($tmpDir);
+
+        try {
+            $path = $this->generator->writeBatch([$tableA, $tableB], $tmpDir);
+
+            $this->assertFileExists($path);
+            $this->assertStringContainsString('batch_migration.php', $path);
+
+            // Only one file should have been written
+            $files = glob($tmpDir.'/*.php');
+            $this->assertCount(1, $files);
+
+            $content = file_get_contents($path);
+            $this->assertStringContainsString("Schema::create('batch_x'", $content);
+            $this->assertStringContainsString("Schema::create('batch_y'", $content);
+        } finally {
+            array_map('unlink', glob($tmpDir.'/*.php'));
+            rmdir($tmpDir);
+        }
+    }
 }

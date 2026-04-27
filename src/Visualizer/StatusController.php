@@ -71,7 +71,8 @@ class StatusController
         $generator = new MigrationGenerator;
         $files = [];
 
-        foreach ($tableDiffs as $diff) {
+        if (count($tableDiffs) === 1) {
+            $diff = $tableDiffs[0];
             $content = $generator->generate($diff);
             $action = $diff->type === 'create' ? 'create' : 'update';
             $filename = date('Y_m_d_His')."_{$action}_{$diff->tableName}_table.php";
@@ -82,6 +83,17 @@ class StatusController
                 'exists' => false,
                 'tableName' => $diff->tableName,
                 'type' => $diff->type,
+            ];
+        } else {
+            $content = $generator->generateBatch($tableDiffs);
+            $filename = date('Y_m_d_His').'_batch_migration.php';
+
+            $files[] = [
+                'path' => "database/migrations/{$filename}",
+                'content' => $content,
+                'exists' => false,
+                'type' => 'batch',
+                'tables' => array_map(fn (TableDiff $d) => ['tableName' => $d->tableName, 'type' => $d->type], $tableDiffs),
             ];
         }
 
@@ -111,23 +123,27 @@ class StatusController
         $migrationPath = database_path('migrations');
         $files = [];
 
-        foreach ($tableDiffs as $idx => $diff) {
-            if ($idx > 0) {
-                usleep(1_000_000);
-            }
-
+        if (count($tableDiffs) === 1) {
+            $diff = $tableDiffs[0];
             $path = $generator->write($diff, $migrationPath);
             $files[] = [
                 'path' => str_replace(base_path().'/', '', $path),
                 'tableName' => $diff->tableName,
                 'type' => $diff->type,
             ];
+        } else {
+            $path = $generator->writeBatch($tableDiffs, $migrationPath);
+            $files[] = [
+                'path' => str_replace(base_path().'/', '', $path),
+                'type' => 'batch',
+                'tables' => array_map(fn (TableDiff $d) => ['tableName' => $d->tableName, 'type' => $d->type], $tableDiffs),
+            ];
         }
 
         return new JsonResponse([
             'success' => true,
             'files' => $files,
-            'message' => count($files).' migration(s) generated.',
+            'message' => count($tableDiffs).' table(s) migration generated.',
         ]);
     }
 
@@ -152,16 +168,20 @@ class StatusController
         $migrationPath = database_path('migrations');
         $files = [];
 
-        foreach ($tableDiffs as $idx => $diff) {
-            if ($idx > 0) {
-                usleep(1_000_000);
-            }
-
+        if (count($tableDiffs) === 1) {
+            $diff = $tableDiffs[0];
             $path = $generator->write($diff, $migrationPath);
             $files[] = [
                 'path' => str_replace(base_path().'/', '', $path),
                 'tableName' => $diff->tableName,
                 'type' => $diff->type,
+            ];
+        } else {
+            $path = $generator->writeBatch($tableDiffs, $migrationPath);
+            $files[] = [
+                'path' => str_replace(base_path().'/', '', $path),
+                'type' => 'batch',
+                'tables' => array_map(fn (TableDiff $d) => ['tableName' => $d->tableName, 'type' => $d->type], $tableDiffs),
             ];
         }
 
@@ -171,7 +191,7 @@ class StatusController
         return new JsonResponse([
             'success' => true,
             'files' => $files,
-            'message' => count($files).' migration(s) generated and applied.',
+            'message' => count($tableDiffs).' table(s) migration generated and applied.',
             'migrateOutput' => trim($migrateOutput),
         ]);
     }

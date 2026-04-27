@@ -11,7 +11,7 @@ namespace SchemaCraft\Migration;
 class MigrationGenerator
 {
     /**
-     * Generate migration PHP code from a TableDiff.
+     * Generate migration PHP code from a single TableDiff.
      */
     public function generate(TableDiff $diff): string
     {
@@ -23,7 +23,7 @@ class MigrationGenerator
     }
 
     /**
-     * Write a migration file to disk.
+     * Write a single-table migration file to disk.
      *
      * @return string The file path that was written.
      */
@@ -40,6 +40,106 @@ class MigrationGenerator
     }
 
     /**
+     * Generate a single migration file for multiple table diffs using a two-pass
+     * strategy that eliminates circular foreign key dependency problems:
+     *
+     *   up():
+     *     Pass 1 — Schema::create for every "create" diff (columns + indexes, no FKs)
+     *     Pass 1 — Schema::table for every "update" diff (inline, order-independent)
+     *     Pass 2 — Schema::table for every "create" diff that has FKs (add constraints)
+     *
+     *   down():
+     *     Step 1 — Schema::table dropForeign for creates in reverse (clears cross-refs)
+     *     Step 2 — Schema::dropIfExists for creates in reverse
+     *     Step 3 — reverse of each update diff
+     *
+     * @param  TableDiff[]  $diffs
+     */
+    public function generateBatch(array $diffs): string
+    {
+        $creates = array_values(array_filter($diffs, fn ($d) => $d->type === 'create'));
+        $updates = array_values(array_filter($diffs, fn ($d) => $d->type !== 'create'));
+
+        $upBlocks = [];
+        $downBlocks = [];
+
+        // Pass 1a: create every table without FK constraints
+        foreach ($creates as $diff) {
+            $lines = $this->renderCreateLines($diff, includeFks: false);
+            $upBlocks[] = $this->schemaCreateBlock($diff->tableName, $lines);
+        }
+
+        // Pass 1b: apply all update diffs
+        foreach ($updates as $diff) {
+            [$upLines, $downLines] = $this->buildUpdateLines($diff);
+
+            if (! empty($upLines)) {
+                $upBlocks[] = $this->schemaTableBlock($diff->tableName, $upLines);
+            }
+
+            if (! empty($downLines)) {
+                $downBlocks[] = $this->schemaTableBlock($diff->tableName, $downLines);
+            }
+        }
+
+        // Pass 2: add FK constraints for every created table
+        foreach ($creates as $diff) {
+            $fkLines = $this->renderFkAddLines($diff);
+
+            if (! empty($fkLines)) {
+                $upBlocks[] = $this->schemaTableBlock($diff->tableName, $fkLines);
+            }
+        }
+
+        // Down — step 1: drop FK constraints (creates reversed)
+        $allDownBlocks = [];
+
+        foreach (array_reverse($creates) as $diff) {
+            $fkLines = $this->renderFkDropLines($diff);
+
+            if (! empty($fkLines)) {
+                $allDownBlocks[] = $this->schemaTableBlock($diff->tableName, $fkLines);
+            }
+        }
+
+        // Down — step 2: drop tables (creates reversed)
+        foreach (array_reverse($creates) as $diff) {
+            $allDownBlocks[] = "Schema::dropIfExists('{$diff->tableName}');";
+        }
+
+        // Down — step 3: reverse update downs
+        foreach (array_reverse($downBlocks) as $block) {
+            $allDownBlocks[] = $block;
+        }
+
+        $upBody = implode("\n\n        ", $upBlocks);
+        $downBody = ! empty($allDownBlocks)
+            ? implode("\n\n        ", $allDownBlocks)
+            : '//';
+
+        return $this->wrapMigration($upBody, $downBody);
+    }
+
+    /**
+     * Write a batch migration file to disk for multiple table diffs.
+     *
+     * Generates a single file using the two-pass strategy via generateBatch().
+     *
+     * @param  TableDiff[]  $diffs
+     * @return string The file path that was written.
+     */
+    public function writeBatch(array $diffs, string $migrationPath): string
+    {
+        $content = $this->generateBatch($diffs);
+        $filename = date('Y_m_d_His').'_batch_migration.php';
+        $path = rtrim($migrationPath, '/').'/'.$filename;
+
+        file_put_contents($path, $content);
+
+        return $path;
+    }
+
+    /**
      * Columns managed by timestamps() and softDeletes() that should be
      * skipped when rendered individually (they are handled by their shorthand).
      */
@@ -47,67 +147,18 @@ class MigrationGenerator
 
     private const SOFT_DELETE_COLUMNS = ['deleted_at'];
 
+    // ─── Single-table generation ──────────────────────────────────────────────
+
     /**
      * Generate a "create table" migration.
      */
     private function generateCreate(TableDiff $diff): string
     {
-        $lines = [];
-        $skipColumns = $this->managedColumnNames($diff);
+        $lines = $this->renderCreateLines($diff, includeFks: true);
+        $upBody = $this->schemaCreateBlock($diff->tableName, $lines);
+        $downBody = "Schema::dropIfExists('{$diff->tableName}');";
 
-        foreach ($diff->columnDiffs as $colDiff) {
-            if ($colDiff->action !== 'add' || $colDiff->desired === null) {
-                continue;
-            }
-
-            // Skip columns handled by $table->timestamps() / $table->softDeletes()
-            if (in_array($colDiff->columnName, $skipColumns, true)) {
-                continue;
-            }
-
-            $col = $colDiff->desired;
-
-            // Use shorthand $table->id() for auto-incrementing PK
-            if ($col->primary && $col->autoIncrement) {
-                $lines[] = $this->renderIdColumn($col);
-
-                continue;
-            }
-
-            $lines[] = $this->renderCanonicalColumn($col);
-        }
-
-        // Foreign key constraints
-        foreach ($diff->fkDiffs as $fk) {
-            if ($fk->action === 'add' && ! $fk->noConstraint) {
-                $lines[] = $this->renderForeignKey($fk);
-            }
-        }
-
-        if ($diff->addTimestamps) {
-            $lines[] = '$table->timestamps();';
-        }
-
-        if ($diff->addSoftDeletes) {
-            $lines[] = '$table->softDeletes();';
-        }
-
-        // Composite indexes
-        foreach ($diff->indexDiffs as $idxDiff) {
-            if ($idxDiff->action === 'add' && count($idxDiff->columns) > 1) {
-                $cols = $this->renderArray($idxDiff->columns);
-                $lines[] = '$table->index('.$cols.');';
-            }
-        }
-
-        $upBody = $this->indent($lines, 3);
-
-        $downBody = "        Schema::dropIfExists('{$diff->tableName}');";
-
-        return $this->wrapMigration(
-            "Schema::create('{$diff->tableName}', function (Blueprint \$table) {\n{$upBody}\n        });",
-            $downBody,
-        );
+        return $this->wrapMigration($upBody, $downBody);
     }
 
     /**
@@ -123,9 +174,120 @@ class MigrationGenerator
      */
     private function generateUpdate(TableDiff $diff): string
     {
+        [$upLines, $downLines] = $this->buildUpdateLines($diff);
+
+        $upBody = $this->schemaTableBlock($diff->tableName, $upLines);
+        $downBody = ! empty($downLines)
+            ? $this->schemaTableBlock($diff->tableName, $downLines)
+            : "Schema::table('{$diff->tableName}', function (Blueprint \$table) {\n            //\n        });";
+
+        return $this->wrapMigration($upBody, $downBody);
+    }
+
+    // ─── Shared line builders ─────────────────────────────────────────────────
+
+    /**
+     * Build the column + index lines for a Schema::create closure.
+     * When $includeFks is false, FK constraints are omitted (batch pass 1).
+     *
+     * @return string[]
+     */
+    private function renderCreateLines(TableDiff $diff, bool $includeFks = true): array
+    {
+        $lines = [];
+        $skipColumns = $this->managedColumnNames($diff);
+
+        foreach ($diff->columnDiffs as $colDiff) {
+            if ($colDiff->action !== 'add' || $colDiff->desired === null) {
+                continue;
+            }
+
+            if (in_array($colDiff->columnName, $skipColumns, true)) {
+                continue;
+            }
+
+            $col = $colDiff->desired;
+
+            if ($col->primary && $col->autoIncrement) {
+                $lines[] = $this->renderIdColumn($col);
+
+                continue;
+            }
+
+            $lines[] = $this->renderCanonicalColumn($col);
+        }
+
+        if ($includeFks) {
+            foreach ($this->renderFkAddLines($diff) as $line) {
+                $lines[] = $line;
+            }
+        }
+
+        if ($diff->addTimestamps) {
+            $lines[] = '$table->timestamps();';
+        }
+
+        if ($diff->addSoftDeletes) {
+            $lines[] = '$table->softDeletes();';
+        }
+
+        // Composite indexes (single-column indexes are handled via ->index() on the column)
+        foreach ($diff->indexDiffs as $idxDiff) {
+            if ($idxDiff->action === 'add' && count($idxDiff->columns) > 1) {
+                $cols = $this->renderArray($idxDiff->columns);
+                $lines[] = '$table->index('.$cols.');';
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * FK constraint lines to ADD for a create diff.
+     *
+     * @return string[]
+     */
+    private function renderFkAddLines(TableDiff $diff): array
+    {
+        $lines = [];
+
+        foreach ($diff->fkDiffs as $fk) {
+            if ($fk->action === 'add' && ! $fk->noConstraint) {
+                $lines[] = $this->renderForeignKey($fk);
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * FK constraint lines to DROP for a create diff (used in batch down()).
+     *
+     * @return string[]
+     */
+    private function renderFkDropLines(TableDiff $diff): array
+    {
+        $lines = [];
+
+        foreach ($diff->fkDiffs as $fk) {
+            if ($fk->action === 'add' && ! $fk->noConstraint) {
+                $lines[] = "\$table->dropForeign(['{$fk->column}']);";
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Build up and down line arrays for an update diff.
+     *
+     * @return array{0: string[], 1: string[]} [$upLines, $downLines]
+     */
+    private function buildUpdateLines(TableDiff $diff): array
+    {
         $upLines = [];
         $downLines = [];
-        $downRenameLines = [];  // rename-reverts — appended AFTER $downLines in down()
+        $downRenameLines = [];
         $skipColumns = $this->managedColumnNames($diff);
 
         // Rename columns (rendered first in up)
@@ -233,19 +395,35 @@ class MigrationGenerator
             $downLines[] = '$table->softDeletes();';
         }
 
-        // Merge down lines: modify-reverts first, rename-reverts last
+        // Merge down: modify-reverts first, rename-reverts last
         $allDownLines = array_merge($downLines, $downRenameLines);
 
-        $upBody = $this->indent($upLines, 3);
-        $downBody = ! empty($allDownLines)
-            ? $this->indent($allDownLines, 3)
-            : '            //';
-
-        return $this->wrapMigration(
-            "Schema::table('{$diff->tableName}', function (Blueprint \$table) {\n{$upBody}\n        });",
-            "Schema::table('{$diff->tableName}', function (Blueprint \$table) {\n{$downBody}\n        });",
-        );
+        return [$upLines, $allDownLines];
     }
+
+    // ─── Block builders ───────────────────────────────────────────────────────
+
+    /**
+     * Build a Schema::create(...) closure block string.
+     */
+    private function schemaCreateBlock(string $tableName, array $lines): string
+    {
+        return "Schema::create('{$tableName}', function (Blueprint \$table) {\n"
+            .$this->indent($lines, 3)
+            ."\n        });";
+    }
+
+    /**
+     * Build a Schema::table(...) closure block string.
+     */
+    private function schemaTableBlock(string $tableName, array $lines): string
+    {
+        return "Schema::table('{$tableName}', function (Blueprint \$table) {\n"
+            .$this->indent($lines, 3)
+            ."\n        });";
+    }
+
+    // ─── Column / FK renderers ────────────────────────────────────────────────
 
     /**
      * Render an ID column using Blueprint shorthand.
