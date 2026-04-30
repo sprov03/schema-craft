@@ -5,30 +5,26 @@ namespace SchemaCraft\Generators\InputTypes;
 use SchemaCraft\Generators\GeneratorSchemaContext;
 use SchemaCraft\Generators\InputDefinition;
 
-class SchemaColumnsInputType implements InputType
+/**
+ * A searchable column picker that also accepts free-text values.
+ *
+ * Renders as a combobox (text input + datalist) pre-populated with the
+ * columns from a schemaSelector step. The user can filter by typing or
+ * enter any custom value not in the list.
+ *
+ * Resolves to a plain string — either a column name or whatever the user typed.
+ *
+ * Usage:
+ *
+ *     'title_attribute' => fn($data) => Input::schemaColumnCombobox('Title Attribute')
+ *         ->default($data['schema']?->titleColumn?->name ?? 'id')
+ *         ->description('Column used as the record label in Filament.')
+ */
+class SchemaColumnComboboxInputType implements InputType
 {
     public function resolve(mixed $rawValue, InputDefinition $definition, array $resolved): mixed
     {
-        if (! is_array($rawValue)) {
-            return [];
-        }
-
-        /** @var GeneratorSchemaContext|null $context */
-        $context = $resolved[$definition->selectorKey ?? 'schema'] ?? null;
-
-        if ($context === null) {
-            return [];
-        }
-
-        return array_values(array_filter(array_map(function (string $name) use ($context) {
-            foreach ($context->allColumns as $col) {
-                if ($col->name === $name) {
-                    return $col;
-                }
-            }
-
-            return null;
-        }, $rawValue)));
+        return is_string($rawValue) ? $rawValue : '';
     }
 
     public function toFrontend(InputDefinition $definition, array $resolved = []): array
@@ -42,7 +38,6 @@ class SchemaColumnsInputType implements InputType
             $columns = array_map(fn ($col) => [
                 'name' => $col->name,
                 'type' => $col->columnType,
-                'nullable' => $col->nullable,
             ], $context->allColumns);
         }
 

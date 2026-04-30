@@ -85,23 +85,20 @@ PHP;
 
     // ─── GET /api/generators/config ────────────────────────────────
 
-    public function test_config_returns_generators_and_schemas(): void
+    public function test_config_returns_generators(): void
     {
-        $this->createSchemaFile('Post');
-
         $response = $this->getJson('/_schema-craft/api/generators/config');
 
         $response->assertOk();
-        $response->assertJsonStructure(['generators', 'schemas']);
+        $response->assertJsonStructure(['generators']);
 
         $generatorsData = $response->json('generators');
         $this->assertCount(1, $generatorsData);
         $this->assertSame(SampleGenerator::class, $generatorsData[0]['class']);
         $this->assertSame('Sample Generator', $generatorsData[0]['name']);
-        $this->assertCount(2, $generatorsData[0]['inputs']); // schemaSelector + text
-        $this->assertSame('schema', $generatorsData[0]['inputs'][0]['key']);
-        $this->assertSame('schemaSelector', $generatorsData[0]['inputs'][0]['type']);
-        $this->assertSame('class_name', $generatorsData[0]['inputs'][1]['key']);
+
+        // config() no longer returns inputs — those come from nextStep
+        $this->assertArrayNotHasKey('inputs', $generatorsData[0]);
     }
 
     public function test_config_returns_empty_generators_when_none_registered(): void
@@ -116,59 +113,78 @@ PHP;
         $this->assertSame([], $response->json('generators'));
     }
 
-    public function test_config_returns_schema_list(): void
+    // ─── POST /api/generators/next-step ───────────────────────────
+
+    public function test_next_step_returns_first_step_when_accumulated_empty(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/generators/next-step', [
+            'generator' => SampleGenerator::class,
+            'accumulated' => [],
+        ]);
+
+        $response->assertOk();
+        $this->assertFalse($response->json('done'));
+
+        $step = $response->json('step');
+        $this->assertSame('schema', $step['key']);
+        $this->assertSame('schemaSelector', $step['type']);
+        $this->assertSame('Schema', $step['label']);
+    }
+
+    public function test_next_step_advances_to_second_step(): void
     {
         $this->createSchemaFile('Post');
 
-        $response = $this->getJson('/_schema-craft/api/generators/config');
-
-        $schemas = $response->json('schemas');
-        $this->assertNotEmpty($schemas);
-        $this->assertSame('Post', $schemas[0]['modelName']);
-    }
-
-    public function test_config_returns_resource_directories(): void
-    {
-        $response = $this->getJson('/_schema-craft/api/generators/config');
+        $response = $this->postJson('/_schema-craft/api/generators/next-step', [
+            'generator' => SampleGenerator::class,
+            'accumulated' => [
+                'schema' => ['class' => 'App\\Schemas\\PostSchema'],
+            ],
+        ]);
 
         $response->assertOk();
-        $response->assertJsonStructure(['resourceDirectories']);
+        $this->assertFalse($response->json('done'));
+
+        $step = $response->json('step');
+        $this->assertSame('class_name', $step['key']);
+        $this->assertSame('text', $step['type']);
+        $this->assertSame('Class Name', $step['label']);
     }
 
-    // ─── GET /api/generators/detail ────────────────────────────────
-
-    public function test_detail_returns_schema_columns_and_relationships(): void
+    public function test_next_step_returns_done_when_all_steps_accumulated(): void
     {
         $this->createSchemaFile('Post');
 
-        $response = $this->getJson(
-            '/_schema-craft/api/generators/detail?'
-            .http_build_query([
-                'generator' => SampleGenerator::class,
-                'selectors' => ['schema' => 'App\\Schemas\\PostSchema'],
-            ])
-        );
+        $response = $this->postJson('/_schema-craft/api/generators/next-step', [
+            'generator' => SampleGenerator::class,
+            'accumulated' => [
+                'schema' => ['class' => 'App\\Schemas\\PostSchema'],
+                'class_name' => 'PostService',
+            ],
+        ]);
 
         $response->assertOk();
-        $response->assertJson(['success' => true]);
-
-        $columns = $response->json('selectorData.schema.columns');
-        $this->assertNotEmpty($columns);
-        $names = array_column($columns, 'name');
-        $this->assertContains('name', $names);
-        $this->assertContains('email', $names);
-
-        // Relationships key should exist (may be empty for this simple schema)
-        $this->assertArrayHasKey('relationships', $response->json('selectorData.schema'));
+        $this->assertTrue($response->json('done'));
     }
 
-    public function test_detail_returns_empty_when_schema_not_provided(): void
+    public function test_next_step_includes_computed_bag_in_response(): void
     {
-        $response = $this->getJson(
-            '/_schema-craft/api/generators/detail?'.http_build_query(['generator' => SampleGenerator::class])
-        );
+        $response = $this->postJson('/_schema-craft/api/generators/next-step', [
+            'generator' => SampleGenerator::class,
+            'accumulated' => [],
+        ]);
 
         $response->assertOk();
+        $this->assertArrayHasKey('computed', $response->json());
+    }
+
+    public function test_next_step_requires_generator(): void
+    {
+        $response = $this->postJson('/_schema-craft/api/generators/next-step', [
+            'accumulated' => [],
+        ]);
+
+        $response->assertUnprocessable();
     }
 
     // ─── POST /api/generators/preview ─────────────────────────────
@@ -179,7 +195,7 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/preview', [
             'generator' => SampleGenerator::class,
-            'inputs' => [
+            'accumulated' => [
                 'schema' => [
                     'class' => 'App\\Schemas\\PostSchema',
                     'selectedColumns' => ['name', 'email'],
@@ -206,7 +222,7 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/preview', [
             'generator' => SampleGenerator::class,
-            'inputs' => [
+            'accumulated' => [
                 'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
                 'class_name' => 'PostService',
             ],
@@ -224,7 +240,7 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/run', [
             'generator' => SampleGenerator::class,
-            'inputs' => [
+            'accumulated' => [
                 'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
                 'class_name' => 'PostService',
             ],
@@ -244,7 +260,7 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/run', [
             'generator' => SampleGenerator::class,
-            'inputs' => [
+            'accumulated' => [
                 'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
                 'class_name' => 'PostService',
             ],
@@ -262,7 +278,7 @@ PHP;
 
         $response = $this->postJson('/_schema-craft/api/generators/run', [
             'generator' => SampleGenerator::class,
-            'inputs' => [
+            'accumulated' => [
                 'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
                 'class_name' => 'PostService',
             ],

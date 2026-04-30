@@ -5,58 +5,75 @@ namespace SchemaCraft\Generators;
 /**
  * Base class for custom SchemaCraft generators.
  *
- * Extend this class to define a generator that can be discovered by the
- * SchemaCraft visualizer. Implement name() and templates(); override
- * inputs() and templateData() as needed.
+ * Extend this class and implement name(), templates(), and data().
  *
- * ## Example
+ * ## data() — sequential input definition
  *
- *     class ResourceGenerator extends SchemaCraftGenerator
+ * Each entry is a callback that receives previously-resolved data and returns
+ * either an Input (interactive field shown in the wizard UI) or a scalar/array
+ * (computed value stored silently and available to subsequent steps).
+ *
+ *     public function data(): array
  *     {
- *         public function name(): string { return 'Filament Resource'; }
+ *         return [
+ *             // Interactive step — shows a schema picker
+ *             'schema' => fn($data) => Input::schemaSelector('Schema'),
  *
- *         public function inputs(): array
- *         {
- *             return [
- *                 Input::schemaSelector('schema', 'Schema', selectColumns: true, selectRelationships: true),
- *                 Input::text('class_name', 'Class Name'),
- *                 Input::selectResourceDirectory('resource_directory', 'Resource Directory'),
- *             ];
- *         }
+ *             // Silent computed — derived from schema, never shown
+ *             'action_namespace' => fn($data) => $data['schema']->actionsNamespace,
  *
- *         public function templates(): array
- *         {
- *             return [
- *                 Template::file(
- *                     '[resource_directory]/[schema.model.plural.title]/[schema.model.title]Resource.php',
- *                     'generators.resources.resource',
- *                 ),
+ *             // Lazy interactive — default pre-filled from prior step
+ *             'action_name' => fn($data) => Input::text('Action Name')
+ *                 ->default(class_basename($data['schema']->modelClass)),
  *
- *                 ...Template::forEachRelationship('schema', 'relationship', [
- *                     Template::file(
- *                         '[resource_directory]/[schema.model.plural.title]/RelationManagers/[relationship.name.title]RelationManager.php',
- *                         'generators.resources.relation_manager',
- *                         ['ClassName' => '[relationship.name.title]RelationManager'],
- *                     ),
- *                 ], 'collection'),
- *             ];
- *         }
+ *             // Displayable computed — shown as a read-only info row
+ *             'target_path' => fn($data) => Input::computed($data['schema']->actionsPath)
+ *                 ->label('Target Path')
+ *                 ->description('Where the file will be written.'),
+ *
+ *             // Recursive field picker — dot-path column/relationship selection
+ *             'fields' => fn($data) => Input::schemaFieldPicker('Fields'),
+ *         ];
  *     }
  *
- * In your Blade template, use {!! $phpOpenTag !!} to output the PHP opening tag,
- * and access model names via NameChain: {!! $schema->model->title !!}
+ * Template path interpolation uses the data() array keys:
+ *
+ *     '[schema.actionsPath]/[action_name.title][schema.model.title]Action.php'
+ *
+ * ## templates()
+ *
+ *     public function templates(): array
+ *     {
+ *         return [
+ *             Template::file('[schema.actionsPath]/[action_name.title]Action.php', 'generators.action.action'),
+ *         ];
+ *     }
  */
 abstract class SchemaCraftGenerator
 {
     /**
-     * Human-readable name shown in the visualizer dropdown.
+     * Human-readable name shown in the visualizer generator list.
      */
     abstract public function name(): string;
 
     /**
-     * Input fields shown in the visualizer form.
+     * Sequential input definitions for the wizard.
      *
-     * Use Input::schemaSelector() for schema selection (replaces the old schemas() method).
+     * Return an associative array keyed by the variable name that will be
+     * available in Blade templates and inlineTemplates(). Each value is a
+     * closure receiving currently-resolved data and returning either an
+     * InputDefinition (interactive) or a scalar/array (computed).
+     *
+     * @return array<string, \Closure(array<string,mixed>): (InputDefinition|mixed)>
+     */
+    public function data(): array
+    {
+        return [];
+    }
+
+    /**
+     * @deprecated Use data() instead. Kept for documentation purposes only;
+     *             the GeneratorController no longer calls this method.
      *
      * @return InputDefinition[]
      */
@@ -75,27 +92,7 @@ abstract class SchemaCraftGenerator
     /**
      * Inline template insertions into existing files.
      *
-     * Return InlineTemplate builders or InlineTemplateDefinition instances.
-     * The runner processes these after generating new files, inserting rendered
-     * content at the specified location in each target file.
-     *
-     * Duplicate detection is built in — if the rendered snippet already exists
-     * in the file, the insertion is skipped automatically.
-     *
-     * Example wiring an action into Filament pages chosen by the user:
-     *
-     *     public function inlineTemplates(array $data): array
-     *     {
-     *         return collect($data['placements'] ?? [])
-     *             ->map(fn ($p) =>
-     *                 Template::inline('generators.filament.action-wire')
-     *                     ->into($p['file'])
-     *                     ->anchor($p['anchor'])
-     *                     ->after($p['searchPattern'])
-     *             )
-     *             ->all();
-     *     }
-     *
+     * @param  array<string, mixed>  $data  The fully resolved data from all steps.
      * @return array<InlineTemplate|InlineTemplateDefinition>
      */
     public function inlineTemplates(array $data): array
@@ -104,9 +101,18 @@ abstract class SchemaCraftGenerator
     }
 
     /**
-     * Extra data injected into all templates at render time.
+     * Called after all templates have been rendered and written to disk.
      *
-     * Override to provide custom variables beyond schema contexts and inputs.
+     * Override in subclasses to perform post-generation side effects such as
+     * writing back metadata (e.g. #[Title]) to the originating schema file.
+     * Only invoked during an actual run — never during preview.
+     *
+     * @param  array<string, mixed>  $data  The fully resolved data from all wizard steps.
+     */
+    public function afterRun(array $data): void {}
+
+    /**
+     * Extra data injected into all templates at render time.
      *
      * @return array<string, mixed>
      */

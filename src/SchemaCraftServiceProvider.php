@@ -20,8 +20,11 @@ use SchemaCraft\Generators\GeneratorRunner;
 use SchemaCraft\Generators\InputTypeRegistry;
 use SchemaCraft\Generators\InputTypes\BooleanInputType;
 use SchemaCraft\Generators\InputTypes\FilamentPlacementsInputType;
+use SchemaCraft\Generators\InputTypes\NestedFieldSelectorInputType;
+use SchemaCraft\Generators\InputTypes\SchemaColumnComboboxInputType;
 use SchemaCraft\Generators\InputTypes\SchemaColumnInputType;
 use SchemaCraft\Generators\InputTypes\SchemaColumnsInputType;
+use SchemaCraft\Generators\InputTypes\SchemaFieldPickerInputType;
 use SchemaCraft\Generators\InputTypes\SchemaSelectorInputType;
 use SchemaCraft\Generators\InputTypes\SelectInputType;
 use SchemaCraft\Generators\InputTypes\SelectResourceDirectoryInputType;
@@ -71,6 +74,9 @@ class SchemaCraftServiceProvider extends ServiceProvider
             $registry->register('schemaColumns', SchemaColumnsInputType::class);
             $registry->register('selectResourceDirectory', SelectResourceDirectoryInputType::class);
             $registry->register('filamentPlacements', FilamentPlacementsInputType::class);
+            $registry->register('fieldPicker', SchemaFieldPickerInputType::class);
+            $registry->register('schemaColumnCombobox', SchemaColumnComboboxInputType::class);
+            $registry->register('nestedFieldSelector', NestedFieldSelectorInputType::class);
 
             return $registry;
         });
@@ -254,11 +260,15 @@ class SchemaCraftServiceProvider extends ServiceProvider
 
             // Custom Generators API
             Route::get('/api/generators/config', [GeneratorController::class, 'config']);
-            Route::get('/api/generators/detail', [GeneratorController::class, 'detail']);
+            Route::post('/api/generators/next-step', [GeneratorController::class, 'nextStep'])
+                ->withoutMiddleware($noCsrf);
+            Route::get('/api/generators/related-schema', [GeneratorController::class, 'relatedSchema']);
+            Route::get('/api/generators/schema-info', [GeneratorController::class, 'schemaInfo']);
             Route::post('/api/generators/preview', [GeneratorController::class, 'preview'])
                 ->withoutMiddleware($noCsrf);
             Route::post('/api/generators/run', [GeneratorController::class, 'run'])
                 ->withoutMiddleware($noCsrf);
+            Route::get('/api/generators/docs', [GeneratorController::class, 'generatorsDocs']);
 
             Route::post('/api/create-api', [GenerateController::class, 'createApi'])
                 ->withoutMiddleware($noCsrf);

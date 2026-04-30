@@ -392,4 +392,119 @@ PHP;
         $this->assertStringContainsString('Owner', $result->message);
         $this->assertStringContainsString('DogSchema', $result->message);
     }
+
+    // ─── setClassTitle ────────────────────────────────────────────────────────
+
+    public function test_set_class_title_adds_title_attribute_to_schema_with_no_title(): void
+    {
+        $path = $this->createSchemaFile('DogSchema', $this->minimalSchema());
+
+        $result = $this->writer->setClassTitle($path, 'name');
+
+        $this->assertTrue($result->success);
+        $content = $this->files->get($path);
+        $this->assertStringContainsString("#[Title('name')]", $content);
+        $this->assertMatchesRegularExpression("/#\[Title\('name'\)]\nclass DogSchema/", $content);
+    }
+
+    public function test_set_class_title_adds_title_import(): void
+    {
+        $path = $this->createSchemaFile('DogSchema', $this->minimalSchema());
+
+        $this->writer->setClassTitle($path, 'name');
+
+        $content = $this->files->get($path);
+        $this->assertStringContainsString('use SchemaCraft\Attributes\Title;', $content);
+    }
+
+    public function test_set_class_title_replaces_existing_title(): void
+    {
+        $schema = <<<'PHP'
+<?php
+
+namespace App\Schemas;
+
+use SchemaCraft\Attributes\AutoIncrement;
+use SchemaCraft\Attributes\Primary;
+use SchemaCraft\Attributes\Title;
+use SchemaCraft\Schema;
+
+#[Title('old_column')]
+class DogSchema extends Schema
+{
+    #[Primary]
+    #[AutoIncrement]
+    public int $id;
+}
+PHP;
+        $path = $this->createSchemaFile('DogSchema', $schema);
+
+        $result = $this->writer->setClassTitle($path, 'name');
+
+        $this->assertTrue($result->success);
+        $content = $this->files->get($path);
+        $this->assertStringContainsString("#[Title('name')]", $content);
+        $this->assertStringNotContainsString("#[Title('old_column')]", $content);
+        $this->assertSame(1, substr_count($content, '#[Title('), 'Should have exactly one #[Title]');
+    }
+
+    public function test_set_class_title_preserves_other_class_level_attributes(): void
+    {
+        $schema = <<<'PHP'
+<?php
+
+namespace App\Schemas;
+
+use SchemaCraft\Attributes\AutoIncrement;
+use SchemaCraft\Attributes\Index;
+use SchemaCraft\Attributes\Primary;
+use SchemaCraft\Schema;
+
+#[Index(['status', 'name'])]
+class DogSchema extends Schema
+{
+    #[Primary]
+    #[AutoIncrement]
+    public int $id;
+}
+PHP;
+        $path = $this->createSchemaFile('DogSchema', $schema);
+
+        $this->writer->setClassTitle($path, 'name');
+
+        $content = $this->files->get($path);
+        $this->assertStringContainsString("#[Title('name')]", $content);
+        $this->assertStringContainsString("#[Index(['status', 'name'])]", $content);
+    }
+
+    public function test_set_class_title_returns_failure_when_file_not_found(): void
+    {
+        $result = $this->writer->setClassTitle('/nonexistent/path/Schema.php', 'name');
+
+        $this->assertFalse($result->success);
+        $this->assertStringContainsString('not found', $result->message);
+    }
+
+    public function test_set_class_title_produces_valid_php(): void
+    {
+        $path = $this->createSchemaFile('DogSchema', $this->minimalSchema());
+
+        $this->writer->setClassTitle($path, 'name');
+
+        $output = [];
+        $exitCode = 0;
+        exec('php -l '.escapeshellarg($path).' 2>&1', $output, $exitCode);
+
+        $this->assertEquals(0, $exitCode, 'Generated file has PHP syntax errors: '.implode("\n", $output));
+    }
+
+    public function test_set_class_title_message_includes_schema_name(): void
+    {
+        $path = $this->createSchemaFile('DogSchema', $this->minimalSchema());
+
+        $result = $this->writer->setClassTitle($path, 'name');
+
+        $this->assertStringContainsString('name', $result->message);
+        $this->assertStringContainsString('DogSchema', $result->message);
+    }
 }

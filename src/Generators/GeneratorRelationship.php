@@ -4,6 +4,8 @@ namespace SchemaCraft\Generators;
 
 use Illuminate\Support\Str;
 use SchemaCraft\Scanner\RelationshipDefinition;
+use SchemaCraft\Scanner\SchemaResolver;
+use SchemaCraft\Scanner\SchemaScanner;
 
 /**
  * Wraps a RelationshipDefinition with NameChain helpers for use in generator templates.
@@ -80,5 +82,27 @@ class GeneratorRelationship
             'morphOne',
             'hasOneThrough',
         ]);
+    }
+
+    /**
+     * Resolve the display column of the related schema using its #[Title] attribute.
+     *
+     * Used in Filament dot-notation column/entry generation, e.g.:
+     *     TextColumn::make('asteriskServer.name')  // 'name' comes from AsteriskServerSchema's #[Title]
+     *
+     * Returns null when the related schema cannot be found, letting the template
+     * fall back to a sensible default (typically 'name').
+     */
+    public function relatedTitleColumn(): ?string
+    {
+        $schemaClass = SchemaResolver::findByModel($this->relatedModelClass);
+
+        if ($schemaClass === null || ! class_exists($schemaClass)) {
+            return null;
+        }
+
+        $table = (new SchemaScanner($schemaClass))->scan();
+
+        return $table->titleColumns[0] ?? null;
     }
 }

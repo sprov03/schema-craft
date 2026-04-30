@@ -160,10 +160,12 @@ class RuntimeRouteScanner
         $actionClass = null;
         $actionParameters = null;
         $responseResource = null;
+        $responseUndocumented = false;
 
         // Check for action endpoint (route defaults)
         $schemaCraftAction = $route->defaults['_schema_craft_action'] ?? null;
         $schemaCraftSchema = $route->defaults['_schema_craft_schema'] ?? null;
+        $schemaCraftResource = $route->defaults['_schema_craft_resource'] ?? null;
 
         if ($schemaCraftSchema !== null && class_exists($schemaCraftSchema)) {
             $schema = $schemaCraftSchema;
@@ -194,6 +196,16 @@ class RuntimeRouteScanner
                     'morphPairName' => $p->morphPairName,
                 ], $definition->parameters);
             }
+
+            // Resolve response resource from route default — same pattern as #[ApiResponse] on controllers
+            if ($schemaCraftResource !== null && class_exists($schemaCraftResource)) {
+                $isGet = str_contains(strtoupper($method), 'GET');
+                $isCollection = $isGet && ! str_contains($path, '{');
+                $responseResource = [
+                    'resourceClass' => $schemaCraftResource,
+                    'collection' => $isCollection,
+                ];
+            }
         } elseif ($controllerClass !== null && str_starts_with($controllerClass, $controllerNamespace)) {
             // Controller route inside the configured namespace — derive schema from controller name
             $source = 'controller';
@@ -217,7 +229,15 @@ class RuntimeRouteScanner
                 $rules = $this->extractRules($formRequest);
             }
 
-            $responseResource = $this->extractResponseAttribute($controllerClass, $controllerMethod);
+            $result = $this->extractResponseAttribute($controllerClass, $controllerMethod, $path);
+
+            if ($result !== null) {
+                if (isset($result['undocumented'])) {
+                    $responseUndocumented = true;
+                } else {
+                    $responseResource = $result;
+                }
+            }
         }
 
         return [
@@ -233,6 +253,7 @@ class RuntimeRouteScanner
             'formRequest' => $formRequest,
             'actionParameters' => $actionParameters,
             'responseResource' => $responseResource,
+            'responseUndocumented' => $responseUndocumented,
         ];
     }
 
@@ -330,18 +351,24 @@ class RuntimeRouteScanner
     }
 
     /**
-     * Extract #[ApiResponse] attribute data from a controller method.
+     * Detect the response resource from a controller method.
      *
-     * Returns an array with 'resourceClass' and 'collection' keys, or null
-     * when no #[ApiResponse] attribute is present on the method.
+     * Priority order:
+     * 1. #[ApiResponse] attribute — explicit override, handles JsonResponse wrappers
+     * 2. PHP return type hint — auto-detection for properly typed methods
      *
-     * @return array{resourceClass: string, collection: bool}|null
+     * When a return type exists but is not a JsonResource subclass (e.g. JsonResponse, void),
+     * returns ['undocumented' => true] so callers can flag the endpoint as an issue rather
+     * than silently treating it as having no response.
+     *
+     * @return array{resourceClass: string, collection: bool}|array{undocumented: true}|null
      */
-    private function extractResponseAttribute(string $controllerClass, string $method): ?array
+    private function extractResponseAttribute(string $controllerClass, string $method, string $path = ''): ?array
     {
         try {
             $ref = new ReflectionMethod($controllerClass, $method);
 
+            // 1. Explicit #[ApiResponse] attribute takes priority
             foreach ($ref->getAttributes() as $attr) {
                 $name = $attr->getName();
 
@@ -354,10 +381,33 @@ class RuntimeRouteScanner
                     ];
                 }
             }
-        } catch (\Throwable) {
-            // Reflection failed
-        }
 
-        return null;
+            // 2. PHP return type hint
+            $returnType = $ref->getReturnType();
+
+            if ($returnType === null) {
+                // No return type declared — flag as undocumented
+                return ['undocumented' => true];
+            }
+
+            if (! $returnType instanceof ReflectionNamedType || $returnType->isBuiltin()) {
+                // Built-in type (void, array, mixed, etc.)
+                return ['undocumented' => true];
+            }
+
+            $returnTypeName = $returnType->getName();
+
+            if (! class_exists($returnTypeName) || ! is_subclass_of($returnTypeName, \Illuminate\Http\Resources\Json\JsonResource::class)) {
+                // Named class but not a JsonResource (e.g. JsonResponse, Response)
+                return ['undocumented' => true];
+            }
+
+            return [
+                'resourceClass' => $returnTypeName,
+                'collection' => ! str_contains($path, '{'),
+            ];
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

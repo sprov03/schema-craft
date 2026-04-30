@@ -69,6 +69,10 @@ class GeneratorRunner
             $files[] = $this->runInlineTemplate($inlineDef, $allData, $fileCache, $writeInlineResults);
         }
 
+        if ($writeInlineResults) {
+            $generator->afterRun($inputValues);
+        }
+
         return $files;
     }
 
@@ -192,6 +196,7 @@ class GeneratorRunner
             snippet: $snippet,
             skipped: false,
             skipReason: null,
+            originalContent: $current,
         );
     }
 
@@ -343,6 +348,10 @@ class GeneratorRunner
                 ob_start();
 
                 try {
+                    // $__env is required by compiled Blade directives such as @foreach.
+                    // The standard render() path injects it via shared view data; the
+                    // direct-include path here must inject it explicitly.
+                    $__env = $this->view;
                     extract($data, EXTR_SKIP);
                     include $compiled;
                 } catch (\Throwable $e) {

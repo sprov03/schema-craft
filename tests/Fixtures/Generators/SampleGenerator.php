@@ -13,11 +13,11 @@ class SampleGenerator extends SchemaCraftGenerator
         return 'Sample Generator';
     }
 
-    public function inputs(): array
+    public function data(): array
     {
         return [
-            Input::schemaSelector('schema', 'Schema'),
-            Input::text('class_name', 'Class Name'),
+            'schema' => fn ($data) => Input::schemaSelector('Schema'),
+            'class_name' => fn ($data) => Input::text('Class Name'),
         ];
     }
 

@@ -334,6 +334,38 @@ class SchemaWriter
         return $before."\n\n".$propertyBlock."\n}\n";
     }
 
+    /**
+     * Add or replace the class-level #[Title('column')] attribute on a schema file.
+     *
+     * If the schema already has a #[Title(...)] attribute it is replaced in-place.
+     * If not, #[Title('column')] is inserted on the line directly before the class
+     * declaration. The Title import is added to the use-block if absent.
+     */
+    public function setClassTitle(string $schemaFilePath, string $column): SchemaWriteResult
+    {
+        if (! $this->files->exists($schemaFilePath)) {
+            return new SchemaWriteResult(false, "Schema file not found: {$schemaFilePath}");
+        }
+
+        $content = $this->files->get($schemaFilePath);
+        $schemaName = $this->extractSchemaName($content);
+        $titleAttr = "#[Title('{$column}')]";
+
+        $content = $this->insertImports($content, ['SchemaCraft\Attributes\Title']);
+
+        // Class-level #[Title] is always at column 0 (no leading whitespace)
+        if (preg_match('/^#\[Title\([\'"][^\'"]*[\'"]\)\]$/m', $content)) {
+            $content = preg_replace('/^#\[Title\([\'"][^\'"]*[\'"]\)\]$/m', $titleAttr, $content);
+        } else {
+            // Insert the attribute on the line immediately before the class declaration
+            $content = preg_replace('/^(class\s+\w+)/m', $titleAttr."\n$1", $content);
+        }
+
+        $this->files->put($schemaFilePath, $content);
+
+        return new SchemaWriteResult(true, "Set #[Title('{$column}')] on {$schemaName}.");
+    }
+
     private function isDuplicate(string $content, string $relationshipType, string $modelShortName): bool
     {
         $attrShort = class_basename(self::ATTRIBUTE_CLASSES[$relationshipType]);

@@ -92,124 +92,13 @@ class GenerateController
 
         // Discover routes for this schema at runtime
         $routeScanner = new RuntimeRouteScanner;
-        $endpoints = $routeScanner->scanForSchema(
+        $rawEndpoints = $routeScanner->scanForSchema(
             schemaClass: $schemaClass,
             controllerNamespace: $apiConfig->controllerNamespace,
             schemaNamespace: $apiConfig->schemaNamespace,
         );
 
-        // Scan schema for field metadata
-        $fields = [];
-        $relationships = [];
-        $editableFields = [];
-
-        if (class_exists($schemaClass)) {
-            $scanner = new SchemaScanner($schemaClass);
-            $table = $scanner->scan();
-
-            $skipNames = ['id', 'created_at', 'updated_at', 'deleted_at'];
-
-            foreach ($table->columns as $col) {
-                $isEditable = ! $col->primary
-                    && ! $col->autoIncrement
-                    && ! in_array($col->name, $skipNames, true);
-
-                $field = [
-                    'name' => $col->name,
-                    'type' => $col->columnType,
-                    'nullable' => $col->nullable,
-                    'editable' => $isEditable,
-                ];
-
-                if ($col->primary) {
-                    $field['primary'] = true;
-                }
-                if ($col->autoIncrement) {
-                    $field['autoIncrement'] = true;
-                }
-                if ($col->unsigned) {
-                    $field['unsigned'] = true;
-                }
-                if ($col->length !== null) {
-                    $field['length'] = $col->length;
-                }
-                if ($col->precision !== null) {
-                    $field['precision'] = $col->precision;
-                }
-                if ($col->scale !== null) {
-                    $field['scale'] = $col->scale;
-                }
-                if ($col->unique) {
-                    $field['unique'] = true;
-                }
-                if ($col->hasDefault) {
-                    $field['default'] = $col->default;
-                }
-                if ($col->castType !== null) {
-                    $field['cast'] = class_basename($col->castType);
-                }
-
-                $fields[] = $field;
-
-                if ($isEditable) {
-                    $rules = [];
-                    $rules[] = $col->nullable ? 'nullable' : 'required';
-
-                    match (true) {
-                        str_starts_with($col->columnType, 'unsigned') => array_push($rules, 'integer', 'min:0'),
-                        in_array($col->columnType, ['string']) => array_push($rules, 'string', 'max:'.($col->length ?? 255)),
-                        in_array($col->columnType, ['text', 'mediumText', 'longText']) => $rules[] = 'string',
-                        in_array($col->columnType, ['integer', 'bigInteger', 'smallInteger', 'tinyInteger']) => $rules[] = 'integer',
-                        $col->columnType === 'boolean' => $rules[] = 'boolean',
-                        in_array($col->columnType, ['decimal', 'float', 'double']) => $rules[] = 'numeric',
-                        in_array($col->columnType, ['timestamp', 'dateTime', 'dateTimeTz', 'date']) => $rules[] = 'date',
-                        in_array($col->columnType, ['time', 'timeTz']) => $rules[] = 'date_format:H:i:s',
-                        $col->columnType === 'json' => $rules[] = 'array',
-                        $col->columnType === 'uuid' => array_push($rules, 'string', 'uuid'),
-                        $col->columnType === 'ulid' => array_push($rules, 'string', 'ulid'),
-                        $col->columnType === 'year' => array_push($rules, 'integer', 'digits:4'),
-                        default => $rules[] = 'string',
-                    };
-
-                    if ($col->unique) {
-                        $rules[] = "unique:{$table->tableName},{$col->name}";
-                    }
-
-                    $editableFields[] = [
-                        'name' => $col->name,
-                        'type' => $col->columnType,
-                        'nullable' => $col->nullable,
-                        'rules' => implode('|', $rules),
-                    ];
-                }
-            }
-
-            // Add timestamps to fields if present
-            if ($table->hasTimestamps) {
-                if (! collect($fields)->contains('name', 'created_at')) {
-                    $fields[] = ['name' => 'created_at', 'type' => 'timestamp', 'nullable' => true, 'editable' => false];
-                }
-                if (! collect($fields)->contains('name', 'updated_at')) {
-                    $fields[] = ['name' => 'updated_at', 'type' => 'timestamp', 'nullable' => true, 'editable' => false];
-                }
-            }
-
-            foreach ($table->relationships as $rel) {
-                $relData = [
-                    'name' => $rel->name,
-                    'type' => $rel->type,
-                    'relatedModel' => class_basename($rel->relatedModel),
-                ];
-
-                // Resolve the related schema class for drill-down
-                $relatedSchemaClass = $this->resolveRelatedSchemaClass($rel->relatedModel);
-                if ($relatedSchemaClass !== null) {
-                    $relData['relatedSchema'] = $relatedSchemaClass;
-                }
-
-                $relationships[] = $relData;
-            }
-        }
+        $endpoints = array_values(array_map(fn ($ep) => $this->enrichEndpoint($ep), $rawEndpoints));
 
         return new JsonResponse([
             'modelName' => $modelName,
@@ -220,9 +109,6 @@ class GenerateController
             'hasService' => file_exists($apiConfig->servicePath($modelName)),
             'hasTest' => file_exists($apiConfig->testPath($modelName)),
             'endpoints' => $endpoints,
-            'fields' => $fields,
-            'editableFields' => $editableFields,
-            'relationships' => $relationships,
         ]);
     }
 
@@ -977,7 +863,6 @@ class GenerateController
         );
 
         $groups = [];
-        $responseFieldsCache = [];
 
         foreach ($result['schemas'] as $schemaClass => $endpoints) {
             $modelName = class_basename(str_replace('Schema', '', $schemaClass));
@@ -986,14 +871,10 @@ class GenerateController
                 return $this->enrichEndpoint($ep);
             }, $endpoints);
 
-            // Scan schema once per group for response field documentation
-            $responseFields = $this->buildResponseFields($schemaClass, $modelName);
-
             $groups[] = [
                 'schema' => $schemaClass,
                 'modelName' => $modelName,
                 'endpoints' => array_values($enrichedEndpoints),
-                'responseFields' => $responseFields,
             ];
         }
 
@@ -1015,8 +896,14 @@ class GenerateController
     }
 
     /**
-     * Enrich an endpoint from RuntimeRouteScanner with additional action metadata
-     * and, for controller endpoints, resolve #[ApiResponse] into response field docs.
+     * Enrich an endpoint from RuntimeRouteScanner with parameter metadata and response field docs.
+     *
+     * Both action and controller endpoints flow through the same response-resolution path so that
+     * the API docs and SDK generator consume an identical data structure regardless of source.
+     *
+     * Response fields are only populated when a resource class is explicitly declared and scannable.
+     * Endpoints with no declared resource, or with a manual JsonResource, show no response shape —
+     * we do not infer or fabricate a shape from the schema.
      *
      * @param  array<string, mixed>  $endpoint
      * @return array<string, mixed>
@@ -1026,7 +913,7 @@ class GenerateController
         $parameters = [];
         $relationships = [];
 
-        // For action-based endpoints, extract detailed parameter and relationship info
+        // Action endpoints: extract typed parameters and nested relationship info from the action class
         if ($endpoint['source'] === 'action' && $endpoint['actionClass'] !== null && class_exists($endpoint['actionClass'])) {
             try {
                 $definition = (new \SchemaCraft\Scanner\ActionScanner($endpoint['actionClass']))->scan();
@@ -1035,7 +922,6 @@ class GenerateController
                 $endpoint['label'] = $meta?->label ?? Str::headline($definition->serviceMethod);
                 $endpoint['serviceMethod'] = $definition->serviceMethod;
 
-                // Detailed parameters
                 $parameters = array_map(fn ($p) => [
                     'name' => $p->name,
                     'type' => $p->type,
@@ -1051,7 +937,6 @@ class GenerateController
                     'isMorphType' => $p->isMorphType,
                 ], $definition->parameters);
 
-                // Extract relationships this action needs loaded
                 foreach ($definition->nestedParameters() as $nested) {
                     $nr = $nested->nestedRelationship;
                     if ($nr) {
@@ -1068,21 +953,33 @@ class GenerateController
             }
         }
 
-        // For controller endpoints with #[ApiResponse], resolve response field docs
-        if ($endpoint['source'] === 'controller' && ! empty($endpoint['responseResource'])) {
+        // Controller endpoints: build canonical parameters from FormRequest rules so the SDK
+        // and API docs consume the same parameter shape regardless of endpoint source
+        if ($endpoint['source'] === 'controller' && ! empty($endpoint['rules'])) {
+            $parameters = $this->buildParametersFromRules($endpoint['rules']);
+        }
+
+        // Response resolution — three possible outcomes:
+        //   responseFields        — resource declared and introspectable (SchemaCraftResource)
+        //   responseManualResource — resource declared but manual JsonResource (opaque toArray())
+        //   responseUndocumented  — controller with generic/missing return type (already set by scanner)
+        //   (nothing)             — no resource declared at all
+        if (! empty($endpoint['responseResource'])) {
             $rr = $endpoint['responseResource'];
             $resourceClass = $rr['resourceClass'] ?? null;
 
             if ($resourceClass !== null && class_exists($resourceClass)) {
-                // Persist the resource class so callers (e.g. SDK builder) can resolve #[ResourceSchema] after enrichment
                 $endpoint['resolvedResourceClass'] = $resourceClass;
+                $endpoint['responseCollection'] = $rr['collection'] ?? false;
+                $endpoint['responseModelName'] = str_replace('Resource', '', class_basename($resourceClass));
 
                 $fields = $this->buildResponseFieldsFromResource($resourceClass);
 
                 if ($fields !== null) {
                     $endpoint['responseFields'] = $fields;
-                    $endpoint['responseCollection'] = $rr['collection'] ?? false;
-                    $endpoint['responseModelName'] = str_replace('Resource', '', class_basename($resourceClass));
+                } else {
+                    // Resource is declared but uses a manual toArray() — known but not introspectable
+                    $endpoint['responseManualResource'] = $resourceClass;
                 }
             }
 
@@ -1096,12 +993,82 @@ class GenerateController
     }
 
     /**
+     * Convert FormRequest rules into the canonical parameter shape used by action endpoints.
+     *
+     * Produces the same array structure as the action parameter map so the SDK generator
+     * and API docs can consume controller and action endpoint params identically.
+     *
+     * @param  array<string, mixed>  $rules
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildParametersFromRules(array $rules): array
+    {
+        $parameters = [];
+        $fieldNames = array_keys($rules);
+
+        foreach ($rules as $field => $fieldRules) {
+            // Dot-notation fields (e.g. items.*.id) are sub-fields of a nested param — skip the leaf
+            if (str_contains($field, '.')) {
+                continue;
+            }
+
+            $ruleList = is_array($fieldRules) ? $fieldRules : explode('|', (string) $fieldRules);
+            $ruleStrings = array_filter(array_map(fn ($r) => is_string($r) ? $r : null, $ruleList));
+
+            $nullable = in_array('nullable', $ruleStrings, true);
+            $type = $this->inferTypeFromRules(array_values($ruleStrings));
+
+            // A field is a nested relationship when it has sub-rules (e.g. 'items' with 'items.*.id')
+            $hasSubRules = collect($fieldNames)->contains(fn ($k) => str_starts_with($k, $field.'.'));
+
+            $parameters[] = [
+                'name' => $field,
+                'type' => $type,
+                'nullable' => $nullable,
+                'isModel' => false,
+                'hasDefault' => false,
+                'default' => null,
+                'columnName' => $field,
+                'columnType' => $type,
+                'foreignKeyColumn' => null,
+                'isNestedRelationship' => $hasSubRules,
+                'morphPairName' => null,
+                'isMorphType' => false,
+            ];
+        }
+
+        return $parameters;
+    }
+
+    /**
+     * Infer a PHP type string from a list of Laravel validation rule strings.
+     */
+    private function inferTypeFromRules(array $rules): string
+    {
+        foreach ($rules as $rule) {
+            if ($rule === 'integer' || $rule === 'int') {
+                return 'integer';
+            }
+            if ($rule === 'boolean' || $rule === 'bool') {
+                return 'boolean';
+            }
+            if ($rule === 'numeric' || $rule === 'decimal') {
+                return 'float';
+            }
+            if ($rule === 'array') {
+                return 'array';
+            }
+        }
+
+        return 'string';
+    }
+
+    /**
      * Build response field documentation from a SchemaCraftResource class.
      *
      * Reflects on the resource's typed public properties, relationship attributes,
-     * and computed methods to produce the same shape as buildResponseFields().
-     * Recursively scans related resource classes and embeds their fields under
-     * `relatedFields` on each relationship entry.
+     * and computed methods. Recursively scans related resource classes and embeds
+     * their fields under `relatedFields` on each relationship entry.
      *
      * Returns null for manual JsonResource subclasses (toArray() is opaque).
      *
@@ -1163,129 +1130,6 @@ class GenerateController
         } catch (\Throwable) {
             return null;
         }
-    }
-
-    /**
-     * Build response field documentation from a schema class.
-     *
-     * Scans the schema to extract all columns and relationships that would
-     * appear in a Resource's toArray() output, matching ResourceGenerator's logic.
-     *
-     * @return array{columns: array, relationships: array}
-     */
-    private function buildResponseFields(string $schemaClass, string $modelName): array
-    {
-        $columns = [];
-        $relationships = [];
-
-        try {
-            $scanner = new SchemaScanner($schemaClass);
-            $table = $scanner->scan();
-
-            $hiddenSet = array_flip($table->hidden);
-            $managedColumns = [];
-
-            if ($table->hasTimestamps) {
-                $managedColumns[] = 'created_at';
-                $managedColumns[] = 'updated_at';
-            }
-
-            if ($table->hasSoftDeletes) {
-                $managedColumns[] = 'deleted_at';
-            }
-
-            $managedSet = array_flip($managedColumns);
-
-            // Regular columns (excluding hidden and managed)
-            foreach ($table->columns as $col) {
-                if (isset($hiddenSet[$col->name]) || isset($managedSet[$col->name])) {
-                    continue;
-                }
-
-                $field = [
-                    'name' => $col->name,
-                    'type' => $col->columnType,
-                    'nullable' => $col->nullable,
-                ];
-
-                if ($col->primary) {
-                    $field['primary'] = true;
-                }
-                if ($col->autoIncrement) {
-                    $field['autoIncrement'] = true;
-                }
-                if ($col->unsigned) {
-                    $field['unsigned'] = true;
-                }
-                if ($col->length !== null) {
-                    $field['length'] = $col->length;
-                }
-                if ($col->unique) {
-                    $field['unique'] = true;
-                }
-                if ($col->castType !== null) {
-                    $field['cast'] = class_basename($col->castType);
-                }
-                if ($col->hasDefault) {
-                    $field['default'] = $col->default;
-                }
-
-                $columns[] = $field;
-            }
-
-            // Timestamp columns
-            if ($table->hasTimestamps) {
-                foreach (['created_at', 'updated_at'] as $tsCol) {
-                    if (! isset($hiddenSet[$tsCol])) {
-                        $columns[] = [
-                            'name' => $tsCol,
-                            'type' => 'timestamp',
-                            'nullable' => true,
-                            'managed' => true,
-                        ];
-                    }
-                }
-            }
-
-            if ($table->hasSoftDeletes && ! isset($hiddenSet['deleted_at'])) {
-                $columns[] = [
-                    'name' => 'deleted_at',
-                    'type' => 'timestamp',
-                    'nullable' => true,
-                    'managed' => true,
-                ];
-            }
-
-            // Relationships (excluding belongsTo — same as ResourceGenerator)
-            foreach ($table->relationships as $rel) {
-                if ($rel->type === 'belongsTo') {
-                    continue;
-                }
-
-                $isCollection = in_array($rel->type, ['hasMany', 'belongsToMany', 'morphMany', 'morphToMany', 'hasManyThrough'], true);
-
-                $relData = [
-                    'name' => $rel->name,
-                    'type' => $rel->type,
-                    'relatedModel' => class_basename($rel->relatedModel),
-                    'isCollection' => $isCollection,
-                    'conditional' => true, // Always wrapped in whenLoaded()
-                ];
-
-                if ($rel->pivotColumns !== null && ! empty($rel->pivotColumns)) {
-                    $relData['pivotColumns'] = array_keys($rel->pivotColumns);
-                }
-
-                $relationships[] = $relData;
-            }
-        } catch (\Throwable) {
-            // Skip if schema scan fails
-        }
-
-        return [
-            'columns' => $columns,
-            'relationships' => $relationships,
-        ];
     }
 
     /**
@@ -2188,8 +2032,12 @@ class GenerateController
             $scanner = new SchemaScanner($schemaClass);
             $table = $scanner->scan();
 
+            // Exclude endpoints whose response is undocumented (generic return type / no type hint).
+            // These cannot be reliably generated in the SDK.
+            $documentedEndpoints = array_values(array_filter($endpoints, fn ($ep) => ! ($ep['responseUndocumented'] ?? false)));
+
             $customActions = [];
-            foreach ($endpoints as $endpoint) {
+            foreach ($documentedEndpoints as $endpoint) {
                 if ($endpoint['type'] === 'custom') {
                     $methods = explode('|', $endpoint['method']);
                     $httpMethod = strtolower($methods[0]);
@@ -2201,10 +2049,22 @@ class GenerateController
                 }
             }
 
+            // Pick the response fields from the first endpoint that has a resolved resource.
+            // This is the exact same data buildResponseFieldsFromResource() produced for the
+            // API docs panel — one call, shared result, so SDK and API docs are always in sync.
+            $resourceFields = null;
+            foreach ($documentedEndpoints as $endpoint) {
+                if (isset($endpoint['responseFields'])) {
+                    $resourceFields = $endpoint['responseFields'];
+                    break;
+                }
+            }
+
             $schemas[$modelName] = new SdkSchemaContext(
                 table: $table,
                 customActions: $customActions,
-                endpoints: $endpoints,
+                endpoints: $documentedEndpoints,
+                resourceFields: $resourceFields,
             );
             $discoveredSchemaClasses[$schemaClass] = true;
         }

@@ -703,7 +703,7 @@ PHP;
 
     // ─── Stack detail field metadata ─────────────────
 
-    public function test_stack_detail_returns_field_metadata(): void
+    public function test_stack_detail_returns_core_metadata(): void
     {
         $this->createSchemaFile('GenCar', [
             ['name' => 'make', 'phpType' => 'string'],
@@ -721,31 +721,16 @@ PHP;
             'hasController',
             'hasService',
             'endpoints',
-            'fields',
-            'editableFields',
-            'relationships',
         ]);
 
-        // Should have fields including id, make, year, timestamps
-        $fields = $response->json('fields');
-        $this->assertNotEmpty($fields);
-
-        $fieldNames = collect($fields)->pluck('name')->all();
-        $this->assertContains('id', $fieldNames);
-        $this->assertContains('make', $fieldNames);
-        $this->assertContains('year', $fieldNames);
-
-        // id should not be editable
-        $idField = collect($fields)->firstWhere('name', 'id');
-        $this->assertFalse($idField['editable']);
-        $this->assertTrue($idField['primary']);
-
-        // make should be editable
-        $makeField = collect($fields)->firstWhere('name', 'make');
-        $this->assertTrue($makeField['editable']);
+        $this->assertEquals('GenCar', $response->json('modelName'));
+        $this->assertTrue($response->json('hasController'));
+        $this->assertArrayNotHasKey('fields', $response->json());
+        $this->assertArrayNotHasKey('editableFields', $response->json());
+        $this->assertArrayNotHasKey('relationships', $response->json());
     }
 
-    public function test_stack_detail_returns_editable_fields_with_rules(): void
+    public function test_stack_detail_endpoints_carry_enriched_parameters(): void
     {
         $this->createSchemaFile('GenBook', [
             ['name' => 'title', 'phpType' => 'string'],
@@ -757,25 +742,12 @@ PHP;
 
         $response->assertOk();
 
-        $editableFields = $response->json('editableFields');
-        $this->assertNotEmpty($editableFields);
-
-        // title should have string rules
-        $titleField = collect($editableFields)->firstWhere('name', 'title');
-        $this->assertNotNull($titleField);
-        $this->assertStringContainsString('required', $titleField['rules']);
-        $this->assertStringContainsString('string', $titleField['rules']);
-
-        // pages should have integer rules
-        $pagesField = collect($editableFields)->firstWhere('name', 'pages');
-        $this->assertNotNull($pagesField);
-        $this->assertStringContainsString('integer', $pagesField['rules']);
-
-        // id and timestamps should NOT be in editable fields
-        $editableNames = collect($editableFields)->pluck('name')->all();
-        $this->assertNotContains('id', $editableNames);
-        $this->assertNotContains('created_at', $editableNames);
-        $this->assertNotContains('updated_at', $editableNames);
+        // Every enriched endpoint must have a parameters key (may be empty for non-action routes)
+        $endpoints = $response->json('endpoints');
+        $this->assertNotEmpty($endpoints);
+        foreach ($endpoints as $ep) {
+            $this->assertArrayHasKey('parameters', $ep);
+        }
     }
 
     // ─── Action without service ──────────────────────

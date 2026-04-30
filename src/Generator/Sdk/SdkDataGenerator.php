@@ -100,6 +100,144 @@ class SdkDataGenerator
     }
 
     /**
+     * Generate a DTO class from the output of buildResponseFieldsFromResource().
+     *
+     * This is the canonical entry point when a resource class is known. Both the API docs
+     * and SDK generator call buildResponseFieldsFromResource() once and share the result,
+     * so the DTO always matches exactly what the API docs display.
+     *
+     * @param  array{columns: array<int, array{name: string, type: string, nullable: bool, computed?: bool}>, relationships: array<int, array{name: string, type: string, relatedModel: string, isCollection: bool, conditional: bool, relatedFields?: array}>}  $fields
+     */
+    public function generateFromFields(
+        array $fields,
+        string $dataNamespace,
+        string $dataClassName,
+    ): string {
+        $columns = $fields['columns'] ?? [];
+        $relationships = $fields['relationships'] ?? [];
+
+        $lines = [];
+        $lines[] = '<?php';
+        $lines[] = '';
+        $lines[] = "namespace {$dataNamespace};";
+        $lines[] = '';
+        $lines[] = "class {$dataClassName}";
+        $lines[] = '{';
+
+        // Property declarations
+        foreach ($columns as $col) {
+            $phpType = $this->resourcePhpType($col['type']);
+            if ($col['nullable'] ?? false) {
+                $lines[] = "    /** @var {$phpType}|null */";
+            } else {
+                $lines[] = "    /** @var {$phpType} */";
+            }
+            $lines[] = '    public $'.Str::camel($col['name']).';';
+            $lines[] = '';
+        }
+
+        foreach ($relationships as $rel) {
+            $relDataClass = $rel['relatedModel'].'Data';
+            if ($rel['isCollection']) {
+                $lines[] = "    /** @var {$relDataClass}[]|null */";
+            } else {
+                $lines[] = "    /** @var {$relDataClass}|null */";
+            }
+            $lines[] = '    public $'.$rel['name'].';';
+            $lines[] = '';
+        }
+
+        // Constructor PHPDoc + signature
+        $lines[] = '    /**';
+        foreach ($columns as $col) {
+            $phpType = $this->resourcePhpType($col['type']);
+            $nullSuffix = ($col['nullable'] ?? false) ? '|null' : '';
+            $lines[] = "     * @param {$phpType}{$nullSuffix} \$".Str::camel($col['name']);
+        }
+        foreach ($relationships as $rel) {
+            $relDataClass = $rel['relatedModel'].'Data';
+            $colType = $rel['isCollection'] ? "{$relDataClass}[]" : $relDataClass;
+            $lines[] = "     * @param {$colType}|null \${$rel['name']}";
+        }
+        $lines[] = '     */';
+        $lines[] = '    public function __construct(';
+
+        $allParams = [];
+        foreach ($columns as $col) {
+            $propName = Str::camel($col['name']);
+            $allParams[] = ($col['nullable'] ?? false) ? "\${$propName} = null" : "\${$propName}";
+        }
+        foreach ($relationships as $rel) {
+            $allParams[] = "\${$rel['name']} = null";
+        }
+
+        foreach ($allParams as $i => $param) {
+            $comma = $i < count($allParams) - 1 ? ',' : '';
+            $lines[] = "        {$param}{$comma}";
+        }
+
+        $lines[] = '    ) {';
+        foreach ($columns as $col) {
+            $propName = Str::camel($col['name']);
+            $lines[] = "        \$this->{$propName} = \${$propName};";
+        }
+        foreach ($relationships as $rel) {
+            $lines[] = "        \$this->{$rel['name']} = \${$rel['name']};";
+        }
+        $lines[] = '    }';
+
+        // fromArray factory
+        $lines[] = '';
+        $lines[] = '    /**';
+        $lines[] = '     * @param array $data';
+        $lines[] = '     * @return self';
+        $lines[] = '     */';
+        $lines[] = '    public static function fromArray(array $data)';
+        $lines[] = '    {';
+        $lines[] = '        return new self(';
+
+        $assignments = [];
+        foreach ($columns as $col) {
+            $key = $col['name'];
+            $assignments[] = "isset(\$data['{$key}']) ? \$data['{$key}'] : null";
+        }
+        foreach ($relationships as $rel) {
+            $relDataClass = $rel['relatedModel'].'Data';
+            if ($rel['isCollection']) {
+                $assignments[] = "isset(\$data['{$rel['name']}']) ? array_map(function (array \$item) { return {$relDataClass}::fromArray(\$item); }, \$data['{$rel['name']}']) : null";
+            } else {
+                $assignments[] = "isset(\$data['{$rel['name']}']) ? {$relDataClass}::fromArray(\$data['{$rel['name']}']) : null";
+            }
+        }
+
+        foreach ($assignments as $i => $assignment) {
+            $comma = $i < count($assignments) - 1 ? ',' : '';
+            $lines[] = "            {$assignment}{$comma}";
+        }
+
+        $lines[] = '        );';
+        $lines[] = '    }';
+        $lines[] = '}';
+        $lines[] = '';
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Map a type string from ResourceScanner (PHP type or column type) to a PHPDoc-safe type.
+     */
+    private function resourcePhpType(string $type): string
+    {
+        return match ($type) {
+            'int', 'integer' => 'int',
+            'bool', 'boolean' => 'bool',
+            'float', 'double', 'decimal', 'numeric' => 'float',
+            'array', 'json' => 'array',
+            default => 'string',
+        };
+    }
+
+    /**
      * Build the property declarations with PHPDoc types.
      *
      * @return string[]

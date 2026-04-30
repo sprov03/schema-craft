@@ -363,6 +363,66 @@ class GeneratorRunnerTest extends TestCase
         $this->assertCount(0, $files);
     }
 
+    // ─── afterRun hook ────────────────────────────────────────────
+
+    public function test_after_run_is_called_on_actual_run(): void
+    {
+        $called = false;
+
+        $generator = new class($called) extends SchemaCraftGenerator
+        {
+            public function __construct(private bool &$calledRef) {}
+
+            public function name(): string
+            {
+                return 'Test';
+            }
+
+            public function templates(): array
+            {
+                return [Template::file('app/test.php', 'no-schema-template')];
+            }
+
+            public function afterRun(array $data): void
+            {
+                $this->calledRef = true;
+            }
+        };
+
+        $this->runner->run(generator: $generator, inputValues: ['class_name' => 'Test'], writeInlineResults: true);
+
+        $this->assertTrue($called, 'afterRun() should be called on an actual run');
+    }
+
+    public function test_after_run_is_not_called_during_preview(): void
+    {
+        $called = false;
+
+        $generator = new class($called) extends SchemaCraftGenerator
+        {
+            public function __construct(private bool &$calledRef) {}
+
+            public function name(): string
+            {
+                return 'Test';
+            }
+
+            public function templates(): array
+            {
+                return [Template::file('app/test.php', 'no-schema-template')];
+            }
+
+            public function afterRun(array $data): void
+            {
+                $this->calledRef = true;
+            }
+        };
+
+        $this->runner->run(generator: $generator, inputValues: ['class_name' => 'Test'], writeInlineResults: false);
+
+        $this->assertFalse($called, 'afterRun() should NOT be called during preview');
+    }
+
     // ─── String wrapping ──────────────────────────────────────────
 
     public function test_string_inputs_are_wrapped_as_name_chains(): void

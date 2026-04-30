@@ -35,7 +35,6 @@ use SchemaCraft\Attributes\TinyInt;
 use SchemaCraft\Attributes\Unique;
 use SchemaCraft\Attributes\Unsigned;
 use SchemaCraft\Attributes\Year;
-use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\DataSchema;
 use SchemaCraft\Schema;
 
@@ -92,40 +91,11 @@ class ActionScanner
     /**
      * Resolve a model FQCN to its corresponding Schema class.
      *
-     * Convention: App\Models\Contact → App\Schemas\ContactSchema
-     * Also checks configured schema namespaces via ConfigResolver.
+     * @deprecated Use SchemaResolver::findByModel() instead.
      */
     public static function resolveRelatedSchemaClass(string $modelFqcn): ?string
     {
-        $parts = explode('\\', $modelFqcn);
-        $modelBaseName = array_pop($parts);
-        $namespace = implode('\\', $parts);
-
-        // Replace \Models segment with \Schemas
-        $schemaNamespace = preg_replace('/\\\\Models(\\\\|$)/', '\\Schemas$1', $namespace, 1);
-        $schemaClass = $schemaNamespace.'\\'.$modelBaseName.'Schema';
-
-        if (class_exists($schemaClass) && is_subclass_of($schemaClass, Schema::class)) {
-            return $schemaClass;
-        }
-
-        // Fall back to checking configured connection namespaces
-        if (class_exists(ConfigResolver::class)) {
-            try {
-                foreach (ConfigResolver::allConnectionNames() as $name) {
-                    $config = ConfigResolver::resolveConnection($name);
-                    $candidate = $config->schemaClass($modelBaseName);
-
-                    if (class_exists($candidate) && is_subclass_of($candidate, Schema::class)) {
-                        return $candidate;
-                    }
-                }
-            } catch (\Throwable) {
-                // ConfigResolver may not be available in unit tests
-            }
-        }
-
-        return null;
+        return SchemaResolver::findByModel($modelFqcn);
     }
 
     private function readMeta(ReflectionClass $ref): ?ActionMeta

@@ -8,11 +8,6 @@ use SchemaCraft\Generators\ResourceDirectoryValue;
 
 class SelectResourceDirectoryInputType implements InputType
 {
-    public function resolutionPass(): int
-    {
-        return 2;
-    }
-
     public function resolve(mixed $rawValue, InputDefinition $definition, array $resolved): mixed
     {
         return is_string($rawValue) && $rawValue !== ''
@@ -20,8 +15,11 @@ class SelectResourceDirectoryInputType implements InputType
             : null;
     }
 
-    public function toFrontend(InputDefinition $definition): array
+    public function toFrontend(InputDefinition $definition, array $resolved = []): array
     {
-        return ['directories' => (new FilamentPanelDiscovery)->discover()];
+        return [
+            'directories' => (new FilamentPanelDiscovery)->discover(),
+            'default' => $definition->default,
+        ];
     }
 }

@@ -7,11 +7,6 @@ use SchemaCraft\Generators\InputDefinition;
 
 class SchemaColumnInputType implements InputType
 {
-    public function resolutionPass(): int
-    {
-        return 2;
-    }
-
     public function resolve(mixed $rawValue, InputDefinition $definition, array $resolved): mixed
     {
         if (! is_string($rawValue) || $rawValue === '') {
@@ -34,8 +29,24 @@ class SchemaColumnInputType implements InputType
         return null;
     }
 
-    public function toFrontend(InputDefinition $definition): array
+    public function toFrontend(InputDefinition $definition, array $resolved = []): array
     {
-        return ['selectorKey' => $definition->selectorKey];
+        $selectorKey = $definition->selectorKey ?? 'schema';
+        $context = $resolved[$selectorKey] ?? null;
+
+        $columns = [];
+
+        if ($context instanceof GeneratorSchemaContext) {
+            $columns = array_map(fn ($col) => [
+                'name' => $col->name,
+                'type' => $col->columnType,
+                'nullable' => $col->nullable,
+            ], $context->allColumns);
+        }
+
+        return [
+            'selectorKey' => $selectorKey,
+            'columns' => $columns,
+        ];
     }
 }

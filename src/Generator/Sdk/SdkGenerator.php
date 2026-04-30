@@ -46,15 +46,24 @@ class SdkGenerator
         $primaryModelNames = [];
 
         foreach ($schemas as $modelName => $context) {
-            // Data DTO — generated for all schemas (primary and dependency-only)
+            // Data DTO — generated for all schemas (primary and dependency-only).
+            // When resourceFields is present the DTO is driven by the exact same data that
+            // buildResponseFieldsFromResource() already produced for the API docs panel,
+            // ensuring the SDK and API docs always display the same response shape.
             $dataClassName = $modelName.'Data';
             $files["data_{$modelName}"] = new GeneratedFile(
                 path: "src/Data/{$dataClassName}.php",
-                content: (new SdkDataGenerator)->generate(
-                    $context->table,
-                    $dataNamespace,
-                    $modelName,
-                ),
+                content: $context->resourceFields !== null
+                    ? (new SdkDataGenerator)->generateFromFields(
+                        $context->resourceFields,
+                        $dataNamespace,
+                        $dataClassName,
+                    )
+                    : (new SdkDataGenerator)->generate(
+                        $context->table,
+                        $dataNamespace,
+                        $modelName,
+                    ),
             );
 
             // Resource — only for primary schemas (not dependency-only)

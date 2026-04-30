@@ -98,10 +98,15 @@ class SdkResourceGenerator
      *
      * Uses the actual action name and path from the route — no renaming.
      * PUT/PATCH/DELETE routes have {id} in the path → $id is the first parameter.
-     * Body params are derived from ActionDefinition parameters, not validation rules.
-     * GET returns typed Data; everything else returns void.
+     * Body params come from the canonical $endpoint['parameters'] produced by enrichEndpoint().
      *
-     * @param  array{method: string, path: string, action: string, actionParameters: ?array}  $endpoint
+     * Return type is derived from the endpoint's responseModelName when present:
+     * - GET with {id} → DataClass (single)
+     * - GET without {id} → Collection<int, DataClass>
+     * - Any other method with declared resource → DataClass
+     * - No declared resource → void
+     *
+     * @param  array{method: string, path: string, action: string, parameters: ?array, responseModelName?: string}  $endpoint
      * @return string[]
      */
     private function buildEndpointMethod(array $endpoint, string $dataClassName): array
@@ -110,14 +115,20 @@ class SdkResourceGenerator
         $httpMethods = array_map('strtoupper', explode('|', $endpoint['method']));
         $httpMethod = strtolower($httpMethods[0]);
         $path = ltrim($endpoint['path'], '/');
-        $actionParameters = $endpoint['parameters'] ?? $endpoint['actionParameters'] ?? null;
+
+        // Use the per-endpoint DTO class when the resource has been declared; fall back to schema DTO
+        $endpointDataClass = isset($endpoint['responseModelName'])
+            ? $endpoint['responseModelName'].'Data'
+            : $dataClassName;
+
+        $hasResponse = isset($endpoint['responseModelName']);
+        $parameters = $endpoint['parameters'] ?? $endpoint['actionParameters'] ?? null;
 
         $hasId = str_contains($path, '{id}');
         $isGet = $httpMethod === 'get';
-        $bodyParams = $this->resolveBodyParamsFromAction($httpMethod, $actionParameters);
+        $bodyParams = $this->resolveBodyParamsFromAction($httpMethod, $parameters);
         $connectorPath = $this->buildConnectorPath($path);
 
-        // Build the full parameter list: $id first for PUT/PATCH/DELETE, then body params
         $allParams = [];
         if ($hasId) {
             $allParams[] = '$id';
@@ -139,10 +150,13 @@ class SdkResourceGenerator
             $nullSuffix = $param['optional'] ? '|null' : '';
             $lines[] = "     * @param {$param['type']}{$nullSuffix} \${$param['name']}";
         }
-        if ($isGet) {
+
+        if ($isGet && $hasResponse) {
             $lines[] = str_contains($path, '{')
-                ? "     * @return {$dataClassName}"
-                : "     * @return Collection<int, {$dataClassName}>";
+                ? "     * @return {$endpointDataClass}"
+                : "     * @return Collection<int, {$endpointDataClass}>";
+        } elseif ($hasResponse) {
+            $lines[] = "     * @return {$endpointDataClass}";
         } else {
             $lines[] = '     * @return void';
         }
@@ -151,16 +165,28 @@ class SdkResourceGenerator
         $lines[] = "    public function {$methodName}({$paramList})";
         $lines[] = '    {';
 
-        if ($isGet) {
+        if ($isGet && $hasResponse) {
             $lines[] = "        \$response = \$this->connector->get({$connectorPath});";
             $lines[] = '';
             if (str_contains($path, '{')) {
-                $lines[] = "        return {$dataClassName}::fromArray(\$response['data']);";
+                $lines[] = "        return {$endpointDataClass}::fromArray(\$response['data']);";
             } else {
                 $lines[] = "        return collect(\$response['data'])->map(function (array \$item) {";
-                $lines[] = "            return {$dataClassName}::fromArray(\$item);";
+                $lines[] = "            return {$endpointDataClass}::fromArray(\$item);";
                 $lines[] = '        });';
             }
+        } elseif ($hasResponse && ! empty($bodyParams)) {
+            $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, [";
+            foreach ($bodyParams as $param) {
+                $lines[] = "            '{$param['key']}' => \${$param['name']},";
+            }
+            $lines[] = '        ]);';
+            $lines[] = '';
+            $lines[] = "        return {$endpointDataClass}::fromArray(\$response['data']);";
+        } elseif ($hasResponse) {
+            $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, []);";
+            $lines[] = '';
+            $lines[] = "        return {$endpointDataClass}::fromArray(\$response['data']);";
         } elseif (! empty($bodyParams)) {
             $lines[] = "        \$this->connector->{$httpMethod}({$connectorPath}, [";
             foreach ($bodyParams as $param) {
@@ -196,8 +222,16 @@ class SdkResourceGenerator
         $params = [];
 
         foreach ($parameters as $param) {
-            // Skip nested relationships and morph pairs — not representable as flat params
-            if ($param['isNestedRelationship'] || $param['morphPairName'] !== null) {
+            if ($param['isNestedRelationship']) {
+                // Nested relationship — represent as array in the SDK method signature
+                $key = $param['columnName'] ?? Str::snake($param['name']);
+                $params[] = [
+                    'name' => Str::camel($key),
+                    'key' => $key,
+                    'type' => 'array',
+                    'optional' => $param['nullable'] || $param['hasDefault'],
+                ];
+
                 continue;
             }
 

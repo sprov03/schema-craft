@@ -6,6 +6,8 @@ use PHPUnit\Framework\TestCase;
 use SchemaCraft\Generators\GeneratorRelationship;
 use SchemaCraft\Generators\NameChain;
 use SchemaCraft\Scanner\RelationshipDefinition;
+use SchemaCraft\Tests\Fixtures\Models\TitleProperty;
+use SchemaCraft\Tests\Fixtures\Models\User;
 
 class GeneratorRelationshipTest extends TestCase
 {
@@ -259,5 +261,42 @@ class GeneratorRelationshipTest extends TestCase
         ));
 
         $this->assertTrue(isset($rel->type));
+    }
+
+    // ─── relatedTitleColumn() ─────────────────────────────────────
+
+    public function test_related_title_column_returns_title_when_schema_has_title_attribute(): void
+    {
+        $rel = new GeneratorRelationship(new RelationshipDefinition(
+            name: 'titleProperty',
+            type: 'belongsTo',
+            relatedModel: TitleProperty::class,
+        ));
+
+        // TitlePropertySchema is annotated with #[Title('company_name')]
+        $this->assertSame('company_name', $rel->relatedTitleColumn());
+    }
+
+    public function test_related_title_column_returns_null_when_schema_has_no_title_attribute(): void
+    {
+        $rel = new GeneratorRelationship(new RelationshipDefinition(
+            name: 'author',
+            type: 'belongsTo',
+            relatedModel: User::class,
+        ));
+
+        // UserSchema has no #[Title] attribute
+        $this->assertNull($rel->relatedTitleColumn());
+    }
+
+    public function test_related_title_column_returns_null_when_no_schema_found(): void
+    {
+        $rel = new GeneratorRelationship(new RelationshipDefinition(
+            name: 'external',
+            type: 'belongsTo',
+            relatedModel: 'App\\External\\NoSchemaModel',
+        ));
+
+        $this->assertNull($rel->relatedTitleColumn());
     }
 }

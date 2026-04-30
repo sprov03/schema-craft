@@ -975,7 +975,8 @@ abstract class Action
 
             return new JsonResponse($result);
         })->defaults('_schema_craft_action', $actionClass)
-            ->defaults('_schema_craft_schema', static::$schema);
+            ->defaults('_schema_craft_schema', static::$schema)
+            ->defaults('_schema_craft_resource', $resourceClass);
     }
 
     /**

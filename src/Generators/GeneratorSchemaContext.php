@@ -136,9 +136,14 @@ class GeneratorSchemaContext
         $this->schemaClass = $table->schemaClass;
         $this->modelClass = $this->resolveModelClass($table->schemaClass);
 
-        $connConfig = ConfigResolver::resolveForSchema($table->schemaClass);
-        $this->actionsNamespace = $connConfig->actionNamespace;
-        $this->actionsPath = $connConfig->actionDirectory();
+        try {
+            $connConfig = ConfigResolver::resolveForSchema($table->schemaClass);
+            $this->actionsNamespace = $connConfig->actionNamespace;
+            $this->actionsPath = $connConfig->actionDirectory();
+        } catch (\Throwable) {
+            $this->actionsNamespace = '';
+            $this->actionsPath = '';
+        }
 
         $this->connection = $table->connection;
         $this->fillable = $table->fillable;

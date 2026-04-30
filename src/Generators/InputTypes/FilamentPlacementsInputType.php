@@ -14,7 +14,7 @@ use SchemaCraft\Generators\InputDefinition;
  *
  * Usage in a generator:
  *
- *     Input::filamentPlacements('placements', 'Wire Up To')
+ *     'placements' => fn($data) => Input::filamentPlacements('Wire Up To')
  *
  * Available in templates / inlineTemplates() as $placements:
  *
@@ -25,11 +25,6 @@ use SchemaCraft\Generators\InputDefinition;
  */
 class FilamentPlacementsInputType implements InputType
 {
-    public function resolutionPass(): int
-    {
-        return 2;
-    }
-
     public function resolve(mixed $rawValue, InputDefinition $definition, array $resolved): mixed
     {
         if (! is_array($rawValue)) {
@@ -56,7 +51,7 @@ class FilamentPlacementsInputType implements InputType
         )));
     }
 
-    public function toFrontend(InputDefinition $definition): array
+    public function toFrontend(InputDefinition $definition, array $resolved = []): array
     {
         $groups = [];
 
