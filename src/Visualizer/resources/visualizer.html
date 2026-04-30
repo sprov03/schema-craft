@@ -13355,14 +13355,15 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 
         // ── Collection helpers (shared with filamentPlacements) ─────────────────
 
-        function renderCollectionSubField(field) {
+        function renderCollectionSubField(field, selectedValue) {
             if (field.type === 'groupedSelect') {
                 var html = '<select class="sc-input genr-collection-field" data-field-key="' + escapeAttr(field.key) + '">';
                 html += '<option value="">— Select —</option>';
                 (field.groups || []).forEach(function(group) {
                     html += '<optgroup label="' + escapeAttr(group.label) + '">';
                     (group.options || []).forEach(function(opt) {
-                        html += '<option value="' + escapeAttr(opt.value) + '">' + escapeHtml(opt.label) + '</option>';
+                        var selected = (selectedValue !== undefined && opt.value === selectedValue) ? ' selected' : '';
+                        html += '<option value="' + escapeAttr(opt.value) + '"' + selected + '>' + escapeHtml(opt.label) + '</option>';
                     });
                     html += '</optgroup>';
                 });
@@ -13375,8 +13376,11 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
             return '';
         }
 
-        function renderCollectionItem(fields) {
-            var fieldsHtml = fields.map(renderCollectionSubField).join('');
+        function renderCollectionItem(fields, values) {
+            values = values || {};
+            var fieldsHtml = fields.map(function(f) {
+                return renderCollectionSubField(f, values[f.key]);
+            }).join('');
             return '<div class="genr-collection-item">' +
                 fieldsHtml +
                 '<button type="button" class="genr-collection-remove" title="Remove">&times;</button>' +
@@ -13387,9 +13391,51 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
             var fields = input.fields || [];
             var addLabel = input.addLabel || 'Add Item';
             var key = input.key || 'collection';
+
+            // Check if any field is a groupedSelect with options — if so, offer Select All
+            var allOptions = [];
+            var selectAllFieldKey = null;
+            fields.forEach(function(f) {
+                if (f.type === 'groupedSelect' && f.groups && f.groups.length > 0) {
+                    selectAllFieldKey = f.key;
+                    f.groups.forEach(function(g) {
+                        (g.options || []).forEach(function(opt) {
+                            allOptions.push({ key: f.key, value: opt.value });
+                        });
+                    });
+                }
+            });
+
             var html = '<div class="genr-collection" data-collection-key="' + escapeAttr(key) + '" data-fields="' + escapeAttr(JSON.stringify(fields)) + '"></div>';
-            html += '<button type="button" class="sc-btn sm genr-collection-add" data-collection-key="' + escapeAttr(key) + '" style="margin-top:8px;">+ ' + escapeHtml(addLabel) + '</button>';
+            html += '<div style="display:flex;gap:6px;margin-top:8px;">';
+            html += '<button type="button" class="sc-btn sm genr-collection-add" data-collection-key="' + escapeAttr(key) + '">+ ' + escapeHtml(addLabel) + '</button>';
+            if (allOptions.length > 0) {
+                html += '<button type="button" class="sc-btn sm genr-collection-select-all" data-collection-key="' + escapeAttr(key) + '" data-all-options="' + escapeAttr(JSON.stringify(allOptions)) + '" style="border-color:var(--accent);color:var(--accent);">Select All (' + allOptions.length + ')</button>';
+            }
+            html += '</div>';
             return html;
+        }
+
+        // Disable already-selected values across all rows in a collection so duplicates can't be chosen.
+        function syncCollectionSelectOptions(collectionEl) {
+            var selects = collectionEl.querySelectorAll('select.genr-collection-field');
+            var selectedByKey = {};
+
+            // Collect selected values grouped by field key
+            selects.forEach(function(sel) {
+                var k = sel.dataset.fieldKey;
+                if (!selectedByKey[k]) { selectedByKey[k] = []; }
+                if (sel.value) { selectedByKey[k].push(sel.value); }
+            });
+
+            // For each select, disable options that are taken by OTHER rows
+            selects.forEach(function(sel) {
+                var k = sel.dataset.fieldKey;
+                var takenByOthers = (selectedByKey[k] || []).filter(function(v) { return v !== sel.value; });
+                sel.querySelectorAll('option').forEach(function(opt) {
+                    opt.disabled = opt.value && takenByOthers.indexOf(opt.value) !== -1;
+                });
+            });
         }
 
         function bindCollectionEvents(container) {
@@ -13400,12 +13446,39 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     if (!collectionEl) { return; }
                     var fields = JSON.parse(collectionEl.dataset.fields || '[]');
                     collectionEl.insertAdjacentHTML('beforeend', renderCollectionItem(fields));
+                    syncCollectionSelectOptions(collectionEl);
                 });
+            });
+
+            container.querySelectorAll('.genr-collection-select-all').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var key = btn.dataset.collectionKey;
+                    var collectionEl = container.querySelector('.genr-collection[data-collection-key="' + key + '"]');
+                    if (!collectionEl) { return; }
+                    var fields = JSON.parse(collectionEl.dataset.fields || '[]');
+                    var allOptions = JSON.parse(btn.dataset.allOptions || '[]');
+                    collectionEl.innerHTML = '';
+                    allOptions.forEach(function(opt) {
+                        var values = {};
+                        values[opt.key] = opt.value;
+                        collectionEl.insertAdjacentHTML('beforeend', renderCollectionItem(fields, values));
+                    });
+                    syncCollectionSelectOptions(collectionEl);
+                });
+            });
+
+            container.addEventListener('change', function(e) {
+                if (e.target.classList.contains('genr-collection-field') && e.target.tagName === 'SELECT') {
+                    var collectionEl = e.target.closest('.genr-collection');
+                    if (collectionEl) { syncCollectionSelectOptions(collectionEl); }
+                }
             });
 
             container.addEventListener('click', function(e) {
                 if (e.target.classList.contains('genr-collection-remove')) {
+                    var collectionEl = e.target.closest('.genr-collection');
                     e.target.closest('.genr-collection-item').remove();
+                    if (collectionEl) { syncCollectionSelectOptions(collectionEl); }
                 }
             });
         }
