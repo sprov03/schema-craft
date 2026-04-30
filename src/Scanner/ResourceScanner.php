@@ -89,7 +89,9 @@ class ResourceScanner
             }
 
             $propName = $property->getName();
-            $type = $property->getType()?->getName() ?? 'mixed';
+            $reflectionType = $property->getType();
+            $type = $reflectionType instanceof \ReflectionNamedType ? $reflectionType->getName() : 'mixed';
+            $nullable = $reflectionType instanceof \ReflectionNamedType ? $reflectionType->allowsNull() : true;
 
             if ($attrs = $property->getAttributes(HasMany::class)) {
                 $relationships[] = [
@@ -113,6 +115,7 @@ class ResourceScanner
                 $properties[] = [
                     'name' => $propName,
                     'type' => $type,
+                    'nullable' => $nullable,
                 ];
             }
         }

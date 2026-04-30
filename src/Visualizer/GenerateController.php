@@ -988,8 +988,80 @@ class GenerateController
 
         $endpoint['parameters'] = $parameters;
         $endpoint['relationships'] = $relationships;
+        $endpoint['sourceFiles'] = $this->resolveSourceFiles($endpoint);
+
+        unset($endpoint['controllerClass']);
 
         return $endpoint;
+    }
+
+    /**
+     * Resolve the relevant source files for an endpoint.
+     *
+     * Action routes: Action class + declared Resource class.
+     * Controller routes: Controller class + FormRequest + declared Resource class.
+     *
+     * @return array<int, array{label: string, path: string, content: string}>
+     */
+    private function resolveSourceFiles(array $endpoint): array
+    {
+        $files = [];
+
+        if ($endpoint['source'] === 'action') {
+            if (! empty($endpoint['actionClass'])) {
+                $file = $this->readClassFile($endpoint['actionClass']);
+                if ($file !== null) {
+                    $files[] = $file;
+                }
+            }
+        } elseif ($endpoint['source'] === 'controller') {
+            if (! empty($endpoint['controllerClass'])) {
+                $file = $this->readClassFile($endpoint['controllerClass']);
+                if ($file !== null) {
+                    $files[] = $file;
+                }
+            }
+
+            if (! empty($endpoint['formRequest'])) {
+                $file = $this->readClassFile($endpoint['formRequest']);
+                if ($file !== null) {
+                    $files[] = $file;
+                }
+            }
+        }
+
+        if (! empty($endpoint['resolvedResourceClass'])) {
+            $file = $this->readClassFile($endpoint['resolvedResourceClass']);
+            if ($file !== null) {
+                $files[] = $file;
+            }
+        }
+
+        return $files;
+    }
+
+    /**
+     * Read a class file via reflection and return a labelled source entry.
+     *
+     * @return array{label: string, path: string, content: string}|null
+     */
+    private function readClassFile(string $class): ?array
+    {
+        try {
+            $filePath = (new \ReflectionClass($class))->getFileName();
+
+            if (! $filePath || ! file_exists($filePath)) {
+                return null;
+            }
+
+            return [
+                'label' => class_basename($class),
+                'path' => str_replace(base_path().'/', '', $filePath),
+                'content' => file_get_contents($filePath),
+            ];
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -1092,8 +1164,8 @@ class GenerateController
 
             $columns = array_map(fn ($p) => [
                 'name' => $p['name'],
-                'type' => ltrim($p['type'], '?'),
-                'nullable' => str_starts_with($p['type'], '?'),
+                'type' => $p['type'],
+                'nullable' => $p['nullable'] ?? false,
             ], $definition->properties);
 
             foreach ($definition->computed as $c) {

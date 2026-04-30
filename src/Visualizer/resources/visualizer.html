@@ -8489,6 +8489,23 @@
                 '<div class="ep-section-title">Details <span class="ep-section-badge meta">meta</span></div>' +
                 '<table class="ep-field-table"><tbody>' + metaRows + '</tbody></table></div>';
 
+            // Build code (source files) tab
+            var codeHtml = '';
+            if (ep.sourceFiles && ep.sourceFiles.length > 0) {
+                ep.sourceFiles.forEach(function(file) {
+                    codeHtml +=
+                        '<div class="ep-section">' +
+                            '<div class="ep-section-title" style="display:flex;align-items:center;gap:8px;">' +
+                                '<span>' + escapeHtml(file.label) + '</span>' +
+                                '<span class="ep-section-badge meta" style="font-family:var(--font-mono);font-size:10px;font-weight:400;">' + escapeHtml(file.path) + '</span>' +
+                            '</div>' +
+                            '<pre style="margin:0;padding:12px;background:var(--bg-tertiary);border-radius:4px;overflow-x:auto;font-size:11px;font-family:var(--font-mono);white-space:pre;color:var(--text-primary);max-height:400px;overflow-y:auto;">' + escapeHtml(file.content) + '</pre>' +
+                        '</div>';
+                });
+            } else {
+                codeHtml = '<div class="ep-section"><div class="ep-no-body">No source files resolved for this endpoint.</div></div>';
+            }
+
             // Tab state
             var activeTab = 'request';
 
@@ -8496,6 +8513,7 @@
                 if (tab === 'request') return requestHtml;
                 if (tab === 'response') return responseHtml + relsHtml;
                 if (tab === 'details') return metaHtml;
+                if (tab === 'code') return codeHtml;
                 return '';
             }
 
@@ -8507,6 +8525,7 @@
                     '<div class="ep-header">' +
                         '<span class="ep-header-method ' + primaryMethod.toLowerCase() + '">' + escapeHtml(methodLabel) + '</span>' +
                         '<span class="ep-header-path">' + escapeHtml(ep.path) + '</span>' +
+                        '<button id="ep-copy" title="Copy full endpoint data as JSON" style="margin-left:auto;padding:3px 10px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">Copy</button>' +
                         '<button class="ep-header-close" id="ep-close">&times;</button>' +
                     '</div>' +
                     (ep.description ? '<div style="padding:8px 20px 0;font-size:12px;color:var(--text-secondary);font-style:italic;">' + escapeHtml(ep.description) + '</div>' : '') +
@@ -8514,6 +8533,7 @@
                         '<button class="ep-tab active" data-ep-tab="request">Request</button>' +
                         '<button class="ep-tab" data-ep-tab="response">Response</button>' +
                         '<button class="ep-tab" data-ep-tab="details">Details</button>' +
+                        '<button class="ep-tab" data-ep-tab="code">Code</button>' +
                     '</div>' +
                     '<div class="ep-body" id="ep-tab-content">' + renderTabContent('request') + '</div>' +
                 '</div>';
@@ -8527,6 +8547,25 @@
                     tab.classList.add('active');
                     activeTab = tab.dataset.epTab;
                     overlay.querySelector('#ep-tab-content').innerHTML = renderTabContent(activeTab);
+                });
+            });
+
+            // Copy button — copies the full endpoint JSON (data + source file contents)
+            overlay.querySelector('#ep-copy').addEventListener('click', function() {
+                var btn = this;
+                var payload = JSON.stringify(ep, null, 2);
+                navigator.clipboard.writeText(payload).then(function() {
+                    btn.textContent = 'Copied!';
+                    btn.style.borderColor = 'var(--success)';
+                    btn.style.color = 'var(--success)';
+                    setTimeout(function() {
+                        btn.textContent = 'Copy';
+                        btn.style.borderColor = '';
+                        btn.style.color = '';
+                    }, 2000);
+                }).catch(function() {
+                    btn.textContent = 'Failed';
+                    setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
                 });
             });
 

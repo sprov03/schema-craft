@@ -249,6 +249,7 @@ class RuntimeRouteScanner
             'source' => $source,
             'schema' => $schema,
             'actionClass' => $actionClass,
+            'controllerClass' => $controllerClass,
             'rules' => $rules,
             'formRequest' => $formRequest,
             'actionParameters' => $actionParameters,
