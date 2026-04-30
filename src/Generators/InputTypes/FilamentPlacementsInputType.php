@@ -119,10 +119,19 @@ class FilamentPlacementsInputType implements InputType
 
         $resources = [];
 
-        foreach (glob($fullPath.'/*Resource.php') as $file) {
+        // Resources may be directly in the panel path OR nested one level deep
+        // in a subdirectory (e.g. Resources/Records/RecordResource.php).
+        $files = array_merge(
+            glob($fullPath.'/*Resource.php') ?: [],
+            glob($fullPath.'/*/*Resource.php') ?: [],
+        );
+
+        foreach ($files as $file) {
             $resourceName = basename($file, '.php');
-            $relPagesPath = $panelPath.'/'.$resourceName.'/Pages';
-            $absPagesPath = base_path($relPagesPath);
+            // Pages always live beside the resource file in a Pages/ sibling directory
+            $absResourceDir = dirname($file);
+            $absPagesPath = $absResourceDir.'/Pages';
+            $relPagesPath = ltrim(str_replace(base_path(), '', $absPagesPath), '/\\');
 
             $resources[] = [
                 'name' => $resourceName,
