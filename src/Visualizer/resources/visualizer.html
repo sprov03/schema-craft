@@ -7967,11 +7967,11 @@
                             '<span class="gen-sidebar-api-name">' + escapeHtml(genSelectedApi) + '</span>' +
                         '</div>' +
                         '<div class="gen-sidebar-section-title">Manage</div>' +
-                        '<div class="gen-sdk-item' + (genSelectedView === 'docs' ? ' active' : '') + '" id="gen-nav-docs">' +
+                        '<div class="gen-sdk-item' + (genSelectedView === 'docs' || !genSelectedView ? ' active' : '') + '" id="gen-nav-docs">' +
                             '<span>\uD83D\uDCD6</span>' +
                             '<span>API Docs</span>' +
                         '</div>' +
-                        '<div class="gen-sdk-item' + (genSelectedView === 'resources' || !genSelectedView ? ' active' : '') + '" id="gen-nav-resources">' +
+                        '<div class="gen-sdk-item' + (genSelectedView === 'resources' ? ' active' : '') + '" id="gen-nav-resources">' +
                             '<span>\uD83D\uDDC2\uFE0F</span>' +
                             '<span>Resources</span>' +
                         '</div>' +
@@ -8000,7 +8000,7 @@
             document.getElementById('gen-sdk-nav').addEventListener('click', function() { switchGenView('sdk'); });
 
             // Load initial view
-            var initialView = genSelectedView || 'resources';
+            var initialView = genSelectedView || 'docs';
             switchGenView(initialView);
         }
 
