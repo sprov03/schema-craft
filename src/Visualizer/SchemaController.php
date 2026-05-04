@@ -439,7 +439,6 @@ class SchemaController
         $pivotTables = [];
         $regularTables = [];
         $pivotMap = [];
-        $pivotExtraColumns = [];
 
         foreach ($allTables as $tableName => $tableState) {
             $pivot = $generator->detectPivotTable($tableState);
@@ -450,10 +449,6 @@ class SchemaController
                     'tableB' => $pivot['tableB'],
                     'extraColumns' => $pivot['extraColumns'],
                 ];
-
-                if (! empty($pivot['extraColumns'])) {
-                    $pivotExtraColumns[$tableName] = $pivot['extraColumns'];
-                }
 
                 if (isset($allTables[$pivot['tableA']])) {
                     $pivotMap[$pivot['tableA']][$pivot['tableB']] = $tableName;
@@ -504,7 +499,6 @@ class SchemaController
                 connection: $emitConnection,
                 pivotModelNames: $pivotModelNames,
                 isPivotModel: $isThisAPivot,
-                pivotExtraColumns: $pivotExtraColumns,
                 explicitForeignKeys: config('schema-craft.explicit_foreign_keys', false),
             );
 
@@ -1333,7 +1327,6 @@ class SchemaController
             'onUpdate' => $rel->onUpdate,
             'noConstraint' => $rel->noConstraint,
             'pivotTable' => $rel->pivotTable,
-            'pivotColumns' => $rel->pivotColumns,
             'morphName' => $rel->morphName,
             'pivotModel' => $rel->pivotModel,
             'index' => $index,

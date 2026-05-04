@@ -6,6 +6,13 @@ use SchemaCraft\Tests\TestCase;
 
 class VisualizerRouteProductionTest extends TestCase
 {
+    protected function getEnvironmentSetUp($app): void
+    {
+        parent::getEnvironmentSetUp($app);
+
+        $app['env'] = 'production';
+    }
+
     public function test_visualizer_page_not_accessible_outside_local(): void
     {
         $response = $this->get('/_schema-craft');

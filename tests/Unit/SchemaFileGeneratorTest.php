@@ -1098,7 +1098,7 @@ class SchemaFileGeneratorTest extends TestCase
         $this->assertStringContainsString("\$connection = 'secondary'", $result->modelContent);
     }
 
-    public function test_emits_using_pivot_on_belongs_to_many(): void
+    public function test_emits_using_on_belongs_to_many(): void
     {
         $dogsTable = $this->makeTable('dogs', [
             $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
@@ -1111,12 +1111,12 @@ class SchemaFileGeneratorTest extends TestCase
             pivotModelNames: ['dog_owner' => 'DogOwner'],
         );
 
-        $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
-        $this->assertStringContainsString('#[UsingPivot(DogOwner::class)]', $result->schemaContent);
-        $this->assertStringContainsString('use SchemaCraft\\Attributes\\UsingPivot;', $result->schemaContent);
+        $this->assertStringContainsString('#[BelongsToMany(Owner::class, using: DogOwner::class)]', $result->schemaContent);
+        $this->assertStringContainsString('#[HasMany(DogOwner::class)]', $result->schemaContent);
+        $this->assertStringNotContainsString('UsingPivot', $result->schemaContent);
     }
 
-    public function test_does_not_emit_using_pivot_when_no_pivot_model(): void
+    public function test_does_not_emit_using_when_no_pivot_model(): void
     {
         $dogsTable = $this->makeTable('dogs', [
             $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
@@ -1129,6 +1129,7 @@ class SchemaFileGeneratorTest extends TestCase
         );
 
         $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
+        $this->assertStringNotContainsString('using:', $result->schemaContent);
         $this->assertStringNotContainsString('UsingPivot', $result->schemaContent);
     }
 
@@ -1143,90 +1144,6 @@ class SchemaFileGeneratorTest extends TestCase
 
         $this->assertFalse($result->isPivotModel);
         $this->assertStringContainsString('extends BaseModel', $result->modelContent);
-    }
-
-    public function test_emits_pivot_columns_on_belongs_to_many(): void
-    {
-        $dogsTable = $this->makeTable('dogs', [
-            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
-            $this->col('name', 'string'),
-        ]);
-
-        $result = $this->generator->generate(
-            table: $dogsTable,
-            pivotRelationships: ['owners' => 'dog_owner'],
-            pivotExtraColumns: ['dog_owner' => ['sort_order' => 'integer', 'notes' => 'string']],
-        );
-
-        $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
-        $this->assertStringContainsString("#[PivotColumns(['sort_order' => 'integer', 'notes' => 'string'])]", $result->schemaContent);
-        $this->assertStringContainsString('use SchemaCraft\\Attributes\\PivotColumns;', $result->schemaContent);
-    }
-
-    public function test_does_not_emit_pivot_columns_when_no_extra_columns(): void
-    {
-        $dogsTable = $this->makeTable('dogs', [
-            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
-            $this->col('name', 'string'),
-        ]);
-
-        $result = $this->generator->generate(
-            table: $dogsTable,
-            pivotRelationships: ['owners' => 'dog_owner'],
-        );
-
-        $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
-        $this->assertStringNotContainsString('PivotColumns', $result->schemaContent);
-    }
-
-    public function test_emits_both_using_pivot_and_pivot_columns(): void
-    {
-        $dogsTable = $this->makeTable('dogs', [
-            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
-            $this->col('name', 'string'),
-        ]);
-
-        $result = $this->generator->generate(
-            table: $dogsTable,
-            pivotRelationships: ['owners' => 'dog_owner'],
-            pivotModelNames: ['dog_owner' => 'DogOwner'],
-            pivotExtraColumns: ['dog_owner' => ['role' => 'string']],
-        );
-
-        $this->assertStringContainsString('#[BelongsToMany(Owner::class)]', $result->schemaContent);
-        $this->assertStringContainsString('#[UsingPivot(DogOwner::class)]', $result->schemaContent);
-        $this->assertStringContainsString("#[PivotColumns(['role' => 'string'])]", $result->schemaContent);
-    }
-
-    public function test_column_type_to_pivot_type_mapping(): void
-    {
-        // Test via detectPivotTable which uses columnTypeToPivotType internally
-        $table = $this->makeTable('item_tag', [
-            $this->col('id', 'unsignedBigInteger', primary: true, autoIncrement: true),
-            $this->col('item_id', 'unsignedBigInteger'),
-            $this->col('tag_id', 'unsignedBigInteger'),
-            $this->col('sort_order', 'integer'),
-            $this->col('weight', 'decimal'),
-            $this->col('is_primary', 'boolean'),
-            $this->col('label', 'text'),
-            $this->col('assigned_at', 'timestamp'),
-            $this->col('metadata', 'json'),
-        ], foreignKeys: [
-            new DatabaseForeignKeyState('item_id', 'items', 'id'),
-            new DatabaseForeignKeyState('tag_id', 'tags', 'id'),
-        ]);
-
-        $pivot = $this->generator->detectPivotTable($table);
-
-        $this->assertNotNull($pivot);
-        $this->assertSame([
-            'sort_order' => 'integer',
-            'weight' => 'float',
-            'is_primary' => 'boolean',
-            'label' => 'string',
-            'assigned_at' => 'datetime',
-            'metadata' => 'array',
-        ], $pivot['extraColumns']);
     }
 
     private function makeTable(

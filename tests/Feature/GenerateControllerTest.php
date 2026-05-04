@@ -385,51 +385,6 @@ PHP;
         $response->assertJson(['success' => false]);
     }
 
-    // ─── POST /api/create-api ──────────────────────────
-
-    public function test_create_api_creates_route_file(): void
-    {
-        // Create a minimal config file
-        $this->files->put($this->tempDir.'/config/schema-craft.php', $this->files->get(
-            dirname(__DIR__, 2).'/config/schema-craft.php',
-        ));
-
-        // Create a bootstrap/app.php with withRouting
-        $this->files->put($this->tempDir.'/bootstrap/app.php', <<<'PHP'
-<?php
-
-use Illuminate\Foundation\Application;
-
-return Application::configure(basePath: dirname(__DIR__))
-    ->withRouting(
-        web: __DIR__.'/../routes/web.php',
-        health: '/up',
-    )
-    ->create();
-PHP);
-
-        $response = $this->postJson('/_schema-craft/api/create-api', [
-            'name' => 'partner',
-            'prefix' => 'partner-api',
-        ]);
-
-        $response->assertOk();
-        $response->assertJson(['success' => true]);
-
-        // Route file should exist
-        $this->assertFileExists($this->tempDir.'/routes/partner-api.php');
-    }
-
-    public function test_create_api_rejects_duplicate_name(): void
-    {
-        $response = $this->postJson('/_schema-craft/api/create-api', [
-            'name' => 'default',
-        ]);
-
-        $response->assertUnprocessable();
-        $response->assertJson(['success' => false]);
-    }
-
     // ─── POST /api/generate-resources ────────────────────
 
     public function test_generate_resources_creates_resource_files(): void
@@ -452,31 +407,6 @@ PHP);
         $response->assertOk();
         $response->assertJson(['success' => true]);
         $this->assertFileExists($this->tempDir.'/app/Resources/ResWidgetResource.php');
-    }
-
-    public function test_generate_resources_skips_existing(): void
-    {
-        $this->createSchemaFile('ResGadget', [
-            ['name' => 'name', 'phpType' => 'string'],
-        ]);
-
-        $this->app['config']->set('schema-craft.apis.default.resource_namespace', 'App\\Resources');
-        $this->app['config']->set('schema-craft.apis.default.route_file', 'routes/api.php');
-
-        // Pre-create the resource
-        $this->files->put($this->tempDir.'/app/Resources/ResGadgetResource.php', '<?php // existing');
-
-        $response = $this->postJson('/_schema-craft/api/generate-resources', [
-            'api' => 'default',
-            'schemas' => [
-                ['class' => 'App\\Schemas\\ResGadgetSchema'],
-            ],
-        ]);
-
-        $response->assertOk();
-        $response->assertJson(['success' => true, 'skipped' => ['ResGadget']]);
-        // Content should be unchanged
-        $this->assertStringContainsString('// existing', $this->files->get($this->tempDir.'/app/Resources/ResGadgetResource.php'));
     }
 
     public function test_generate_resources_requires_api_and_schemas(): void
@@ -510,13 +440,6 @@ PHP);
         $response = $this->postJson('/_schema-craft/api/generate/action/preview', [
             'schema' => 'App\\Schemas\\SomeSchema',
         ]);
-
-        $response->assertUnprocessable();
-    }
-
-    public function test_create_api_requires_name(): void
-    {
-        $response = $this->postJson('/_schema-craft/api/create-api', []);
 
         $response->assertUnprocessable();
     }

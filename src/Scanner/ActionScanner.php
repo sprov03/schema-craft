@@ -19,7 +19,6 @@ use SchemaCraft\Attributes\FloatColumn;
 use SchemaCraft\Attributes\Length;
 use SchemaCraft\Attributes\LongText;
 use SchemaCraft\Attributes\MediumText;
-use SchemaCraft\Attributes\Pivot;
 use SchemaCraft\Attributes\Relations\BelongsTo;
 use SchemaCraft\Attributes\Relations\BelongsToMany;
 use SchemaCraft\Attributes\Relations\HasMany;
@@ -360,14 +359,6 @@ class ActionScanner
             $propNullable = $type->allowsNull();
             $propName = $prop->getName();
             $columnName = Str::snake($propName);
-
-            // Check if this is a pivot field
-            $isPivot = ! empty($prop->getAttributes(Pivot::class));
-            if ($isPivot) {
-                $pivotFields[] = $columnName;
-
-                continue;
-            }
 
             // Check for nested sub-relationships (DataSchema within DataSchema)
             $subNestedParam = $this->tryBuildSubNestedFromDataSchema($prop, $propNullable, $pathPrefix);

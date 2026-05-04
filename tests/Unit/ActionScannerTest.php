@@ -244,7 +244,7 @@ class ActionScannerTest extends TestCase
         $this->assertSame(Comment::class, $commentsParam->nestedRelationship->relatedModel);
     }
 
-    public function test_scan_action_schema_detects_pivot_fields(): void
+    public function test_scan_action_schema_detects_fields(): void
     {
         $scanner = new ActionScanner(UpdatePostWithDataSchemaAction::class);
         $definition = $scanner->scan();
@@ -252,13 +252,13 @@ class ActionScannerTest extends TestCase
         $tagsParam = $this->findParam($definition->parameters, 'tags');
         $nested = $tagsParam->nestedRelationship;
 
-        // id and name are regular fields, sortOrder is pivot
-        $this->assertCount(2, $nested->fields);
+        // id, name, and sortOrder are all regular fields now (#[Pivot] is removed)
+        $this->assertCount(3, $nested->fields);
         $this->assertSame('id', $nested->fields[0]->name);
         $this->assertSame('name', $nested->fields[1]->name);
+        $this->assertSame('sort_order', $nested->fields[2]->name);
 
-        $this->assertCount(1, $nested->pivotFields);
-        $this->assertSame('sort_order', $nested->pivotFields[0]);
+        $this->assertCount(0, $nested->pivotFields);
     }
 
     public function test_scan_action_schema_belongs_to_many(): void

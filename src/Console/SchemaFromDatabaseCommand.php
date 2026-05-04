@@ -119,8 +119,6 @@ class SchemaFromDatabaseCommand extends Command
         $regularTables = [];
         /** @var array<string, array<string, string>> $pivotMap */
         $pivotMap = []; // [regularTable => [relatedTable => pivotTableName]]
-        /** @var array<string, array<string, string>> $pivotExtraColumns */
-        $pivotExtraColumns = []; // [pivotTableName => ['col' => 'type']]
 
         foreach ($allTables as $tableName => $tableState) {
             $pivot = $generator->detectPivotTable($tableState);
@@ -134,10 +132,6 @@ class SchemaFromDatabaseCommand extends Command
                     "<fg=gray>{$pivot['tableA']} ↔ {$pivot['tableB']}</>"
                 );
 
-                if (! empty($pivot['extraColumns'])) {
-                    $pivotExtraColumns[$tableName] = $pivot['extraColumns'];
-                }
-
                 // Build pivot map for both sides
                 if (isset($allTables[$pivot['tableA']])) {
                     $pivotMap[$pivot['tableA']][$pivot['tableB']] = $tableName;
@@ -150,7 +144,13 @@ class SchemaFromDatabaseCommand extends Command
             }
         }
 
-        // 5. Generate schema + model files for regular tables
+        // 5. Build pivot model name map: pivot_table_name => PivotModelClassName
+        $pivotModelNames = [];
+        foreach ($pivotTables as $tableName => $pivot) {
+            $pivotModelNames[$tableName] = $modelPrefix.$generator->resolveModelName($tableName);
+        }
+
+        // 6. Generate schema + model files for regular tables
         $schemasCreated = 0;
         $modelsCreated = 0;
         $skipped = 0;
@@ -167,7 +167,7 @@ class SchemaFromDatabaseCommand extends Command
                 schemaPrefix: $schemaPrefix,
                 modelPrefix: $modelPrefix,
                 connection: $emitConnection,
-                pivotExtraColumns: $pivotExtraColumns,
+                pivotModelNames: $pivotModelNames,
                 explicitForeignKeys: config('schema-craft.explicit_foreign_keys', false),
             );
 
@@ -210,7 +210,7 @@ class SchemaFromDatabaseCommand extends Command
             }
         }
 
-        // 6. Summary
+        // 7. Summary
         $this->newLine();
         $total = $schemasCreated + $modelsCreated;
         $this->components->info("Generated {$schemasCreated} schemas and {$modelsCreated} models from database.");

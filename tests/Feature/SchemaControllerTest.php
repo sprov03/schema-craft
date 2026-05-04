@@ -664,14 +664,14 @@ class SchemaControllerTest extends TestCase
         $pivotModel = $this->files->get($this->tempDir.'/app/Models/AlbumGenre.php');
         $this->assertStringContainsString('extends Pivot', $pivotModel);
 
-        // Related table schemas should have UsingPivot attribute
+        // Related table schemas should have using: parameter on BelongsToMany and a HasMany to pivot
         $albumSchema = $this->files->get($this->tempDir.'/app/Schemas/AlbumSchema.php');
-        $this->assertStringContainsString('#[BelongsToMany(Genre::class)]', $albumSchema);
-        $this->assertStringContainsString('#[UsingPivot(AlbumGenre::class)]', $albumSchema);
+        $this->assertStringContainsString('#[BelongsToMany(Genre::class, using: AlbumGenre::class)]', $albumSchema);
+        $this->assertStringContainsString('#[HasMany(AlbumGenre::class)]', $albumSchema);
 
         $genreSchema = $this->files->get($this->tempDir.'/app/Schemas/GenreSchema.php');
-        $this->assertStringContainsString('#[BelongsToMany(Album::class)]', $genreSchema);
-        $this->assertStringContainsString('#[UsingPivot(AlbumGenre::class)]', $genreSchema);
+        $this->assertStringContainsString('#[BelongsToMany(Album::class, using: AlbumGenre::class)]', $genreSchema);
+        $this->assertStringContainsString('#[HasMany(AlbumGenre::class)]', $genreSchema);
     }
 
     public function test_import_preview_with_import_pivots_shows_pivot_files(): void
@@ -745,17 +745,14 @@ class SchemaControllerTest extends TestCase
         $this->assertStringContainsString('$grade', $pivotSchema);
         $this->assertStringContainsString('$semester', $pivotSchema);
 
-        // Related schemas should have PivotColumns attribute
+        // Related schemas should have using: on BelongsToMany and HasMany to pivot
         $studentSchema = $this->files->get($this->tempDir.'/app/Schemas/StudentSchema.php');
-        $this->assertStringContainsString('#[BelongsToMany(Course::class)]', $studentSchema);
-        $this->assertStringContainsString('#[UsingPivot(CourseStudent::class)]', $studentSchema);
-        $this->assertStringContainsString('#[PivotColumns(', $studentSchema);
-        $this->assertStringContainsString("'grade' => 'integer'", $studentSchema);
-        $this->assertStringContainsString("'semester' => 'string'", $studentSchema);
+        $this->assertStringContainsString('#[BelongsToMany(Course::class, using: CourseStudent::class)]', $studentSchema);
+        $this->assertStringContainsString('#[HasMany(CourseStudent::class)]', $studentSchema);
 
         $courseSchema = $this->files->get($this->tempDir.'/app/Schemas/CourseSchema.php');
-        $this->assertStringContainsString('#[BelongsToMany(Student::class)]', $courseSchema);
-        $this->assertStringContainsString('#[PivotColumns(', $courseSchema);
+        $this->assertStringContainsString('#[BelongsToMany(Student::class, using: CourseStudent::class)]', $courseSchema);
+        $this->assertStringContainsString('#[HasMany(CourseStudent::class)]', $courseSchema);
     }
 
     public function test_import_pivot_with_extra_columns_generates_pivot_and_related_schemas(): void
@@ -794,12 +791,10 @@ class SchemaControllerTest extends TestCase
         $pivotModel = $this->files->get($this->tempDir.'/app/Models/DeveloperProject.php');
         $this->assertStringContainsString('extends Pivot', $pivotModel);
 
-        // Related schemas should have PivotColumns + UsingPivot
+        // Related schemas should have using: on BelongsToMany and HasMany to pivot
         $projectSchema = $this->files->get($this->tempDir.'/app/Schemas/ProjectSchema.php');
-        $this->assertStringContainsString('#[BelongsToMany(Developer::class)]', $projectSchema);
-        $this->assertStringContainsString('#[UsingPivot(DeveloperProject::class)]', $projectSchema);
-        $this->assertStringContainsString('#[PivotColumns(', $projectSchema);
-        $this->assertStringContainsString("'role' => 'string'", $projectSchema);
+        $this->assertStringContainsString('#[BelongsToMany(Developer::class, using: DeveloperProject::class)]', $projectSchema);
+        $this->assertStringContainsString('#[HasMany(DeveloperProject::class)]', $projectSchema);
     }
 
     // ─── Import Preview with Extras ─────────────────────────

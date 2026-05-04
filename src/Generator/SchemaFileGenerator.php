@@ -32,9 +32,8 @@ class SchemaFileGenerator
      * @param  DatabaseTableState  $table  The table to generate for
      * @param  array<string, DatabaseTableState>  $allTables  All tables keyed by name (for HasMany inference)
      * @param  array<string, string>  $pivotRelationships  Pivot table relationships: ['related_table' => 'pivot_table_name']
-     * @param  array<string, string>  $pivotModelNames  Map of pivot table name to model class name for UsingPivot emission
+     * @param  array<string, string>  $pivotModelNames  Map of pivot table name to model class name for using: emission
      * @param  bool  $isPivotModel  Whether this table is being generated as a pivot model (extends Pivot)
-     * @param  array<string, array<string, string>>  $pivotExtraColumns  Map of pivot table name to extra columns ['col' => 'type']
      */
     public function generate(
         DatabaseTableState $table,
@@ -47,7 +46,6 @@ class SchemaFileGenerator
         ?string $connection = null,
         array $pivotModelNames = [],
         bool $isPivotModel = false,
-        array $pivotExtraColumns = [],
         bool $explicitForeignKeys = false,
     ): GeneratedSchemaResult {
         $baseModelName = $this->resolveModelName($table->tableName);
@@ -343,30 +341,22 @@ class SchemaFileGenerator
                 $propertyName = $propertyName.'Pivot';
             }
 
-            // Build BelongsToMany attribute with optional table param
+            // Build BelongsToMany attribute with optional table and using params
             $expectedPivot = $this->expectedPivotTableName($table->tableName, $relatedTable);
-            if ($pivotTableName !== $expectedPivot) {
+            $pivotModelClass = $pivotModelNames[$pivotTableName] ?? null;
+
+            if ($pivotTableName !== $expectedPivot && $pivotModelClass !== null) {
+                $attrs = ["#[BelongsToMany({$relatedModel}::class, table: '{$pivotTableName}', using: {$pivotModelClass}::class)]"];
+            } elseif ($pivotTableName !== $expectedPivot) {
                 $attrs = ["#[BelongsToMany({$relatedModel}::class, table: '{$pivotTableName}')]"];
+            } elseif ($pivotModelClass !== null) {
+                $attrs = ["#[BelongsToMany({$relatedModel}::class, using: {$pivotModelClass}::class)]"];
             } else {
                 $attrs = ["#[BelongsToMany({$relatedModel}::class)]"];
             }
 
-            // Add UsingPivot attribute if a pivot model exists for this pivot table
-            if (isset($pivotModelNames[$pivotTableName])) {
-                $pivotModelClass = $pivotModelNames[$pivotTableName];
-                $attrs[] = "#[UsingPivot({$pivotModelClass}::class)]";
-                $imports[] = 'SchemaCraft\\Attributes\\UsingPivot';
+            if ($pivotModelClass !== null) {
                 $imports[] = $modelNamespace.'\\'.$pivotModelClass;
-            }
-
-            // Add PivotColumns attribute if pivot has extra columns
-            if (isset($pivotExtraColumns[$pivotTableName]) && ! empty($pivotExtraColumns[$pivotTableName])) {
-                $colPairs = [];
-                foreach ($pivotExtraColumns[$pivotTableName] as $colName => $colType) {
-                    $colPairs[] = "'{$colName}' => '{$colType}'";
-                }
-                $attrs[] = '#[PivotColumns(['.implode(', ', $colPairs).'])]';
-                $imports[] = 'SchemaCraft\\Attributes\\PivotColumns';
             }
 
             $belongsToManyProperties[] = new GeneratedProperty(
@@ -380,6 +370,24 @@ class SchemaFileGenerator
             $imports[] = $modelNamespace.'\\'.$relatedModel;
             $imports[] = 'SchemaCraft\\Attributes\\Relations\\BelongsToMany';
             $imports[] = 'Illuminate\\Database\\Eloquent\\Collection';
+
+            // Emit a HasMany to the pivot model if not already covered by a regular HasMany
+            if ($pivotModelClass !== null) {
+                $pivotPropertyName = Str::camel(Str::plural(Str::snake($pivotModelClass)));
+                $existingNames = array_map(fn (GeneratedProperty $p) => $p->name, $hasManyProperties);
+                if (! in_array($pivotPropertyName, $existingNames, true)) {
+                    $hasManyProperties[] = new GeneratedProperty(
+                        name: $pivotPropertyName,
+                        phpType: 'Collection',
+                        isRelationship: true,
+                        attributes: ["#[HasMany({$pivotModelClass}::class)]"],
+                        docBlock: "/** @var Collection<int, {$pivotModelClass}> */",
+                    );
+                    $imports[] = $modelNamespace.'\\'.$pivotModelClass;
+                    $imports[] = 'SchemaCraft\\Attributes\\Relations\\HasMany';
+                    $imports[] = 'Illuminate\\Database\\Eloquent\\Collection';
+                }
+            }
         }
 
         // Timestamps / SoftDeletes imports
@@ -933,7 +941,6 @@ class SchemaFileGenerator
             str_contains($attribute, '#[BelongsToMany') => 'SchemaCraft\\Attributes\\Relations\\BelongsToMany',
             str_contains($attribute, '#[MorphTo') => 'SchemaCraft\\Attributes\\Relations\\MorphTo',
             str_contains($attribute, '#[PivotTable') => 'SchemaCraft\\Attributes\\PivotTable',
-            str_contains($attribute, '#[PivotColumns') => 'SchemaCraft\\Attributes\\PivotColumns',
             str_contains($attribute, '#[ForeignColumn') => 'SchemaCraft\\Attributes\\ForeignColumn',
             str_contains($attribute, '#[ColumnType') => 'SchemaCraft\\Attributes\\ColumnType',
             str_contains($attribute, '#[DefaultExpression') => 'SchemaCraft\\Attributes\\DefaultExpression',

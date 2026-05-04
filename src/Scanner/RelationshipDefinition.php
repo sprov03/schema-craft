@@ -17,7 +17,6 @@ class RelationshipDefinition
         public ?string $onUpdate = null,
         public bool $noConstraint = false,
         public ?string $pivotTable = null,
-        public ?array $pivotColumns = null,
         public ?string $morphName = null,
         public ?string $pivotModel = null,
         public ?string $ownerKey = null,

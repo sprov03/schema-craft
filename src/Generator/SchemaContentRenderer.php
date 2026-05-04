@@ -53,6 +53,25 @@ class SchemaContentRenderer
                 'morphToMany' => $belongsToManyProperties[] = $this->buildMorphToManyProperty($rel, $payload->modelNamespace, $imports),
                 default => null,
             };
+
+            // Emit a HasMany to the pivot model when using: is set on a BelongsToMany
+            if ($rel->type === 'belongsToMany' && $rel->pivotModel !== null) {
+                $pivotBaseName = class_basename($rel->pivotModel);
+                $pivotPropertyName = Str::camel(Str::plural(Str::snake($pivotBaseName)));
+                $existingHasManyNames = array_map(fn (GeneratedProperty $p) => $p->name, $hasManyProperties);
+                if (! in_array($pivotPropertyName, $existingHasManyNames, true)) {
+                    $hasManyProperties[] = new GeneratedProperty(
+                        name: $pivotPropertyName,
+                        phpType: 'Collection',
+                        isRelationship: true,
+                        attributes: ["#[HasMany({$pivotBaseName}::class)]"],
+                        docBlock: "/** @var Collection<int, {$pivotBaseName}> */",
+                    );
+                    $imports[] = 'SchemaCraft\\Attributes\\Relations\\HasMany';
+                    $imports[] = 'Illuminate\\Database\\Eloquent\\Collection';
+                    $imports[] = $rel->pivotModel;
+                }
+            }
         }
 
         // Traits
@@ -507,28 +526,23 @@ class SchemaContentRenderer
     private function buildBelongsToManyProperty(EditorRelationship $rel, string $modelNamespace, array &$imports): GeneratedProperty
     {
         $relatedBaseName = class_basename($rel->relatedModel);
-        if ($rel->pivotTable !== null) {
+        $pivotBaseName = $rel->pivotModel !== null ? class_basename($rel->pivotModel) : null;
+
+        if ($rel->pivotTable !== null && $pivotBaseName !== null) {
+            $attributes = ["#[BelongsToMany({$relatedBaseName}::class, table: '{$rel->pivotTable}', using: {$pivotBaseName}::class)]"];
+        } elseif ($rel->pivotTable !== null) {
             $attributes = ["#[BelongsToMany({$relatedBaseName}::class, table: '{$rel->pivotTable}')]"];
+        } elseif ($pivotBaseName !== null) {
+            $attributes = ["#[BelongsToMany({$relatedBaseName}::class, using: {$pivotBaseName}::class)]"];
         } else {
             $attributes = ["#[BelongsToMany({$relatedBaseName}::class)]"];
         }
+
         $imports[] = 'SchemaCraft\\Attributes\\Relations\\BelongsToMany';
         $imports[] = $rel->relatedModel;
         $imports[] = 'Illuminate\\Database\\Eloquent\\Collection';
 
-        if ($rel->pivotColumns !== null && count($rel->pivotColumns) > 0) {
-            $colPairs = [];
-            foreach ($rel->pivotColumns as $colName => $colType) {
-                $colPairs[] = "'{$colName}' => '{$colType}'";
-            }
-            $attributes[] = '#[PivotColumns(['.implode(', ', $colPairs).'])]';
-            $imports[] = 'SchemaCraft\\Attributes\\PivotColumns';
-        }
-
         if ($rel->pivotModel !== null) {
-            $pivotBaseName = class_basename($rel->pivotModel);
-            $attributes[] = "#[UsingPivot({$pivotBaseName}::class)]";
-            $imports[] = 'SchemaCraft\\Attributes\\UsingPivot';
             $imports[] = $rel->pivotModel;
         }
 

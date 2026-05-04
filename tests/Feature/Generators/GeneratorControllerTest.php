@@ -52,8 +52,23 @@ class GeneratorControllerTest extends TestCase
         parent::tearDown();
     }
 
-    private function createSchemaFile(string $name): void
+    /**
+     * Write a schema class to the temp dir and require it, returning its FQCN.
+     *
+     * Uses a unique suffix per call so that `require_once` never sees a
+     * previously-loaded class definition from another test in the same PHPUnit
+     * process. Without this, tests that share the class name (e.g. "Post")
+     * with tests in other files (e.g. GenerateFilamentCommandTest) would
+     * reflect on the first-loaded definition rather than the intended one,
+     * causing spurious column-mismatch failures that only appear when the
+     * full suite runs.
+     */
+    private function createSchemaFile(string $name): string
     {
+        // Unique class name per call — prevents PHP class-registry collisions
+        // between test files that share the same logical name (e.g. "Post").
+        $uniqueName = $name.'_'.uniqid();
+
         $content = <<<PHP
 <?php
 
@@ -63,7 +78,7 @@ use SchemaCraft\Attributes\AutoIncrement;
 use SchemaCraft\Attributes\Primary;
 use SchemaCraft\Schema;
 
-class {$name}Schema extends Schema
+class {$uniqueName}Schema extends Schema
 {
     #[Primary]
     #[AutoIncrement]
@@ -75,12 +90,11 @@ class {$name}Schema extends Schema
 }
 PHP;
 
-        $path = $this->tempDir."/app/Schemas/{$name}Schema.php";
+        $path = $this->tempDir."/app/Schemas/{$uniqueName}Schema.php";
         $this->files->put($path, $content);
+        require_once $path;
 
-        if (! class_exists("App\\Schemas\\{$name}Schema")) {
-            require_once $path;
-        }
+        return "App\\Schemas\\{$uniqueName}Schema";
     }
 
     // ─── GET /api/generators/config ────────────────────────────────
@@ -133,12 +147,12 @@ PHP;
 
     public function test_next_step_advances_to_second_step(): void
     {
-        $this->createSchemaFile('Post');
+        $schemaClass = $this->createSchemaFile('Post');
 
         $response = $this->postJson('/_schema-craft/api/generators/next-step', [
             'generator' => SampleGenerator::class,
             'accumulated' => [
-                'schema' => ['class' => 'App\\Schemas\\PostSchema'],
+                'schema' => ['class' => $schemaClass],
             ],
         ]);
 
@@ -153,12 +167,12 @@ PHP;
 
     public function test_next_step_returns_done_when_all_steps_accumulated(): void
     {
-        $this->createSchemaFile('Post');
+        $schemaClass = $this->createSchemaFile('Post');
 
         $response = $this->postJson('/_schema-craft/api/generators/next-step', [
             'generator' => SampleGenerator::class,
             'accumulated' => [
-                'schema' => ['class' => 'App\\Schemas\\PostSchema'],
+                'schema' => ['class' => $schemaClass],
                 'class_name' => 'PostService',
             ],
         ]);
@@ -191,13 +205,13 @@ PHP;
 
     public function test_preview_returns_rendered_file_content(): void
     {
-        $this->createSchemaFile('Post');
+        $schemaClass = $this->createSchemaFile('Post');
 
         $response = $this->postJson('/_schema-craft/api/generators/preview', [
             'generator' => SampleGenerator::class,
             'accumulated' => [
                 'schema' => [
-                    'class' => 'App\\Schemas\\PostSchema',
+                    'class' => $schemaClass,
                     'selectedColumns' => ['name', 'email'],
                 ],
                 'class_name' => 'PostService',
@@ -217,13 +231,13 @@ PHP;
 
     public function test_preview_marks_existing_files(): void
     {
-        $this->createSchemaFile('Post');
+        $schemaClass = $this->createSchemaFile('Post');
         $this->files->put($this->tempDir.'/app/PostService.php', '<?php class PostService {}');
 
         $response = $this->postJson('/_schema-craft/api/generators/preview', [
             'generator' => SampleGenerator::class,
             'accumulated' => [
-                'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
+                'schema' => ['class' => $schemaClass, 'selectedColumns' => []],
                 'class_name' => 'PostService',
             ],
         ]);
@@ -236,12 +250,12 @@ PHP;
 
     public function test_run_writes_files(): void
     {
-        $this->createSchemaFile('Post');
+        $schemaClass = $this->createSchemaFile('Post');
 
         $response = $this->postJson('/_schema-craft/api/generators/run', [
             'generator' => SampleGenerator::class,
             'accumulated' => [
-                'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
+                'schema' => ['class' => $schemaClass, 'selectedColumns' => []],
                 'class_name' => 'PostService',
             ],
         ]);
@@ -255,13 +269,13 @@ PHP;
 
     public function test_run_skips_existing_files_without_force(): void
     {
-        $this->createSchemaFile('Post');
+        $schemaClass = $this->createSchemaFile('Post');
         $this->files->put($this->tempDir.'/app/PostService.php', '<?php // existing');
 
         $response = $this->postJson('/_schema-craft/api/generators/run', [
             'generator' => SampleGenerator::class,
             'accumulated' => [
-                'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
+                'schema' => ['class' => $schemaClass, 'selectedColumns' => []],
                 'class_name' => 'PostService',
             ],
         ]);
@@ -273,13 +287,13 @@ PHP;
 
     public function test_run_overwrites_with_force(): void
     {
-        $this->createSchemaFile('Post');
+        $schemaClass = $this->createSchemaFile('Post');
         $this->files->put($this->tempDir.'/app/PostService.php', '<?php // old');
 
         $response = $this->postJson('/_schema-craft/api/generators/run', [
             'generator' => SampleGenerator::class,
             'accumulated' => [
-                'schema' => ['class' => 'App\\Schemas\\PostSchema', 'selectedColumns' => []],
+                'schema' => ['class' => $schemaClass, 'selectedColumns' => []],
                 'class_name' => 'PostService',
             ],
             'force' => true,

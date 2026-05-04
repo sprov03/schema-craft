@@ -1919,9 +1919,8 @@
         .gen-filament-schema-class { font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); }
         .gen-filament-schema-actions { display: flex; gap: 8px; }
 
-        /* New stack form / new API form */
+        /* New stack form */
         .gen-new-stack-form { padding: 24px; max-width: 600px; }
-        .gen-new-api-form { max-width: 500px; margin: 0 auto; padding-top: 20px; }
 
         /* ── Schema Editor Modal ─────────────────────────── */
         .se-overlay {
@@ -7846,11 +7845,6 @@
                 });
             }
 
-            cardsHtml += '<div class="gen-api-card create-new" id="gen-create-api-card">' +
-                '<div class="gen-api-card-name">+ Create New API</div>' +
-                '<div class="gen-api-card-desc">Add a new API configuration</div>' +
-            '</div>';
-
             container.innerHTML =
                 '<div class="gen-api-selector">' +
                     '<div class="gen-api-selector-title">Code Generation</div>' +
@@ -7869,7 +7863,6 @@
                             '</div>' +
                         '</div>' +
                     '</div>' +
-                    '<div id="gen-new-api-area"></div>' +
                 '</div>';
 
             container.querySelectorAll('.gen-api-card[data-api]').forEach(function(card) {
@@ -7878,70 +7871,7 @@
                 });
             });
 
-            document.getElementById('gen-create-api-card').addEventListener('click', showCreateApiForm);
             document.getElementById('gen-filament-card').addEventListener('click', showFilamentPage);
-        }
-
-        function showCreateApiForm() {
-            var area = document.getElementById('gen-new-api-area');
-            area.innerHTML =
-                '<div class="gen-new-api-form">' +
-                    '<div class="sc-panel">' +
-                        '<div class="sc-panel-header">Create New API</div>' +
-                        '<div class="sc-panel-body">' +
-                            '<div class="sc-form-group">' +
-                                '<label class="sc-form-label">API Name</label>' +
-                                '<input type="text" class="sc-input" id="gen-newapi-name" placeholder="e.g. partner, admin, mobile">' +
-                                '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;" id="gen-newapi-hint"></div>' +
-                            '</div>' +
-                        '</div>' +
-                        '<div class="sc-panel-footer">' +
-                            '<button class="sc-btn" id="gen-newapi-cancel">Cancel</button>' +
-                            '<button class="sc-btn primary" id="gen-newapi-create">Create API</button>' +
-                        '</div>' +
-                    '</div>' +
-                '</div>';
-
-            document.getElementById('gen-newapi-name').addEventListener('input', function() {
-                var name = this.value.trim();
-                var hint = document.getElementById('gen-newapi-hint');
-                if (name) {
-                    var kebab = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-                    hint.textContent = 'Route file: routes/' + kebab + '-api.php  •  Prefix: ' + kebab + '-api';
-                } else {
-                    hint.textContent = '';
-                }
-            });
-
-            document.getElementById('gen-newapi-cancel').addEventListener('click', function() {
-                area.innerHTML = '';
-            });
-
-            document.getElementById('gen-newapi-create').addEventListener('click', doCreateNewApi);
-            document.getElementById('gen-newapi-name').focus();
-        }
-
-        function doCreateNewApi() {
-            var name = document.getElementById('gen-newapi-name').value.trim();
-            if (!name) { showToast('Enter an API name.', 'warning'); return; }
-
-            fetch('/_schema-craft/api/create-api', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ name: name }),
-            })
-            .then(handleResponse)
-            .then(function(data) {
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    loadGenerateConfig(null, function() {
-                        selectApi(name);
-                    });
-                } else {
-                    showToast(data.message || 'API creation failed.', 'error');
-                }
-            })
-            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
         }
 
         // ── Level 2: Main layout ───────────────────────

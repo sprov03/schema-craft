@@ -5,7 +5,6 @@ namespace SchemaCraft\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use SchemaCraft\Generator\Api\ResourceGenerator;
 use SchemaCraft\Scanner\SchemaScanner;
-use SchemaCraft\Tests\Fixtures\Schemas\PivotTestSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\UserSchema;
 
@@ -284,52 +283,4 @@ class ResourceGeneratorTest extends TestCase
         $this->assertEquals(1, $count, 'CommentResource should only be imported once');
     }
 
-    // ─── Pivot columns ──────────────────────────────────────────
-
-    public function test_belongs_to_many_with_pivot_columns_uses_closure(): void
-    {
-        $table = (new SchemaScanner(PivotTestSchema::class))->scan();
-        $code = $this->generator->generate($table);
-
-        // tags has PivotColumns(['order' => 'integer', 'note' => 'string'])
-        $this->assertStringContainsString("'tags' => \$this->whenLoaded('tags', function ()", $code);
-        $this->assertStringContainsString('TagResource::make($item)->resolve()', $code);
-        $this->assertStringContainsString("->pivot->only(['order', 'note'])", $code);
-    }
-
-    public function test_multiple_belongs_to_many_with_pivot_columns(): void
-    {
-        $table = (new SchemaScanner(PivotTestSchema::class))->scan();
-        $code = $this->generator->generate($table);
-
-        // members has PivotColumns(['role' => 'string'])
-        $this->assertStringContainsString("'members' => \$this->whenLoaded('members', function ()", $code);
-        $this->assertStringContainsString("->pivot->only(['role'])", $code);
-    }
-
-    public function test_has_many_without_pivot_uses_simple_collection(): void
-    {
-        $table = (new SchemaScanner(PivotTestSchema::class))->scan();
-        $code = $this->generator->generate($table);
-
-        // comments is HasMany (no pivot) — should use simple collection
-        $this->assertStringContainsString(
-            "'comments' => CommentResource::collection(\$this->whenLoaded('comments')),",
-            $code
-        );
-    }
-
-    public function test_belongs_to_many_without_pivot_uses_simple_collection(): void
-    {
-        // PostSchema tags has NO PivotColumns — should use simple collection
-        $table = (new SchemaScanner(PostSchema::class))->scan();
-        $code = $this->generator->generate($table);
-
-        $this->assertStringContainsString(
-            "'tags' => TagResource::collection(\$this->whenLoaded('tags')),",
-            $code
-        );
-        // Should NOT have closure-based pivot handling
-        $this->assertStringNotContainsString('->pivot->only(', $code);
-    }
 }

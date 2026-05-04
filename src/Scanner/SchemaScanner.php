@@ -32,7 +32,6 @@ use SchemaCraft\Attributes\MediumText;
 use SchemaCraft\Attributes\NoConstraint;
 use SchemaCraft\Attributes\OnDelete;
 use SchemaCraft\Attributes\OnUpdate;
-use SchemaCraft\Attributes\PivotColumns;
 use SchemaCraft\Attributes\PivotTable;
 use SchemaCraft\Attributes\Primary;
 use SchemaCraft\Attributes\Relations\BelongsTo;
@@ -54,7 +53,6 @@ use SchemaCraft\Attributes\TinyInt;
 use SchemaCraft\Attributes\Title;
 use SchemaCraft\Attributes\Unique;
 use SchemaCraft\Attributes\Unsigned;
-use SchemaCraft\Attributes\UsingPivot;
 use SchemaCraft\Attributes\With;
 use SchemaCraft\Attributes\Year;
 use SchemaCraft\Contracts\SchemaCraftType;
@@ -439,8 +437,8 @@ class SchemaScanner
         $onDelete = $this->getAttributeInstance($property, OnDelete::class)?->action;
         $onUpdate = $this->getAttributeInstance($property, OnUpdate::class)?->action;
         $noConstraint = $this->hasAttribute($property, NoConstraint::class);
-        $pivotColumns = $this->getAttributeInstance($property, PivotColumns::class)?->columns;
-        $pivotModel = $this->getAttributeInstance($property, UsingPivot::class)?->model;
+        $belongsToManyAttr = $this->getAttributeInstance($property, BelongsToMany::class);
+        $pivotModel = $belongsToManyAttr?->using;
 
         $relType = match (true) {
             $relationAttr instanceof BelongsTo => 'belongsTo',
@@ -510,7 +508,6 @@ class SchemaScanner
             onUpdate: $onUpdate,
             noConstraint: $noConstraint,
             pivotTable: $pivotTable,
-            pivotColumns: $pivotColumns,
             morphName: $morphName,
             pivotModel: $pivotModel,
             ownerKey: $ownerKey,

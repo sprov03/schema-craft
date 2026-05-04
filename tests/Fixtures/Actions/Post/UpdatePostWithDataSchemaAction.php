@@ -5,7 +5,6 @@ namespace SchemaCraft\Tests\Fixtures\Actions\Post;
 use Illuminate\Support\Collection;
 use SchemaCraft\Action;
 use SchemaCraft\Attributes\Actions\ActionMeta;
-use SchemaCraft\Attributes\Pivot;
 use SchemaCraft\Attributes\Relations\BelongsTo;
 use SchemaCraft\Attributes\Relations\BelongsToMany;
 use SchemaCraft\Attributes\Relations\HasMany;
@@ -54,6 +53,5 @@ class UpdatePostTagsDataSchema extends DataSchema
 
     public string $name;
 
-    #[Pivot]
     public ?int $sortOrder;
 }

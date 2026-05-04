@@ -17,5 +17,6 @@ class BelongsToMany
         public ?string $relatedPivotKey = null,
         public ?string $parentKey = null,
         public ?string $relatedKey = null,
+        public ?string $using = null,
     ) {}
 }

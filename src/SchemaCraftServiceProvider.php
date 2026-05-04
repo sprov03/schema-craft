@@ -4,7 +4,6 @@ namespace SchemaCraft;
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
-use SchemaCraft\Console\CreateApiCommand;
 use SchemaCraft\Console\GenerateApiCommand;
 use SchemaCraft\Console\GenerateFilamentCommand;
 use SchemaCraft\Console\GenerateSdkCommand;
@@ -84,13 +83,10 @@ class SchemaCraftServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if ($this->app->environment('local', 'testing')) {
-            $this->registerVisualizerRoutes();
-        }
+        $this->registerVisualizerRoutes();
 
         if ($this->app->runningInConsole()) {
             $this->commands([
-                CreateApiCommand::class,
                 GenerateApiCommand::class,
                 GenerateFilamentCommand::class,
                 GenerateSdkCommand::class,
@@ -156,140 +152,140 @@ class SchemaCraftServiceProvider extends ServiceProvider
     {
         $noCsrf = \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class;
 
-        Route::prefix('_schema-craft')->middleware(Visualizer\SchemaCraftErrorHandler::class)->group(function () use ($noCsrf) {
-            Route::get('/', [VisualizerController::class, 'index']);
-            Route::get('/api/schema', [VisualizerController::class, 'api']);
-            Route::post('/api/apply-relationship', [VisualizerController::class, 'applyRelationship'])
-                ->withoutMiddleware($noCsrf);
+        Route::prefix('_schema-craft')
+            ->middleware([Visualizer\RequireLocalEnvironment::class, Visualizer\SchemaCraftErrorHandler::class])
+            ->group(function () use ($noCsrf) {
+                Route::get('/', [VisualizerController::class, 'index']);
+                Route::get('/api/schema', [VisualizerController::class, 'api']);
+                Route::post('/api/apply-relationship', [VisualizerController::class, 'applyRelationship'])
+                    ->withoutMiddleware($noCsrf);
 
-            // Query Builder API
-            Route::get('/api/queries', [VisualizerController::class, 'listQueries']);
-            Route::get('/api/queries/{name}', [VisualizerController::class, 'loadQuery']);
-            Route::post('/api/queries', [VisualizerController::class, 'saveQuery'])
-                ->withoutMiddleware($noCsrf);
-            Route::delete('/api/queries/{name}', [VisualizerController::class, 'deleteQuery'])
-                ->withoutMiddleware($noCsrf);
-            Route::get('/api/query-config', [VisualizerController::class, 'queryConfig']);
-            Route::post('/api/generate-query', [VisualizerController::class, 'generateQuery'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/preview-sql', [VisualizerController::class, 'previewSql'])
-                ->withoutMiddleware($noCsrf);
+                // Query Builder API
+                Route::get('/api/queries', [VisualizerController::class, 'listQueries']);
+                Route::get('/api/queries/{name}', [VisualizerController::class, 'loadQuery']);
+                Route::post('/api/queries', [VisualizerController::class, 'saveQuery'])
+                    ->withoutMiddleware($noCsrf);
+                Route::delete('/api/queries/{name}', [VisualizerController::class, 'deleteQuery'])
+                    ->withoutMiddleware($noCsrf);
+                Route::get('/api/query-config', [VisualizerController::class, 'queryConfig']);
+                Route::post('/api/generate-query', [VisualizerController::class, 'generateQuery'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/preview-sql', [VisualizerController::class, 'previewSql'])
+                    ->withoutMiddleware($noCsrf);
 
-            // Schema Management API
-            Route::get('/api/connections', [SchemaController::class, 'connections']);
-            Route::get('/api/install/status', [SchemaController::class, 'installStatus']);
-            Route::post('/api/install', [SchemaController::class, 'install'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/schema/create/preview', [SchemaController::class, 'createPreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/schema/create', [SchemaController::class, 'create'])
-                ->withoutMiddleware($noCsrf);
-            Route::get('/api/database/tables', [SchemaController::class, 'listTables']);
-            Route::post('/api/schema/import/preview', [SchemaController::class, 'importPreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/schema/import', [SchemaController::class, 'import'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/schema/import/extras', [SchemaController::class, 'generateExtras'])
-                ->withoutMiddleware($noCsrf);
+                // Schema Management API
+                Route::get('/api/connections', [SchemaController::class, 'connections']);
+                Route::get('/api/install/status', [SchemaController::class, 'installStatus']);
+                Route::post('/api/install', [SchemaController::class, 'install'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/schema/create/preview', [SchemaController::class, 'createPreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/schema/create', [SchemaController::class, 'create'])
+                    ->withoutMiddleware($noCsrf);
+                Route::get('/api/database/tables', [SchemaController::class, 'listTables']);
+                Route::post('/api/schema/import/preview', [SchemaController::class, 'importPreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/schema/import', [SchemaController::class, 'import'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/schema/import/extras', [SchemaController::class, 'generateExtras'])
+                    ->withoutMiddleware($noCsrf);
 
-            // String inflection API
-            Route::post('/api/str/inflect', [SchemaController::class, 'strInflect'])
-                ->withoutMiddleware($noCsrf);
+                // String inflection API
+                Route::post('/api/str/inflect', [SchemaController::class, 'strInflect'])
+                    ->withoutMiddleware($noCsrf);
 
-            // Schema Editor API
-            Route::get('/api/schema/detail', [SchemaController::class, 'schemaDetail']);
-            Route::get('/api/schema/available-models', [SchemaController::class, 'availableModels']);
-            Route::post('/api/schema/save/preview', [SchemaController::class, 'schemaSavePreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/schema/save', [SchemaController::class, 'schemaSave'])
-                ->withoutMiddleware($noCsrf);
+                // Schema Editor API
+                Route::get('/api/schema/detail', [SchemaController::class, 'schemaDetail']);
+                Route::get('/api/schema/available-models', [SchemaController::class, 'availableModels']);
+                Route::post('/api/schema/save/preview', [SchemaController::class, 'schemaSavePreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/schema/save', [SchemaController::class, 'schemaSave'])
+                    ->withoutMiddleware($noCsrf);
 
-            // Status & Migrate API
-            Route::get('/api/status', [StatusController::class, 'status']);
-            Route::post('/api/migrate/preview', [StatusController::class, 'migratePreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/migrate', [StatusController::class, 'migrate'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/migrate/run', [StatusController::class, 'migrateAndRun'])
-                ->withoutMiddleware($noCsrf);
+                // Status & Migrate API
+                Route::get('/api/status', [StatusController::class, 'status']);
+                Route::post('/api/migrate/preview', [StatusController::class, 'migratePreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/migrate', [StatusController::class, 'migrate'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/migrate/run', [StatusController::class, 'migrateAndRun'])
+                    ->withoutMiddleware($noCsrf);
 
-            // Generate API
-            Route::get('/api/generate/config', [GenerateController::class, 'config']);
-            Route::get('/api/generate/stack-detail', [GenerateController::class, 'stackDetail']);
-            Route::get('/api/generate/resource-detail', [GenerateController::class, 'resourceDetail']);
-            Route::post('/api/generate/preview', [GenerateController::class, 'generatePreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/generate', [GenerateController::class, 'generate'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/generate/action/preview', [GenerateController::class, 'actionPreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/generate/action', [GenerateController::class, 'action'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/generate/service', [GenerateController::class, 'createService'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/generate/test', [GenerateController::class, 'createTest'])
-                ->withoutMiddleware($noCsrf);
+                // Generate API
+                Route::get('/api/generate/config', [GenerateController::class, 'config']);
+                Route::get('/api/generate/stack-detail', [GenerateController::class, 'stackDetail']);
+                Route::get('/api/generate/resource-detail', [GenerateController::class, 'resourceDetail']);
+                Route::post('/api/generate/preview', [GenerateController::class, 'generatePreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/generate', [GenerateController::class, 'generate'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/generate/action/preview', [GenerateController::class, 'actionPreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/generate/action', [GenerateController::class, 'action'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/generate/service', [GenerateController::class, 'createService'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/generate/test', [GenerateController::class, 'createTest'])
+                    ->withoutMiddleware($noCsrf);
 
-            // Filament Generation API
-            Route::get('/api/filament/install-status', [GenerateController::class, 'filamentInstallStatus']);
-            Route::post('/api/filament/install', [GenerateController::class, 'filamentInstall'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/filament/preview', [GenerateController::class, 'filamentPreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/filament/generate', [GenerateController::class, 'filamentGenerate'])
-                ->withoutMiddleware($noCsrf);
+                // Filament Generation API
+                Route::get('/api/filament/install-status', [GenerateController::class, 'filamentInstallStatus']);
+                Route::post('/api/filament/install', [GenerateController::class, 'filamentInstall'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/filament/preview', [GenerateController::class, 'filamentPreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/filament/generate', [GenerateController::class, 'filamentGenerate'])
+                    ->withoutMiddleware($noCsrf);
 
-            // Actions API
-            Route::get('/api/actions/config', [ActionsController::class, 'config']);
-            Route::get('/api/actions/detail', [ActionsController::class, 'detail']);
-            Route::get('/api/actions/related-schema', [ActionsController::class, 'relatedSchema']);
-            Route::post('/api/actions/create/preview', [ActionsController::class, 'createPreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/actions/create', [ActionsController::class, 'create'])
-                ->withoutMiddleware($noCsrf);
-            Route::get('/api/actions/service-preview', [ActionsController::class, 'servicePreview']);
-            Route::post('/api/actions/generate-service', [ActionsController::class, 'generateService'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/actions/update/preview', [ActionsController::class, 'updatePreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/actions/update', [ActionsController::class, 'update'])
-                ->withoutMiddleware($noCsrf);
-            Route::get('/api/actions/filament-action-preview', [ActionsController::class, 'filamentActionPreview']);
-            Route::post('/api/actions/publish-filament-action', [ActionsController::class, 'publishFilamentAction'])
-                ->withoutMiddleware($noCsrf);
+                // Actions API
+                Route::get('/api/actions/config', [ActionsController::class, 'config']);
+                Route::get('/api/actions/detail', [ActionsController::class, 'detail']);
+                Route::get('/api/actions/related-schema', [ActionsController::class, 'relatedSchema']);
+                Route::post('/api/actions/create/preview', [ActionsController::class, 'createPreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/actions/create', [ActionsController::class, 'create'])
+                    ->withoutMiddleware($noCsrf);
+                Route::get('/api/actions/service-preview', [ActionsController::class, 'servicePreview']);
+                Route::post('/api/actions/generate-service', [ActionsController::class, 'generateService'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/actions/update/preview', [ActionsController::class, 'updatePreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/actions/update', [ActionsController::class, 'update'])
+                    ->withoutMiddleware($noCsrf);
+                Route::get('/api/actions/filament-action-preview', [ActionsController::class, 'filamentActionPreview']);
+                Route::post('/api/actions/publish-filament-action', [ActionsController::class, 'publishFilamentAction'])
+                    ->withoutMiddleware($noCsrf);
 
-            // Custom Generators API
-            Route::get('/api/generators/config', [GeneratorController::class, 'config']);
-            Route::post('/api/generators/next-step', [GeneratorController::class, 'nextStep'])
-                ->withoutMiddleware($noCsrf);
-            Route::get('/api/generators/related-schema', [GeneratorController::class, 'relatedSchema']);
-            Route::get('/api/generators/schema-info', [GeneratorController::class, 'schemaInfo']);
-            Route::post('/api/generators/preview', [GeneratorController::class, 'preview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/generators/run', [GeneratorController::class, 'run'])
-                ->withoutMiddleware($noCsrf);
-            Route::get('/api/generators/docs', [GeneratorController::class, 'generatorsDocs']);
+                // Custom Generators API
+                Route::get('/api/generators/config', [GeneratorController::class, 'config']);
+                Route::post('/api/generators/next-step', [GeneratorController::class, 'nextStep'])
+                    ->withoutMiddleware($noCsrf);
+                Route::get('/api/generators/related-schema', [GeneratorController::class, 'relatedSchema']);
+                Route::get('/api/generators/schema-info', [GeneratorController::class, 'schemaInfo']);
+                Route::post('/api/generators/preview', [GeneratorController::class, 'preview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/generators/run', [GeneratorController::class, 'run'])
+                    ->withoutMiddleware($noCsrf);
+                Route::get('/api/generators/docs', [GeneratorController::class, 'generatorsDocs']);
 
-            Route::post('/api/create-api', [GenerateController::class, 'createApi'])
-                ->withoutMiddleware($noCsrf);
-            Route::get('/api/available-actions', [GenerateController::class, 'availableActions']);
-            Route::get('/api/api-routes', [GenerateController::class, 'apiRoutes']);
-            Route::post('/api/import-actions', [GenerateController::class, 'importActions'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/generate-resources', [GenerateController::class, 'generateResources'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/create-resource/preview', [GenerateController::class, 'createResourcePreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/create-resource', [GenerateController::class, 'createResource'])
-                ->withoutMiddleware($noCsrf);
-            Route::get('/api/sdk/config', [GenerateController::class, 'sdkConfig']);
-            Route::post('/api/sdk/preview', [GenerateController::class, 'sdkPreview'])
-                ->withoutMiddleware($noCsrf);
-            Route::post('/api/sdk/generate', [GenerateController::class, 'sdkGenerate'])
-                ->withoutMiddleware($noCsrf);
+                Route::get('/api/available-actions', [GenerateController::class, 'availableActions']);
+                Route::get('/api/api-routes', [GenerateController::class, 'apiRoutes']);
+                Route::post('/api/import-actions', [GenerateController::class, 'importActions'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/generate-resources', [GenerateController::class, 'generateResources'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/create-resource/preview', [GenerateController::class, 'createResourcePreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/create-resource', [GenerateController::class, 'createResource'])
+                    ->withoutMiddleware($noCsrf);
+                Route::get('/api/sdk/config', [GenerateController::class, 'sdkConfig']);
+                Route::post('/api/sdk/preview', [GenerateController::class, 'sdkPreview'])
+                    ->withoutMiddleware($noCsrf);
+                Route::post('/api/sdk/generate', [GenerateController::class, 'sdkGenerate'])
+                    ->withoutMiddleware($noCsrf);
 
-            // Docs API
-            Route::get('/api/docs', [DocsController::class, 'index']);
-        });
+                // Docs API
+                Route::get('/api/docs', [DocsController::class, 'index']);
+            });
     }
 }

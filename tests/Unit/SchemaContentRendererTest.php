@@ -417,15 +417,13 @@ class SchemaContentRendererTest extends TestCase
                     type: 'belongsToMany',
                     relatedModel: 'App\\Models\\Tag',
                     pivotTable: 'post_tag',
-                    pivotColumns: ['order' => 'integer', 'notes' => 'text'],
                 ),
             ],
         ]));
 
         $this->assertStringContainsString("#[BelongsToMany(Tag::class, table: 'post_tag')]", $output);
-        $this->assertStringContainsString("#[PivotColumns(['order' => 'integer', 'notes' => 'text'])]", $output);
         $this->assertStringContainsString('public Collection $tags;', $output);
-        $this->assertStringContainsString('use SchemaCraft\\Attributes\\PivotColumns;', $output);
+        $this->assertStringNotContainsString('PivotColumns', $output);
     }
 
     public function test_renders_belongs_to_many_with_pivot_model(): void
@@ -441,9 +439,11 @@ class SchemaContentRendererTest extends TestCase
             ],
         ]));
 
-        $this->assertStringContainsString('#[UsingPivot(UserTeam::class)]', $output);
-        $this->assertStringContainsString('use SchemaCraft\\Attributes\\UsingPivot;', $output);
+        $this->assertStringContainsString('#[BelongsToMany(Team::class, using: UserTeam::class)]', $output);
         $this->assertStringContainsString('use App\\Models\\UserTeam;', $output);
+        $this->assertStringContainsString('#[HasMany(UserTeam::class)]', $output);
+        $this->assertStringContainsString('public Collection $userTeams;', $output);
+        $this->assertStringNotContainsString('UsingPivot', $output);
     }
 
     public function test_renders_morph_to_relationship(): void
