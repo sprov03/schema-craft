@@ -2,6 +2,7 @@
 
 namespace SchemaCraft\Types;
 
+use Illuminate\Contracts\Database\Eloquent\Castable;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -53,55 +54,53 @@ use SchemaCraft\Scanner\ColumnDefinition;
  *
  * @extends Collection<int, TItem>
  */
-abstract class AbstractCollectionType extends Collection implements CastsAttributes, SchemaCraftColumn
+abstract class AbstractCollectionType extends Collection implements Castable, SchemaCraftColumn
 {
     // ─── Abstract ────────────────────────────────────────────────
 
     /** Return the DataSchema subclass that defines the item shape. */
     abstract protected static function itemClass(): string;
 
-    // ─── CastsAttributes ─────────────────────────────────────────
+    // ─── Castable ────────────────────────────────────────────────
 
     /**
-     * Unified get() — serves both Collection::get() and CastsAttributes::get().
+     * Return a dedicated cast handler for this collection type.
      *
-     * Eloquent always passes a Model as the first argument. Collection usage
-     * always passes a scalar key or null. We detect context by checking the
-     * first argument type and delegate accordingly.
+     * Separating the handler from the collection class avoids method-signature
+     * collisions between Collection::get() and CastsAttributes::get(), and
+     * prevents Laravel's cast-system property checks (e.g. withoutObjectCaching)
+     * from triggering Collection::__get() and throwing unexpected exceptions.
      */
-    public function get($keyOrModel = null, $defaultOrKey = null, mixed $value = null, array $attributes = []): mixed
+    public static function castUsing(array $arguments): CastsAttributes
     {
-        if ($keyOrModel instanceof Model) {
-            return $this->castGet($keyOrModel, $defaultOrKey, $value, $attributes);
-        }
+        $collectionClass = static::class;
 
-        return parent::get($keyOrModel, $defaultOrKey);
-    }
+        return new class($collectionClass) implements CastsAttributes
+        {
+            public function __construct(private readonly string $collectionClass) {}
 
-    private function castGet(Model $model, string $key, mixed $value, array $attributes): static
-    {
-        $raw = $value === null ? [] : (is_string($value) ? json_decode($value, true) : $value);
+            public function get(Model $model, string $key, mixed $value, array $attributes): mixed
+            {
+                return ($this->collectionClass)::fromRaw($value);
+            }
 
-        return new static(
-            array_map(fn (array $item) => static::itemClass()::fromArray($item), $raw ?? [])
-        );
-    }
+            public function set(Model $model, string $key, mixed $value, array $attributes): ?string
+            {
+                if ($value === null) {
+                    return null;
+                }
 
-    public function set(Model $model, string $key, mixed $value, array $attributes): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
+                if ($value instanceof $this->collectionClass) {
+                    return json_encode($value->toArray());
+                }
 
-        if ($value instanceof static) {
-            return json_encode($value->toArray());
-        }
+                if (is_array($value)) {
+                    return json_encode($value);
+                }
 
-        if (is_array($value)) {
-            return json_encode($value);
-        }
-
-        return (string) $value;
+                return (string) $value;
+            }
+        };
     }
 
     // ─── SchemaCraftType ─────────────────────────────────────────
