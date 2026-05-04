@@ -19,6 +19,7 @@ class RelationshipDefinition
         public ?string $pivotTable = null,
         public ?string $morphName = null,
         public ?string $pivotModel = null,
+        public ?array $pivotColumns = null,
         public ?string $ownerKey = null,
         public ?string $localKey = null,
         public ?string $parentKey = null,

@@ -282,5 +282,4 @@ class ResourceGeneratorTest extends TestCase
         $count = substr_count($code, 'use App\Resources\CommentResource;');
         $this->assertEquals(1, $count, 'CommentResource should only be imported once');
     }
-
 }

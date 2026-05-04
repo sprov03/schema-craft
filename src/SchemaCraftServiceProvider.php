@@ -83,6 +83,10 @@ class SchemaCraftServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Register the sc-api-response middleware alias so consuming apps can
+        // apply it to route groups without manually importing the class.
+        $this->app['router']->aliasMiddleware('sc-api-response', Http\Middleware\ApiResponseMiddleware::class);
+
         $this->registerVisualizerRoutes();
 
         if ($this->app->runningInConsole()) {
