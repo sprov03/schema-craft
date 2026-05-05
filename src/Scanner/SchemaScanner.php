@@ -126,9 +126,29 @@ class SchemaScanner
                     $fkColumn = $this->buildForeignKeyColumn($property, $rel);
                     $pendingFkColumns[] = [$fkColumn, $property, $isFillable, $isHidden];
                 } elseif ($relationAttr instanceof MorphTo) {
+                    // MorphTo generates two synthetic columns: {name}_type (string) and
+                    // {name}_id (unsignedBigInteger). Schemas sometimes declare these
+                    // explicitly as typed scalar properties — e.g. a backed Enum for _type
+                    // or a plain int for _id — to give them precise PHP types and casts that
+                    // the generic MorphTo defaults cannot express.
+                    //
+                    // We defer these columns into $pendingFkColumns rather than merging them
+                    // immediately, for the same reason BelongsTo does: the dedup pass below
+                    // runs after ALL scalar properties have been collected, so it can detect
+                    // whether an explicit declaration already exists. When it does, the
+                    // explicit column wins (preserving the developer's intentional type), and
+                    // only the #[Index] flag is merged in from the relationship if needed.
+                    //
+                    // Without this deferral, both the explicit column (correct type) and the
+                    // synthetic column (generic fallback type) would appear in $table->columns,
+                    // causing every downstream consumer — resource generators, SDK generators,
+                    // migration generators — to emit duplicate properties or columns.
                     $morphIndex = $this->hasAttribute($property, Index::class);
                     $columnTypeAttr = $this->getAttributeInstance($property, ColumnType::class);
-                    $columns = array_merge($columns, $this->buildMorphToColumns($rel, $morphIndex, $columnTypeAttr?->type));
+
+                    foreach ($this->buildMorphToColumns($rel, $morphIndex, $columnTypeAttr?->type) as $morphColumn) {
+                        $pendingFkColumns[] = [$morphColumn, $property, $isFillable, $isHidden];
+                    }
                 }
                 // Through and MorphedByMany relationships are virtual — no columns created.
 
@@ -148,7 +168,14 @@ class SchemaScanner
             }
         }
 
-        // Resolve pending FK columns — dedup against explicitly declared columns
+        // Resolve pending FK/morph columns — dedup against explicitly declared scalar columns.
+        //
+        // BelongsTo and MorphTo both generate synthetic columns (_id, _type) that may
+        // duplicate properties the developer has explicitly declared on the schema class.
+        // Explicit declarations always win: they carry the developer's intentional PHP type,
+        // cast, and nullability. The only thing we take from the relationship is the
+        // #[Index] flag — if the relationship property is annotated with #[Index] and the
+        // explicit column is not yet indexed, we promote it here so no indexing intent is lost.
         $explicitColumnNames = array_map(fn (ColumnDefinition $c) => $c->name, $columns);
         foreach ($pendingFkColumns as [$fkColumn, $relProperty, $fkFillable, $fkHidden]) {
             $existingIndex = array_search($fkColumn->name, $explicitColumnNames, true);
