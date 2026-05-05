@@ -158,10 +158,25 @@ class Input
      *
      * Resolves to an array of placement descriptors:
      *     [['file' => '...', 'anchor' => '...', 'searchPattern' => '...'], ...]
+     *
+     * @param  string|null  $schemaKey  data() key holding a GeneratorSchemaContext — filters resources
+     *                                  to only those whose name matches the schema's model basename.
+     * @param  string|null  $requiresInstanceKey  data() key holding a bool — when true, only instance
+     *                                            slots (view/edit header actions, table row actions)
+     *                                            are offered; when false, only non-instance slots
+     *                                            (list header actions, table actions) are offered.
      */
-    public static function filamentPlacements(string $label): InputDefinition
-    {
-        return new InputDefinition(label: $label, type: 'filamentPlacements');
+    public static function filamentPlacements(
+        string $label,
+        ?string $schemaKey = null,
+        ?string $requiresInstanceKey = null,
+    ): InputDefinition {
+        return new InputDefinition(
+            label: $label,
+            type: 'filamentPlacements',
+            schemaKey: $schemaKey,
+            requiresInstanceKey: $requiresInstanceKey,
+        );
     }
 
     /**

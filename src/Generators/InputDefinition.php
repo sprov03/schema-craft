@@ -51,8 +51,12 @@ class InputDefinition
         public readonly bool $selectColumns = false,
         /** Whether this schemaSelector should show relationship checkboxes. */
         public readonly bool $selectRelationships = false,
-        /** For schemaColumn / schemaColumns / schemaFieldPicker — which data() key holds the schema context. */
+        /** For schemaColumn / schemaColumns / schemaFieldPicker / nestedFieldSelector — which data() key holds the schema context. */
         public readonly ?string $selectorKey = null,
+        /** For filamentPlacements — which data() key holds the GeneratorSchemaContext used to filter resources by model. */
+        public readonly ?string $schemaKey = null,
+        /** For filamentPlacements — which data() key holds a bool indicating whether the action needs an existing model instance. */
+        public readonly ?string $requiresInstanceKey = null,
         /** Arbitrary extra config for custom input types. */
         public readonly array $extra = [],
     ) {}
