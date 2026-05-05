@@ -2,6 +2,8 @@
 
 namespace SchemaCraft\Tests\Feature;
 
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Route;
@@ -9,6 +11,7 @@ use Illuminate\Validation\ValidationException;
 use SchemaCraft\Exceptions\DataSchemaHydrationException;
 use SchemaCraft\Http\Middleware\ApiResponseMiddleware;
 use SchemaCraft\Tests\TestCase;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class ApiResponseMiddlewareTest extends TestCase
 {
@@ -52,6 +55,18 @@ class ApiResponseMiddlewareTest extends TestCase
             });
 
             Route::get('/test/passthrough-html', fn () => response('<html>hi</html>', 200, ['Content-Type' => 'text/html']));
+
+            Route::get('/test/error-unauthenticated', function () {
+                throw new AuthenticationException('Unauthenticated.');
+            });
+
+            Route::get('/test/error-unauthorized', function () {
+                throw new AuthorizationException('This action is unauthorized.');
+            });
+
+            Route::get('/test/error-http-exception', function () {
+                throw new HttpException(403, 'Forbidden.');
+            });
         });
     }
 
@@ -173,6 +188,51 @@ class ApiResponseMiddlewareTest extends TestCase
         $this->assertArrayHasKey('debug', $response->json());
         $this->assertSame('RuntimeException', $response->json('debug.exception'));
         $this->assertSame('Something went boom.', $response->json('message'));
+    }
+
+    // ─── Auth / HTTP exceptions are re-thrown, not swallowed ─────
+
+    /**
+     * AuthenticationException must propagate to Laravel's global handler so it
+     * renders a proper 401 — not get swallowed and turned into a 500 by our catch block.
+     *
+     * This matters when sc-api-response is listed first (outermost) in a route
+     * group alongside auth:sanctum, which is the common Panacea pattern.
+     */
+    public function test_authentication_exception_propagates_and_wraps_as_401(): void
+    {
+        $response = $this->getJson('/test/error-unauthenticated');
+
+        $response->assertUnauthorized();
+        $response->assertJson([
+            'status' => 'error',
+            'status_code' => 401,
+            'data' => null,
+        ]);
+    }
+
+    public function test_authorization_exception_propagates_and_wraps_as_403(): void
+    {
+        $response = $this->getJson('/test/error-unauthorized');
+
+        $response->assertForbidden();
+        $response->assertJson([
+            'status' => 'error',
+            'status_code' => 403,
+            'data' => null,
+        ]);
+    }
+
+    public function test_http_exception_propagates_and_wraps_correctly(): void
+    {
+        $response = $this->getJson('/test/error-http-exception');
+
+        $response->assertForbidden();
+        $response->assertJson([
+            'status' => 'error',
+            'status_code' => 403,
+            'data' => null,
+        ]);
     }
 
     // ─── Pass-through ─────────────────────────────────────────────
