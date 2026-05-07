@@ -7,9 +7,15 @@ use SchemaCraft\Scanner\RelationshipDefinition;
 
 /**
  * Maps a ColumnDefinition to a Filament form field code string.
+ *
+ * Uses FilamentTypeDetection for isEnumCast() and isNumericType() — the same
+ * shared implementations used by FilamentColumnMapper and FilamentEntryMapper.
+ * This ensures all three mappers stay in sync when detection logic changes.
  */
 class FilamentFieldMapper
 {
+    use FilamentTypeDetection;
+
     /**
      * Map a column to its Filament form field code.
      */
@@ -174,27 +180,5 @@ class FilamentFieldMapper
         }
 
         return $field;
-    }
-
-    private function isEnumCast(ColumnDefinition $column): bool
-    {
-        if ($column->castType === null) {
-            return false;
-        }
-
-        // Enum casts are FQCN of BackedEnum classes (contain backslash or are not built-in types)
-        $builtInCasts = ['string', 'integer', 'int', 'float', 'double', 'boolean', 'bool', 'array', 'json', 'object', 'datetime', 'date', 'timestamp', 'collection', 'encrypted'];
-
-        return ! in_array($column->castType, $builtInCasts, true)
-            && ! str_starts_with($column->castType, 'decimal:');
-    }
-
-    private function isNumericType(string $columnType): bool
-    {
-        return in_array($columnType, [
-            'integer', 'bigInteger', 'smallInteger', 'tinyInteger',
-            'unsignedBigInteger', 'unsignedInteger', 'unsignedSmallInteger', 'unsignedTinyInteger',
-            'decimal', 'float', 'double', 'year',
-        ], true);
     }
 }

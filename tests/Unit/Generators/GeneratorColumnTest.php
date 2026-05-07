@@ -120,11 +120,37 @@ class GeneratorColumnTest extends TestCase
 
     // ─── isFK / relationshipName ──────────────────────────────────
 
-    public function test_is_fk_returns_true_for_id_suffix(): void
+    public function test_is_fk_returns_true_for_id_suffix_no_cast(): void
     {
+        // No castType — naming convention alone is enough.
         $col = new GeneratorColumn(new ColumnDefinition(name: 'owner_id', columnType: 'unsignedBigInteger'));
 
         $this->assertTrue($col->isFK());
+    }
+
+    public function test_is_fk_returns_true_for_id_suffix_with_integer_cast(): void
+    {
+        // Explicit integer cast is consistent with FK semantics — still a FK.
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'owner_id', columnType: 'unsignedBigInteger', castType: 'integer'));
+
+        $this->assertTrue($col->isFK());
+    }
+
+    public function test_is_fk_returns_false_when_schema_documents_enum_cast(): void
+    {
+        // Explicit enum cast overrides the _id naming convention — NOT a FK.
+        // The schema documentation is the source of truth.
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'loan_type_id', columnType: 'string', castType: 'App\Enums\LoanTypeEnum'));
+
+        $this->assertFalse($col->isFK());
+    }
+
+    public function test_is_fk_returns_false_when_schema_documents_custom_type_cast(): void
+    {
+        // Any FQCN cast (DTO, custom type) also overrides the _id naming convention.
+        $col = new GeneratorColumn(new ColumnDefinition(name: 'record_id', columnType: 'string', castType: 'App\Casts\CustomDto'));
+
+        $this->assertFalse($col->isFK());
     }
 
     public function test_is_fk_returns_false_without_id_suffix(): void

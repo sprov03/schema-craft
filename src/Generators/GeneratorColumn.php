@@ -128,11 +128,42 @@ class GeneratorColumn
     }
 
     /**
-     * Returns true if this column is a foreign key column (ends with _id).
+     * Returns true if this column is a foreign key column.
+     *
+     * A column is only a FK when TWO conditions are met:
+     *   1. Its name ends with _id (naming convention)
+     *   2. Its cast type is a plain integer built-in ('integer' / 'int')
+     *
+     * The second condition enforces the principle that explicit schema
+     * documentation trumps naming conventions. If a developer declares
+     * `public SomeEnum $loan_type_id` or `public CustomDto $record_id`,
+     * the explicit PHP type in the schema is the source of truth — the
+     * column is NOT a FK even though the name matches the pattern.
+     *
+     * Only a column with an integer cast can be a FK, because all real
+     * FK columns reference an integer primary key. If the cast is a FQCN
+     * (contains a backslash) or any other non-integer type, the schema has
+     * explicitly documented something different and that wins.
      */
     public function isFK(): bool
     {
-        return str_ends_with($this->definition->name, '_id');
+        if (! str_ends_with($this->definition->name, '_id')) {
+            return false;
+        }
+
+        $cast = $this->definition->castType;
+
+        // No explicit cast means nothing in the schema overrides the convention —
+        // the naming convention alone is sufficient to identify this as a FK.
+        if ($cast === null) {
+            return true;
+        }
+
+        // Only a plain integer built-in cast is consistent with FK semantics.
+        // Any FQCN cast (enum, DTO, custom type) means the schema has explicitly
+        // documented a different type — that documentation overrides the naming
+        // convention, and the column is NOT treated as a FK.
+        return in_array($cast, ['integer', 'int'], true);
     }
 
     /**

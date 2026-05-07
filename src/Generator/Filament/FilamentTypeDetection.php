@@ -14,23 +14,23 @@ use SchemaCraft\Scanner\ColumnDefinition;
 trait FilamentTypeDetection
 {
     /**
-     * True if the column's cast type is a class-name cast (e.g. a backed enum
-     * or a custom DTO) rather than a built-in Laravel cast string.
+     * True if the column's cast type is a backed PHP enum (string or int backed).
+     *
+     * Uses is_subclass_of(\BackedEnum::class) for precision — this matches only
+     * actual PHP backed enums, not custom DTO casts or other class-name casts.
+     * This mirrors the check in GeneratorColumn::isEnum() and keeps the two in sync.
+     *
+     * The previous negative approach ("anything not in a built-in list") was too
+     * broad: it would also trigger for SchemaCraftColumn custom types, which are
+     * already handled upstream by GeneratorColumn::getSchemaCraftColumnClass()
+     * before the mappers are ever called. Using is_subclass_of is precise and
+     * requires no maintenance as new cast types are added.
      */
     protected function isEnumCast(ColumnDefinition $column): bool
     {
-        if ($column->castType === null) {
-            return false;
-        }
-
-        $builtInCasts = [
-            'string', 'integer', 'int', 'float', 'double', 'boolean', 'bool',
-            'array', 'json', 'object', 'datetime', 'date', 'timestamp',
-            'collection', 'encrypted',
-        ];
-
-        return ! in_array($column->castType, $builtInCasts, true)
-            && ! str_starts_with($column->castType, 'decimal:');
+        return $column->castType !== null
+            && class_exists($column->castType)
+            && is_subclass_of($column->castType, \BackedEnum::class);
     }
 
     /**
