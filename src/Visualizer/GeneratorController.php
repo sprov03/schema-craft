@@ -226,6 +226,38 @@ class GeneratorController
         $inlineByPath = [];
         $regularFiles = [];
 
+        // ─── Frontend file-entry contract ────────────────────────────────────────
+        //
+        // Each entry in the `files` array sent to the visualizer must conform to
+        // this shape. The frontend showFilePreviewModal() and showFile() functions
+        // branch entirely on these keys — there are NO type guards on `type`.
+        //
+        //   {
+        //     type:            'file' | 'inline'
+        //     path:            string   — relative path from project root
+        //     content:         string   — the newly generated content
+        //     exists:          bool     — true when the file currently exists on disk
+        //     existingContent: string|null — current on-disk content, or null for new files
+        //     skipped?:        bool     — inline only; true when the insertion was skipped
+        //   }
+        //
+        // The frontend `getCategory()` function classifies entries as:
+        //   'new'       — exists === false  (existingContent is null)
+        //   'changed'   — existingContent != null && content !== existingContent
+        //   'unchanged' — existingContent != null && content === existingContent
+        //   'deleted'   — f.removed === true  (only used in schema-removal flows)
+        //
+        // CRITICAL: `existingContent` MUST be populated for existing files on all
+        // entry types ('file' and 'inline'). Without it, getCategory() permanently
+        // falls through to 'unchanged' and the diff toggle is never shown — even
+        // when the generated content differs significantly from what is on disk.
+        //
+        // This was lost during the unification of the old per-generator preview
+        // controllers (GenerateController::createResourcePreview, filamentPreview,
+        // sdkPreview) into this single generic preview() method. Those older methods
+        // all explicitly read file_get_contents() and set existingContent.
+        // ─────────────────────────────────────────────────────────────────────────
+
         foreach ($results as $result) {
             if ($result instanceof InlineGeneratedFile) {
                 $path = $result->path;
@@ -247,11 +279,17 @@ class GeneratorController
                     }
                 }
             } else {
+                // Read the on-disk content so the frontend can classify this entry
+                // correctly and render the before/after diff view. See contract above.
+                $absPath = base_path($result->path);
+                $existingContent = file_exists($absPath) ? file_get_contents($absPath) : null;
+
                 $regularFiles[] = [
                     'type' => 'file',
                     'path' => $result->path,
                     'content' => $result->content,
-                    'exists' => file_exists(base_path($result->path)),
+                    'exists' => $existingContent !== null,
+                    'existingContent' => $existingContent,
                 ];
             }
         }

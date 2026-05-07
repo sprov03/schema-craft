@@ -246,6 +246,51 @@ PHP;
         $this->assertTrue($response->json('files.0.exists'));
     }
 
+    public function test_preview_includes_existing_content_for_existing_file(): void
+    {
+        // existingContent is required by the frontend getCategory() contract.
+        // Without it, the visualizer can never classify a file as 'changed' —
+        // it permanently falls through to 'unchanged' for any file that exists
+        // on disk, hiding real differences from the developer.
+        $schemaClass = $this->createSchemaFile('Post');
+        $sentinel = '<?php // original on-disk content';
+        $this->files->put($this->tempDir.'/app/PostService.php', $sentinel);
+
+        $response = $this->postJson('/_schema-craft/api/generators/preview', [
+            'generator' => SampleGenerator::class,
+            'accumulated' => [
+                'schema' => ['class' => $schemaClass, 'selectedColumns' => ['name']],
+                'class_name' => 'PostService',
+            ],
+        ]);
+
+        $response->assertOk();
+        $this->assertTrue($response->json('files.0.exists'));
+        $this->assertSame($sentinel, $response->json('files.0.existingContent'));
+        // Generated content must differ from the sentinel so the visualizer
+        // would correctly classify this as 'changed', not 'unchanged'.
+        $this->assertNotSame($sentinel, $response->json('files.0.content'));
+    }
+
+    public function test_preview_omits_existing_content_for_new_file(): void
+    {
+        // When the file does not exist on disk, existingContent must be null
+        // so the frontend getCategory() classifies the entry as 'new'.
+        $schemaClass = $this->createSchemaFile('Post');
+
+        $response = $this->postJson('/_schema-craft/api/generators/preview', [
+            'generator' => SampleGenerator::class,
+            'accumulated' => [
+                'schema' => ['class' => $schemaClass, 'selectedColumns' => []],
+                'class_name' => 'PostService',
+            ],
+        ]);
+
+        $response->assertOk();
+        $this->assertFalse($response->json('files.0.exists'));
+        $this->assertNull($response->json('files.0.existingContent'));
+    }
+
     // ─── POST /api/generators/run ─────────────────────────────────
 
     public function test_run_writes_files(): void
