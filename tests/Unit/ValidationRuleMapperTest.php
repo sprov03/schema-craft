@@ -2,6 +2,7 @@
 
 namespace SchemaCraft\Tests\Unit;
 
+use Illuminate\Validation\Rules\Enum;
 use PHPUnit\Framework\TestCase;
 use SchemaCraft\Attributes\Rules;
 use SchemaCraft\Scanner\ColumnDefinition;
@@ -372,7 +373,9 @@ class ValidationRuleMapperTest extends TestCase
 
         $this->assertContains('required', $rules);
         $this->assertContains('string', $rules);
-        $this->assertContains('enum:'.PostStatus::class, $rules);
+
+        $enumRule = collect($rules)->first(fn ($r) => $r instanceof Enum);
+        $this->assertInstanceOf(Enum::class, $enumRule);
     }
 
     // ─── BelongsTo foreign key ──────────────────────────────────

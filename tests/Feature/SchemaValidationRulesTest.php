@@ -2,6 +2,7 @@
 
 namespace SchemaCraft\Tests\Feature;
 
+use Illuminate\Validation\Rules\Enum;
 use PHPUnit\Framework\TestCase;
 use SchemaCraft\Schema;
 use SchemaCraft\Tests\Fixtures\Schemas\CustomTypeSchema;
@@ -112,13 +113,8 @@ class SchemaValidationRulesTest extends TestCase
         $this->assertContains('required', $rules['status']);
         $this->assertContains('string', $rules['status']);
 
-        $hasEnum = false;
-        foreach ($rules['status'] as $rule) {
-            if (is_string($rule) && str_contains($rule, 'enum:')) {
-                $hasEnum = true;
-            }
-        }
-        $this->assertTrue($hasEnum, 'Enum rule should be present for enum cast column');
+        $enumRule = collect($rules['status'])->first(fn ($r) => $r instanceof Enum);
+        $this->assertInstanceOf(Enum::class, $enumRule, 'Enum rule should be present for enum cast column');
     }
 
     // ─── createRules — BelongsTo FK ─────────────────────────────

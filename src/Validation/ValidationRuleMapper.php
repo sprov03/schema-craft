@@ -4,6 +4,7 @@ namespace SchemaCraft\Validation;
 
 use BackedEnum;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use SchemaCraft\Attributes\Rules;
 use SchemaCraft\Contracts\SchemaCraftType;
 use SchemaCraft\Scanner\ColumnDefinition;
@@ -116,7 +117,7 @@ class ValidationRuleMapper
 
         // Enum cast
         if ($column->castType !== null && $this->isEnumClass($column->castType)) {
-            $rules[] = "enum:{$column->castType}";
+            $rules[] = Rule::enum($column->castType);
         }
 
         // Foreign key exists rule
