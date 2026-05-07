@@ -116,4 +116,16 @@ class FilamentEntryMapperTest extends TestCase
         $this->assertStringNotContainsString('->searchable()', $result);
         $this->assertStringNotContainsString('->toggleable(', $result);
     }
+
+    public function test_enum_entry_does_not_include_sortable(): void
+    {
+        $result = $this->mapper->map(new ColumnDefinition(
+            name: 'status',
+            columnType: 'string',
+            castType: PostStatus::class,
+        ), '');
+
+        $this->assertStringContainsString('->badge()', $result);
+        $this->assertStringNotContainsString('->sortable()', $result);
+    }
 }

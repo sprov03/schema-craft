@@ -3077,6 +3077,10 @@
                 var allFiles = Object.values(fileMap);
                 if (!allFiles.length) { showToast('Nothing to save', 'info'); return; }
 
+                // TODO(debugContext): Hard to wire — allFiles is merged from multiple
+                // schema/save/preview fetches (one per pending change key). There is no
+                // single endpoint or request body to report. The Inspect snapshot would
+                // show files + _category values but no request context.
                 showFilePreviewModal(allFiles, 'Save All Pending Changes', function() {
                     var saves = keys.map(function(k) {
                         return fetch('/_schema-craft/api/schema/save', {
@@ -6320,7 +6324,55 @@
         }
 
         // ── Shared: File Preview Modal ──────────────────
-        function showFilePreviewModal(files, confirmLabel, onConfirm) {
+        //
+        // showFilePreviewModal(files, confirmLabel, onConfirm, debugContext)
+        //
+        // debugContext is an optional 4th argument. Its presence is intentionally
+        // VISIBLE in the UI: an "Inspect" button appears in the modal header only
+        // when debugContext is provided. This lets you immediately tell at a glance
+        // whether a call site has been wired up for debugging — if you don't see
+        // "Inspect" in the header, the call site hasn't been updated yet.
+        //
+        // When present, debugContext should carry the full chain that produced the
+        // preview response so the snapshot is self-contained for debugging:
+        //
+        //   {
+        //     endpoint: 'POST /_schema-craft/api/generators/preview',  // method + path
+        //     request:  { generator: '...', accumulated: { ... } },    // full request body
+        //     response: data,                                           // raw server response
+        //   }
+        //
+        // Clicking "Inspect" copies a JSON snapshot containing all three fields plus
+        // the files array with a computed _category key on each entry (the value that
+        // getCategory() resolved to). This gives a complete picture of: what was sent,
+        // what came back, and how the frontend classified each file — all in one paste.
+        //
+        // CALL SITE CONVENTION: Easy call sites (single fetch, body in a local variable)
+        // are wired up. Medium/hard call sites have a TODO comment explaining the work
+        // needed. Search "TODO(debugContext)" to find all unwired sites.
+        //
+        // ── files array contract (shared with GeneratorController::preview()) ──────
+        // Each entry must conform to this shape. getCategory() branches on these keys:
+        //
+        //   type:            'file' | 'inline'
+        //   path:            string   — relative path from project root
+        //   content:         string   — the newly generated content
+        //   exists:          bool     — true when the file currently exists on disk
+        //   existingContent: string|null — current on-disk content, null for new files
+        //   skipped?:        bool     — inline only; true when insertion was skipped
+        //
+        //   getCategory() result:
+        //     'new'       — exists === false
+        //     'changed'   — existingContent != null && content !== existingContent
+        //     'unchanged' — existingContent != null && content === existingContent
+        //     'deleted'   — f.removed === true
+        //
+        // CRITICAL: existingContent MUST be populated by the backend for existing files.
+        // Without it, getCategory() permanently returns 'unchanged' for any file where
+        // exists === true, hiding real changes from the developer.
+        // See: src/Visualizer/GeneratorController.php → preview() for the PHP side.
+        // ─────────────────────────────────────────────────────────────────────────────
+        function showFilePreviewModal(files, confirmLabel, onConfirm, debugContext) {
             confirmLabel = confirmLabel || 'Write Files';
             var overlay = document.createElement('div');
             overlay.className = 'fp-overlay';
@@ -6385,7 +6437,12 @@
                 '<div class="fp-modal">' +
                     '<div class="fp-header">' +
                         '<span class="fp-header-title">File Preview</span>' +
-                        '<button class="fp-close" id="fp-close">&times;</button>' +
+                        '<div style="display:flex;gap:8px;align-items:center;">' +
+                            // Inspect button only renders when debugContext was passed.
+                            // Its absence is a signal that the call site is not yet wired up.
+                            (debugContext ? '<button id="fp-inspect" title="Inspect: copy full diagnostic snapshot (request + response + file categories) to clipboard" style="padding:3px 10px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">Inspect</button>' : '') +
+                            '<button class="fp-close" id="fp-close">&times;</button>' +
+                        '</div>' +
                     '</div>' +
                     '<div class="fp-body">' +
                         '<div class="fp-file-list">' +
@@ -6411,6 +6468,48 @@
                 '</div>';
 
             document.body.appendChild(overlay);
+
+            // Inspect handler — only wired up when debugContext was passed.
+            // Copies a self-contained diagnostic snapshot so you can paste it
+            // directly into a bug report or debugging session without needing to
+            // reproduce the exact flow again. The _category field shows what
+            // getCategory() resolved to for each file, so you can immediately see
+            // whether existingContent was null (→ 'unchanged' incorrectly) vs a
+            // real string (→ 'changed' correctly).
+            if (debugContext) {
+                overlay.querySelector('#fp-inspect').addEventListener('click', function() {
+                    var btn = this;
+                    var snapshot = {
+                        '⚠️  INSPECT SNAPSHOT — PREVIEW ONLY': [
+                            'This is a diagnostic copy of the generator PREVIEW endpoint request/response.',
+                            'It reflects what the preview modal is displaying — NOT files written to disk.',
+                            'The "files" array shows what each file WOULD contain after a full run.',
+                            '"response.files" = raw server output. "files" = same data with _category added by the frontend.',
+                            'Use this to diagnose: wrong content, missing inlines, skipped insertions, or diff issues in the modal.',
+                        ],
+                        _inspectedAt: new Date().toISOString(),
+                        endpoint: debugContext.endpoint || null,
+                        request: debugContext.request || null,
+                        response: debugContext.response || null,
+                        files: files.map(function(f) {
+                            return Object.assign({}, f, { _category: getCategory(f) });
+                        }),
+                    };
+                    navigator.clipboard.writeText(JSON.stringify(snapshot, null, 2)).then(function() {
+                        btn.textContent = 'Copied!';
+                        btn.style.borderColor = 'var(--success)';
+                        btn.style.color = 'var(--success)';
+                        setTimeout(function() {
+                            btn.textContent = 'Inspect';
+                            btn.style.borderColor = '';
+                            btn.style.color = '';
+                        }, 2000);
+                    }).catch(function() {
+                        btn.textContent = 'Failed';
+                        setTimeout(function() { btn.textContent = 'Inspect'; }, 2000);
+                    });
+                });
+            }
 
             var currentView = 'diff';
 
@@ -6800,6 +6899,10 @@
                     return;
                 }
                 if (previewOnly) {
+                    // TODO(debugContext): Medium to wire — the request body `data` is built
+                    // inline in doCreateSchemaFromModal and not held in a named variable at
+                    // this point. Extract `data` to a local before the fetch to enable this:
+                    //   { endpoint: 'POST ' + url, request: data, response: result }
                     showFilePreviewModal(result.files, 'Write Files', function() {
                         doCreateSchemaFromModal(false, closeModal);
                     });
@@ -7139,6 +7242,8 @@
                                     var pivotNote = result.pivots && result.pivots.length > 0
                                         ? result.pivots.length + ' pivot table(s) detected and handled as relationships'
                                         : '';
+                                    // TODO(debugContext): Medium to wire — `body` is built just above this
+                                    // fetch call and is in scope. Pass: { endpoint: 'POST ' + url, request: body, response: result }
                                     showFilePreviewModal(result.files, 'Write Files', function() { doImportSchema(false); });
                                     if (pivotNote) showToast(pivotNote, 'info');
                                     return 'previewed';
@@ -7178,6 +7283,8 @@
                             .then(function(result) {
                                 if (!result.success) throw new Error(result.message || 'Preview failed');
                                 var extrasOnly = result.files.filter(function(f) { return f.type !== 'schema'; });
+                                // TODO(debugContext): Medium to wire — `body` is in scope just above this fetch.
+                                // Pass: { endpoint: 'POST /_schema-craft/api/schema/import/preview', request: body, response: result }
                                 showFilePreviewModal(extrasOnly, 'Write Files', function() { doImportSchema(false); });
                                 return 'previewed';
                             });
@@ -7381,6 +7488,10 @@
                                 }
                             })
                             .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                        }, {
+                            endpoint: 'POST /_schema-craft/api/schema/import/preview',
+                            request: body,
+                            response: result,
                         });
                     })
                     .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
@@ -7446,6 +7557,10 @@
                                 }
                             })
                             .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                        }, {
+                            endpoint: 'POST /_schema-craft/api/migrate/preview',
+                            request: { tables: [table.name] },
+                            response: data,
                         });
                     })
                     .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
@@ -7500,6 +7615,10 @@
                         }
                     })
                     .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                }, {
+                    endpoint: 'POST /_schema-craft/api/migrate/preview',
+                    request: { tables: tableNames },
+                    response: data,
                 });
             })
             .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
@@ -7761,6 +7880,10 @@
                         }
                     })
                     .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                }, {
+                    endpoint: 'POST /_schema-craft/api/migrate/preview',
+                    request: {},
+                    response: data,
                 });
             })
             .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
@@ -7796,6 +7919,10 @@
                         }
                     })
                     .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                }, {
+                    endpoint: 'POST /_schema-craft/api/migrate/preview',
+                    request: { tables: [tableName] },
+                    response: data,
                 });
             })
             .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
@@ -8864,6 +8991,10 @@
                             }
                         })
                         .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                    }, {
+                        endpoint: 'POST /_schema-craft/api/create-resource/preview',
+                        request: payload,
+                        response: resp,
                     });
                 })
                 .catch(function(e) {
@@ -9338,6 +9469,10 @@
                             .filter(function(f) { return f.removed && !f.skip; })
                             .map(function(f) { return f.path; });
                         doSdkWrite(payload);
+                    }, {
+                        endpoint: 'POST /_schema-craft/api/sdk/preview',
+                        request: payload,
+                        response: data,
                     });
                 })
                 .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
@@ -9537,6 +9672,10 @@
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
                     showFilePreviewModal(data.files, 'Generate Filament', function() {
                         doFilamentWrite(payload);
+                    }, {
+                        endpoint: 'POST /_schema-craft/api/filament/preview',
+                        request: payload,
+                        response: data,
                     });
                 })
                 .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
@@ -9588,6 +9727,12 @@
                         }
                         remaining--;
                         if (remaining === 0 && !hadError) {
+                            // TODO(debugContext): Hard to wire — allFiles is accumulated from
+                            // one filament/preview fetch per schema (schemas.length requests total).
+                            // There is no single request body; each schema has its own payload.
+                            // The Inspect snapshot would show files + _category values but no
+                            // unified request context. Consider passing an array of per-schema
+                            // debug entries if full traceability is needed here.
                             showFilePreviewModal(allFiles, 'Generate All Filament', function() {
                                 doFilamentGenerateAll(schemas, withPolicy, force);
                             });
@@ -10803,7 +10948,11 @@
                 .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed', 'error'); return; }
-                    showFilePreviewModal(data.files, 'Save Files', function() { SchemaEditor.doSave(); });
+                    showFilePreviewModal(data.files, 'Save Files', function() { SchemaEditor.doSave(); }, {
+                        endpoint: 'POST /_schema-craft/api/schema/save/preview',
+                        request: payload,
+                        response: data,
+                    });
                 })
                 .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
             },
@@ -11187,6 +11336,10 @@
                             existingContent: data.existingContent,
                         }];
 
+                        // TODO(debugContext): Medium to wire — this is a GET (query param) not a POST body,
+                        // and the files array is built manually from individual response fields rather than
+                        // directly from data.files. Pass: { endpoint: 'GET /_schema-craft/api/actions/service-preview',
+                        // request: { action: action.actionClass }, response: data }
                         showFilePreviewModal(files, 'Regenerate Service', function() {
                             doGenerateService(action.actionClass, btn, genBtnLabel);
                         });
@@ -11723,6 +11876,10 @@
                         // Close the field picker via event
                         close();
                         actDoWriteAction(payload, schema, isEdit);
+                    }, {
+                        endpoint: 'POST ' + url,
+                        request: payload,
+                        response: data,
                     });
                 })
                 .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
@@ -12576,6 +12733,16 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 return '<select id="genr-step-field" class="sc-input">' + sopts + '</select>';
             }
 
+            if (type === 'multiselect') {
+                var msDef = Array.isArray(def) ? def : [];
+                var msopts = '';
+                var msoptions = step.options || {};
+                Object.keys(msoptions).forEach(function(val) {
+                    msopts += '<option value="' + escapeAttr(val) + '"' + (msDef.indexOf(val) !== -1 ? ' selected' : '') + '>' + escapeHtml(msoptions[val]) + '</option>';
+                });
+                return '<select id="genr-step-field" class="sc-input" multiple style="height:auto;min-height:80px;">' + msopts + '</select>';
+            }
+
             if (type === 'schemaColumn') {
                 var copts = '<option value="">— Select a column —</option>';
                 (step.columns || []).forEach(function(col) {
@@ -12667,13 +12834,15 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                         '<span>' +
                             '<button type="button" class="nfs-select-all" data-target="cols" style="' + btnStyle + '">Select All</button>' +
                             '<span style="color:var(--border);font-size:10px;">|</span>' +
+                            '<button type="button" class="nfs-select-required" data-target="cols" style="' + btnStyle + '">Required Only</button>' +
+                            '<span style="color:var(--border);font-size:10px;">|</span>' +
                             '<button type="button" class="nfs-deselect-all" data-target="cols" style="' + btnStyle + '">Deselect All</button>' +
                         '</span>' +
                     '</div>' +
                     '<div class="nfs-cols">';
                 columns.forEach(function(col) {
                     html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0;">' +
-                        '<input type="checkbox" class="nfs-col-cb" data-col="' + escapeAttr(col.name) + '">' +
+                        '<input type="checkbox" class="nfs-col-cb" data-col="' + escapeAttr(col.name) + '" data-nullable="' + (col.nullable ? '1' : '0') + '" data-has-default="' + (col.hasDefault ? '1' : '0') + '">' +
                         '<span style="font-size:12px;font-family:var(--font-mono);">' + escapeHtml(col.name) + '</span>' +
                         '<span style="font-size:11px;color:var(--text-muted);">(' + escapeHtml(col.type) + ')</span>' +
                     '</label>';
@@ -12889,6 +13058,8 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                                 html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">' +
                                     '<span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;">Relationships</span>' +
                                     '<span>' +
+                                        '<button type="button" class="sc-select-children-rels" style="' + btnStyle + '">Select Children</button>' +
+                                        '<span style="color:var(--border);font-size:10px;">|</span>' +
                                         '<button type="button" class="sc-select-all-rels" style="' + btnStyle + '">Select All</button>' +
                                         '<span style="color:var(--border);font-size:10px;">|</span>' +
                                         '<button type="button" class="sc-deselect-all-rels" style="' + btnStyle + '">Deselect All</button>' +
@@ -12896,7 +13067,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                                 '</div>';
                                 data.relationships.forEach(function(rel) {
                                     html += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0;">' +
-                                        '<input type="checkbox" class="genr-schema-rel-cb" data-rel="' + escapeAttr(rel.name) + '">' +
+                                        '<input type="checkbox" class="genr-schema-rel-cb" data-rel="' + escapeAttr(rel.name) + '" data-collection="' + (rel.isCollection ? '1' : '0') + '">' +
                                         '<span style="font-size:12px;font-family:var(--font-mono);">' + escapeHtml(rel.name) + '</span>' +
                                         '<span style="font-size:11px;color:var(--text-muted);">(' + escapeHtml(rel.type) + ')</span>' +
                                     '</label>';
@@ -12912,6 +13083,8 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                                     optionsDiv.querySelectorAll('.genr-schema-col-cb').forEach(function(cb) { cb.checked = true; });
                                 } else if (btn.classList.contains('sc-deselect-all-cols')) {
                                     optionsDiv.querySelectorAll('.genr-schema-col-cb').forEach(function(cb) { cb.checked = false; });
+                                } else if (btn.classList.contains('sc-select-children-rels')) {
+                                    optionsDiv.querySelectorAll('.genr-schema-rel-cb').forEach(function(cb) { cb.checked = cb.dataset.collection === '1'; });
                                 } else if (btn.classList.contains('sc-select-all-rels')) {
                                     optionsDiv.querySelectorAll('.genr-schema-rel-cb').forEach(function(cb) { cb.checked = true; });
                                 } else if (btn.classList.contains('sc-deselect-all-rels')) {
@@ -12984,6 +13157,10 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     }
                     if (e.target.classList.contains('nfs-deselect-all') && e.target.dataset.target === 'cols') {
                         container.querySelectorAll('.nfs-col-cb').forEach(function(cb) { cb.checked = false; });
+                        return;
+                    }
+                    if (e.target.classList.contains('nfs-select-required') && e.target.dataset.target === 'cols') {
+                        container.querySelectorAll('.nfs-col-cb').forEach(function(cb) { cb.checked = cb.dataset.nullable === '0' && cb.dataset.hasDefault === '0'; });
                         return;
                     }
 
@@ -13189,6 +13366,12 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 return sel2 ? sel2.value : '';
             }
 
+            if (type === 'multiselect') {
+                var msSel = container.querySelector('#genr-step-field');
+                if (!msSel) { return []; }
+                return Array.from(msSel.selectedOptions).map(function(o) { return o.value; });
+            }
+
             if (type === 'schemaColumn') {
                 var sel3 = container.querySelector('#genr-step-field');
                 return sel3 ? sel3.value : '';
@@ -13336,7 +13519,14 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 }
             });
 
-            var html = '<div class="genr-collection" data-collection-key="' + escapeAttr(key) + '" data-fields="' + escapeAttr(JSON.stringify(fields)) + '"></div>';
+            // Pre-populate with defaultItems if provided (e.g. filamentPlacements pre-selects all slots)
+            var defaultItems = input.defaultItems || [];
+            var initialItemsHtml = '';
+            defaultItems.forEach(function(values) {
+                initialItemsHtml += renderCollectionItem(fields, values);
+            });
+
+            var html = '<div class="genr-collection" data-collection-key="' + escapeAttr(key) + '" data-fields="' + escapeAttr(JSON.stringify(fields)) + '">' + initialItemsHtml + '</div>';
             html += '<div style="display:flex;gap:6px;margin-top:8px;">';
             html += '<button type="button" class="sc-btn sm genr-collection-add" data-collection-key="' + escapeAttr(key) + '">+ ' + escapeHtml(addLabel) + '</button>';
             if (allOptions.length > 0) {
@@ -13369,6 +13559,13 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
         }
 
         function bindCollectionEvents(container) {
+            // Sync duplicate-prevention on any pre-populated items (from defaultItems)
+            container.querySelectorAll('.genr-collection').forEach(function(collectionEl) {
+                if (collectionEl.querySelector('.genr-collection-item')) {
+                    syncCollectionSelectOptions(collectionEl);
+                }
+            });
+
             container.querySelectorAll('.genr-collection-add').forEach(function(btn) {
                 btn.addEventListener('click', function() {
                     var key = btn.dataset.collectionKey;
@@ -13424,21 +13621,30 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
-                    showFilePreviewModal(data.files, 'Generate Files', genRun);
+                    showFilePreviewModal(data.files, 'Generate Files', genRun, {
+                        endpoint: 'POST /_schema-craft/api/generators/preview',
+                        request: { generator: genWizard.generatorClass, accumulated: genWizard.accumulated },
+                        response: data,
+                    });
                 })
                 .catch(function(e) { showToast('Preview error: ' + e.message, 'error'); });
         }
 
-        function genRun() {
+        function genRun(confirmedFiles) {
+            var payload = { generator: genWizard.generatorClass, accumulated: genWizard.accumulated, force: false };
+            var skipFiles = (confirmedFiles || []).filter(function(f) { return f.skip; }).map(function(f) { return f.path; });
+            if (skipFiles.length > 0) { payload.skipFiles = skipFiles; }
             fetch('/_schema-craft/api/generators/run', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                body: JSON.stringify({ generator: genWizard.generatorClass, accumulated: genWizard.accumulated, force: false }),
+                body: JSON.stringify(payload),
             })
                 .then(handleResponse)
                 .then(function(data) {
                     if (!data.success) { showToast(data.message || 'Generation failed.', 'error'); return; }
-                    showToast(data.message || 'Files generated.', 'success');
+                    var msg = data.message || 'Files generated.';
+                    if (skipFiles.length > 0) { msg += ' ' + skipFiles.length + ' skipped.'; }
+                    showToast(msg, 'success');
                 })
                 .catch(function(e) { showToast('Generation error: ' + e.message, 'error'); });
         }

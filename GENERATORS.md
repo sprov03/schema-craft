@@ -162,6 +162,16 @@ Recursive dot-path field picker. Lets users select flat columns and nested relat
 Input::schemaFieldPicker('Fields', selectorKey: 'schema')
 ```
 
+### `Input::nestedFieldSelector`
+
+Two-section tree picker. Shows flat top-level columns (with Select All/Deselect All) plus expandable relationship rows, each loading sub-fields lazily from the related schema. Resolves to a `NestedFieldSelection` value object containing `GeneratorColumn[]` for top-level fields and `NestedRelationshipSelection[]` for relationship sub-fields.
+
+```php
+Input::nestedFieldSelector('Fields', selectorKey: 'schema')
+```
+
+Use this instead of `schemaFieldPicker` when you need the consumer to distinguish between top-level columns and relationship sub-fields as separate groups in the generated output.
+
 ### `Input::selectResourceDirectory`
 
 Filament resource directory picker, populated from panel discovery and config. Resolves to a `ResourceDirectoryValue`.

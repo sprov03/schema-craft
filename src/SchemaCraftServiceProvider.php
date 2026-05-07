@@ -19,6 +19,7 @@ use SchemaCraft\Generators\GeneratorRunner;
 use SchemaCraft\Generators\InputTypeRegistry;
 use SchemaCraft\Generators\InputTypes\BooleanInputType;
 use SchemaCraft\Generators\InputTypes\FilamentPlacementsInputType;
+use SchemaCraft\Generators\InputTypes\MultiSelectInputType;
 use SchemaCraft\Generators\InputTypes\NestedFieldSelectorInputType;
 use SchemaCraft\Generators\InputTypes\SchemaColumnComboboxInputType;
 use SchemaCraft\Generators\InputTypes\SchemaColumnInputType;
@@ -67,6 +68,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
 
             $registry->register('text', TextInputType::class);
             $registry->register('select', SelectInputType::class);
+            $registry->register('multiselect', MultiSelectInputType::class);
             $registry->register('boolean', BooleanInputType::class);
             $registry->register('schemaSelector', SchemaSelectorInputType::class);
             $registry->register('schemaColumn', SchemaColumnInputType::class);

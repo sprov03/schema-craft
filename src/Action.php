@@ -54,6 +54,10 @@ abstract class Action
     /** @var \Closure|null Call-site closure to customize auto-generated Filament field components. */
     private ?\Closure $fieldConfigFn = null;
 
+    private ?Model $ownerRecord = null;
+
+    private ?string $ownerParamName = null;
+
     /**
      * Get the schema class this action operates on.
      *
@@ -108,6 +112,24 @@ abstract class Action
     public function configureFields(\Closure $fn): static
     {
         $this->fieldConfigFn = $fn;
+
+        return $this;
+    }
+
+    /**
+     * Pre-fill and hide a BelongsTo field from the owning model in a relation manager context.
+     *
+     * Finds the first BelongsTo parameter whose modelClass matches the owner's class and
+     * applies ->hidden()->default($owner->getKey()) on it so the FK is auto-set without
+     * user interaction. Pass $paramName to disambiguate when two params share the same type.
+     *
+     * Typical usage in a RelationManager:
+     *   MarketActions::createMarket()->withOwner($this->getOwnerRecord())->filamentAction()
+     */
+    public function withOwner(Model $owner, ?string $paramName = null): static
+    {
+        $this->ownerRecord = $owner;
+        $this->ownerParamName = $paramName;
 
         return $this;
     }
@@ -508,6 +530,11 @@ abstract class Action
             }
         }
 
+        // Inject owner FK before configureFields so the call site can still override
+        if ($this->ownerRecord !== null) {
+            $this->applyOwnerToComponentMap($componentMap);
+        }
+
         // Apply call-site field customizations — runs last, so ->default() here wins
         if ($this->fieldConfigFn !== null) {
             $this->applyFieldConfiguration($componentMap, $record);
@@ -540,6 +567,43 @@ abstract class Action
             ($this->fieldConfigFn)($proxy, $record);
         } else {
             ($this->fieldConfigFn)($proxy);
+        }
+    }
+
+    /**
+     * Hide and pre-fill the BelongsTo field that matches the owner record.
+     *
+     * Runs before configureFields() so the call site retains the ability to override.
+     * Stops at the first match in auto-detection mode to prevent double-injection
+     * when two BelongsTo params have the same model class.
+     */
+    private function applyOwnerToComponentMap(array &$componentMap): void
+    {
+        $definition = static::definition();
+        $ownerClass = get_class($this->ownerRecord);
+
+        foreach ($definition->parameters as $param) {
+            if (! $param->isModel || $param->modelClass === null) {
+                continue;
+            }
+
+            $matches = $this->ownerParamName !== null
+                ? $param->name === $this->ownerParamName
+                : ($param->modelClass === $ownerClass || is_a($ownerClass, $param->modelClass, true));
+
+            if (! $matches) {
+                continue;
+            }
+
+            if (isset($componentMap[$param->name])) {
+                $componentMap[$param->name]->default($this->ownerRecord->getKey())->disabled()->dehydrated(true);
+            }
+
+            // Stop at first match when auto-detecting by class — prevents ambiguous injection
+            // when two BelongsTo params share the same model class.
+            if ($this->ownerParamName === null) {
+                break;
+            }
         }
     }
 

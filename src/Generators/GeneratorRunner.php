@@ -3,84 +3,160 @@
 namespace SchemaCraft\Generators;
 
 use Illuminate\Contracts\View\Factory as ViewFactory;
-use SchemaCraft\Generator\Api\GeneratedFile;
+use SchemaCraft\Generator\Api\FileRunResult;
 use SchemaCraft\Generator\Api\InlineGeneratedFile;
 
 /**
  * Renders a generator's Blade templates and returns the resulting files.
  *
- * Supports chained dot-notation in output paths (e.g. [schema.model.plural.title]),
- * extra variables per template, and iteration over collections (e.g. relationships).
+ * Architecture — the file cache is the single source of truth:
+ *
+ *  Pass 1 — Templates are rendered and used to seed the cache.
+ *    • New files: cache ← template content (so inlines can target them before disk write).
+ *    • Existing files: cache ← disk content via readFromFileCache() so every subsequent
+ *      access — inlines and Pass 3 — always sees real content, never an empty string.
+ *
+ *  Pass 2 — Inline insertions read from and write to the cache.
+ *    • Multiple insertions into the same file compound correctly because each sees
+ *      the prior modification already in the cache.
+ *    • Files targeted by inlines but not by any template are seeded from disk on
+ *      first access inside runInlineTemplate().
+ *
+ *  Pass 3 — One FileRunResult is built per file from the final cache state.
+ *    • Preview caller: serialise results to JSON, no disk writes.
+ *    • Run caller: write new files and inline-modified files to disk.
+ *      Pass $force = true to also overwrite existing template files.
+ *
+ * This design means both callers execute the same logic — the only difference is
+ * what happens after run() returns, eliminating the divergence that previously caused
+ * preview to show stale template content alongside the correctly-modified inline result.
  */
 class GeneratorRunner
 {
     public function __construct(private readonly ViewFactory $view) {}
 
+    /** @var array<string, string>  absPath → current content (single source of truth per run) */
+    private array $fileCache = [];
+
     /**
      * Render all templates and inline insertions for a generator run.
      *
-     * When $writeInlineResults is false (preview mode), inline modifications are
-     * computed in memory only — the file cache ensures multiple insertions into the
-     * same file compound correctly even without touching disk.
-     *
-     * When $writeInlineResults is true (run mode), each successful inline insertion
-     * is written to disk immediately before processing the next one, so subsequent
-     * insertions into the same file operate on the already-modified content.
-     *
      * @param  array<string, mixed>  $inputValues
-     * @return array<GeneratedFile|InlineGeneratedFile>
+     * @param  bool  $writeResults  When true, write new and modified files to disk.
+     * @param  bool  $force  When true and $writeResults is true, also overwrite existing
+     *                       template files with freshly rendered content (ignores inline state).
+     * @return FileRunResult[]
      */
     public function run(
         SchemaCraftGenerator $generator,
         array $inputValues,
-        bool $writeInlineResults = false,
+        bool $writeResults = false,
+        bool $force = false,
+        array $skipFiles = [],
     ): array {
+        $this->fileCache = [];
+
         $allData = array_merge(
             ['phpOpenTag' => '<?php'],
             $inputValues,
             $generator->templateData(),
         );
 
-        $files = $this->runTemplates($generator->templates(), $allData);
+        // ─── Pass 1: Templates → seed file cache ─────────────────────────────
+        //
+        // New file: seed cache with template content so inlines can target it
+        // in Pass 2 before it exists on disk.
+        //
+        // Existing file: seed cache from disk so inlines (and Pass 3) always
+        // see the real current content — never an empty string.
+        $relativePaths = [];  // absPath → relative path string
+        $isTemplateFile = []; // absPath → bool
 
+        foreach ($this->runTemplates($generator->templates(), $allData) as $generatedFile) {
+            $absPath = base_path($generatedFile->path);
+            $relativePaths[$absPath] = $generatedFile->path;
+            $isTemplateFile[$absPath] = true;
+
+            if (! file_exists($absPath)) {
+                $this->writeToFileCache($absPath, $generatedFile->content);
+            } else {
+                $this->readFromFileCache($absPath); // seed from disk; return value unused here
+            }
+        }
+
+        // ─── Pass 2: Inlines → read from cache (or disk), modify, write back ─
+        //
+        // runInlineTemplate() checks the cache first; if the path is not there
+        // it reads from disk and seeds the cache. Modifications are written back
+        // to the cache so compound edits within the same run see each other.
         $inlineDefs = array_map(
             fn ($item) => $item instanceof InlineTemplate ? $item->build() : $item,
             $generator->inlineTemplates($inputValues),
         );
 
-        // Per-run file cache: absolute path → current content.
-        // Shared across all inline insertions so same-file compound edits work
-        // correctly in both preview (memory-only) and run (memory + disk) modes.
-        //
-        // Pre-seed from disk when the file already exists so that inline templates
-        // operate on the real file content, preserving any edits the developer has
-        // made. When the file does not exist yet (new file generated in this same
-        // run), seed from the freshly-rendered template content instead, so inline
-        // templates can still insert into it before it is written to disk.
-        $fileCache = [];
-        foreach ($files as $generatedFile) {
-            $absPath = base_path($generatedFile->path);
-            $fileCache[$absPath] = file_exists($absPath)
-                ? file_get_contents($absPath)
-                : $generatedFile->content;
-        }
+        $inlineResultsByPath = []; // absPath → InlineGeneratedFile[]
 
         foreach ($inlineDefs as $inlineDef) {
-            $files[] = $this->runInlineTemplate($inlineDef, $allData, $fileCache, $writeInlineResults);
+            $result = $this->runInlineTemplate($inlineDef, $allData);
+            $inlineAbs = base_path($result->path);
+
+            if (! isset($relativePaths[$inlineAbs])) {
+                $relativePaths[$inlineAbs] = $result->path;
+            }
+
+            $inlineResultsByPath[$inlineAbs][] = $result;
         }
 
-        if ($writeInlineResults) {
+        // ─── Pass 3: Build results from cache, write to disk if requested ────
+        //
+        // One FileRunResult per file. Read disk NOW to get the original content
+        // for diffing — this is the only place disk is read in the output path.
+        // Write rules: new file or modified existing file → write; else skip.
+        $results = [];
+        $allAbsPaths = array_unique(array_merge(
+            array_keys($isTemplateFile),
+            array_keys($inlineResultsByPath),
+        ));
+
+        foreach ($allAbsPaths as $absPath) {
+            $path = $relativePaths[$absPath] ?? '';
+            $final = $this->readFromFileCache($absPath) ?? '';
+            $diskContent = file_exists($absPath) ? file_get_contents($absPath) : null;
+            $isNew = $diskContent === null;
+            $inlines = $inlineResultsByPath[$absPath] ?? [];
+
+            $isSkipped = in_array($path, $skipFiles, true);
+
+            if ($writeResults && ! $isSkipped && ($isNew || $final !== $diskContent)) {
+                $dir = dirname($absPath);
+                if (! is_dir($dir)) {
+                    mkdir($dir, 0755, true);
+                }
+                file_put_contents($absPath, $final);
+            }
+
+            $results[] = new FileRunResult(
+                path: $path,
+                content: $final,
+                originalContent: $diskContent,
+                isNew: $isNew,
+                isTemplate: isset($isTemplateFile[$absPath]),
+                inlineResults: $inlines,
+            );
+        }
+
+        if ($writeResults) {
             $generator->afterRun($inputValues);
         }
 
-        return $files;
+        return $results;
     }
 
     // ─── Template rendering ───────────────────────────────────────────────────
 
     /**
      * @param  TemplateDefinition[]  $templates
-     * @return GeneratedFile[]
+     * @return \SchemaCraft\Generator\Api\GeneratedFile[]
      */
     private function runTemplates(array $templates, array $allData): array
     {
@@ -106,14 +182,14 @@ class GeneratorRunner
                     $iterData = array_merge($iterData, $extras);
                     $content = $this->view->make($templateDef->viewName, $iterData)->render();
                     $path = $this->resolveOutputPath($templateDef->outputPath, $iterData);
-                    $files[] = new GeneratedFile(path: $path, content: $content);
+                    $files[] = new \SchemaCraft\Generator\Api\GeneratedFile(path: $path, content: $content);
                 }
             } else {
                 $extras = $this->resolveExtraVariables($templateDef->extraVariables, $allData);
                 $data = array_merge($allData, $extras);
                 $content = $this->view->make($templateDef->viewName, $data)->render();
                 $path = $this->resolveOutputPath($templateDef->outputPath, $data);
-                $files[] = new GeneratedFile(path: $path, content: $content);
+                $files[] = new \SchemaCraft\Generator\Api\GeneratedFile(path: $path, content: $content);
             }
         }
 
@@ -123,38 +199,47 @@ class GeneratorRunner
     // ─── Inline template processing ───────────────────────────────────────────
 
     /**
+     * Apply one inline insertion to the file cache and return the result.
+     *
+     * $fileCache is passed by reference so each insertion is immediately visible
+     * to subsequent insertions into the same file (compound edits).
+     *
+     * originalContent on the returned value is always set to the content that was
+     * in the cache (or on disk) before THIS insertion — never null — so the caller
+     * can determine the pre-run state of inline-only files from the first result.
+     *
      * @param  array<string, string>  $fileCache  Shared per-run cache: abs path → content.
      */
     private function runInlineTemplate(
         InlineTemplateDefinition $def,
         array $allData,
-        array &$fileCache,
-        bool $writeInlineResults,
     ): InlineGeneratedFile {
         $extras = $this->resolveExtraVariables($def->extraVariables, $allData);
         $data = array_merge($allData, $extras);
 
         $path = $this->resolveOutputPath($def->targetPath, $data);
         $absPath = base_path($path);
-        $snippet = $this->renderSnippet($def->viewName, $data);
+
+        // Raw content bypasses Blade entirely — used for short literals like `use` statements.
+        $snippet = $def->rawContent !== null
+            ? $def->rawContent
+            : $this->renderSnippet($def->viewName, $data);
 
         // Resolve [bracket] placeholders in anchor and searchPattern
         $anchor = $def->anchor !== null ? $this->resolveOutputPath($def->anchor, $data) : null;
         $searchPattern = $def->searchPattern !== null ? $this->resolveOutputPath($def->searchPattern, $data) : null;
 
-        // Cache-first file load
-        if (array_key_exists($absPath, $fileCache)) {
-            $current = $fileCache[$absPath];
-        } elseif (file_exists($absPath)) {
-            $current = file_get_contents($absPath);
-            $fileCache[$absPath] = $current;
-        } else {
+        // Cache-first file load — seeds from disk if the path hasn't been touched yet
+        $current = $this->readFromFileCache($absPath);
+
+        if ($current === null) {
             return new InlineGeneratedFile(
                 path: $path,
                 content: '',
                 snippet: $snippet,
                 skipped: true,
                 skipReason: 'file_not_found',
+                originalContent: null,
             );
         }
 
@@ -166,6 +251,7 @@ class GeneratorRunner
                 snippet: $snippet,
                 skipped: true,
                 skipReason: 'already_present',
+                originalContent: $current,
             );
         }
 
@@ -180,15 +266,12 @@ class GeneratorRunner
                 snippet: $snippet,
                 skipped: true,
                 skipReason: $skipReason,
+                originalContent: $current,
             );
         }
 
         // Update cache so subsequent insertions into the same file see this change
-        $fileCache[$absPath] = $modified;
-
-        if ($writeInlineResults) {
-            file_put_contents($absPath, $modified);
-        }
+        $this->writeToFileCache($absPath, $modified);
 
         return new InlineGeneratedFile(
             path: $path,
@@ -315,6 +398,33 @@ class GeneratorRunner
         $matchEnd = $matchStart + strlen($match[0][0]);
 
         return $insertAfter ? $matchEnd : $matchStart;
+    }
+
+    // ─── File cache ──────────────────────────────────────────────────────────
+
+    /**
+     * Return the cached content for $absPath.
+     *
+     * On cache miss, reads from disk and seeds the cache so all subsequent
+     * accesses — in any pass — see the same content without re-reading disk.
+     * Returns null only when the file does not exist on disk either.
+     */
+    private function readFromFileCache(string $absPath): ?string
+    {
+        if (array_key_exists($absPath, $this->fileCache)) {
+            return $this->fileCache[$absPath];
+        }
+
+        if (file_exists($absPath)) {
+            return $this->fileCache[$absPath] = file_get_contents($absPath);
+        }
+
+        return null;
+    }
+
+    private function writeToFileCache(string $absPath, string $content): void
+    {
+        $this->fileCache[$absPath] = $content;
     }
 
     // ─── Snippet rendering ────────────────────────────────────────────────────

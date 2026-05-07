@@ -47,9 +47,17 @@ class GeneratorColumn
 
     /**
      * Returns the PHP type hint for this column (e.g. 'string', 'int', 'bool').
+     *
+     * Enum cast is the source of truth — an explicit backed-enum castType overrides
+     * the column's base scalar type so action properties and method params use the
+     * concrete enum class rather than 'string' or 'int'.
      */
     public function phpType(): string
     {
+        if ($this->isEnum()) {
+            return class_basename($this->enumClass());
+        }
+
         return match ($this->definition->columnType) {
             'boolean' => 'bool',
             'integer', 'bigInteger', 'smallInteger', 'tinyInteger',

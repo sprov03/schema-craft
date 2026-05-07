@@ -76,6 +76,7 @@ class FilamentPlacementsInputType implements InputType
         $requiresInstance = $this->resolveRequiresInstance($definition, $resolved);
 
         $groups = [];
+        $defaultItems = [];
 
         foreach ($this->discoverPanelTree() as $panel) {
             foreach ($panel['resources'] as $resource) {
@@ -93,18 +94,56 @@ class FilamentPlacementsInputType implements InputType
                             continue;
                         }
 
+                        $value = json_encode(['file' => $page['file'], 'slot' => $slot['key']]);
+
                         $slotOptions[] = [
-                            'label' => $slot['label'],
-                            'value' => json_encode(['file' => $page['file'], 'slot' => $slot['key']]),
+                            'label' => $resource['name'].' › '.$page['name'].' › '.$slot['label'],
+                            'value' => $value,
                         ];
+
+                        $defaultItems[] = ['placement' => $value];
                     }
 
                     if (! empty($slotOptions)) {
                         $groups[] = [
-                            'label' => $resource['name'].' › '.$page['name'],
+                            'label' => $resource['name'],
                             'options' => $slotOptions,
                         ];
                     }
+                }
+            }
+
+            foreach ($panel['relManagers'] as $rm) {
+                if ($modelBasename !== null && ! str_starts_with($rm['name'], $modelBasename)) {
+                    continue;
+                }
+
+                $slotOptions = [];
+
+                foreach ($rm['slots'] as $slot) {
+                    if ($requiresInstance !== null && ! $this->slotMatchesInstanceRequirement($slot, $requiresInstance)) {
+                        continue;
+                    }
+
+                    $value = json_encode([
+                        'file' => $rm['file'],
+                        'slot' => $slot['key'],
+                        'isRelationManager' => true,
+                    ]);
+
+                    $slotOptions[] = [
+                        'label' => $rm['parentResource'].' › '.$rm['name'].' › '.$slot['label'],
+                        'value' => $value,
+                    ];
+
+                    $defaultItems[] = ['placement' => $value];
+                }
+
+                if (! empty($slotOptions)) {
+                    $groups[] = [
+                        'label' => $rm['parentResource'],
+                        'options' => $slotOptions,
+                    ];
                 }
             }
         }
@@ -112,6 +151,7 @@ class FilamentPlacementsInputType implements InputType
         return [
             'renderAs' => 'collection',
             'addLabel' => 'Add Location',
+            'defaultItems' => $defaultItems,
             'fields' => [
                 [
                     'key' => 'placement',
@@ -135,6 +175,7 @@ class FilamentPlacementsInputType implements InputType
                 'label' => $label,
                 'path' => $path,
                 'resources' => $this->discoverResources($path),
+                'relManagers' => $this->discoverRelationManagers($path),
             ];
         }
 
@@ -172,6 +213,55 @@ class FilamentPlacementsInputType implements InputType
         }
 
         return $resources;
+    }
+
+    private function discoverRelationManagers(string $panelPath): array
+    {
+        $fullPath = base_path($panelPath);
+
+        if (! is_dir($fullPath)) {
+            return [];
+        }
+
+        $relManagers = [];
+        $files = glob($fullPath.'/*/RelationManagers/*RelationManager.php') ?: [];
+
+        foreach ($files as $file) {
+            $content = file_get_contents($file);
+
+            // Only include RMs that have a headerActions slot to wire into
+            if (! str_contains($content, '->headerActions(')) {
+                continue;
+            }
+
+            $rmName = basename($file, '.php');
+            $parentDir = dirname(dirname($file));
+
+            // Find parent resource file (e.g. AccountResource.php in Accounts/)
+            $parentResourceFiles = glob($parentDir.'/*Resource.php') ?: [];
+            $parentResourceName = ! empty($parentResourceFiles)
+                ? basename($parentResourceFiles[0], '.php')
+                : basename($parentDir).'Resource';
+
+            $relPath = ltrim(str_replace(base_path(), '', $file), '/\\');
+
+            $relManagers[] = [
+                'name' => $rmName,
+                'file' => $relPath,
+                'parentResource' => $parentResourceName,
+                'slots' => [
+                    [
+                        'key' => 'headerActions',
+                        // Relation manager header actions are always list-level (no model instance)
+                        'filterKey' => 'getHeaderActions_list',
+                        'label' => 'Header Actions',
+                        'requiresInstance' => false,
+                    ],
+                ],
+            ];
+        }
+
+        return $relManagers;
     }
 
     private function discoverPages(string $absPath, string $relPath): array
@@ -321,10 +411,20 @@ class FilamentPlacementsInputType implements InputType
             return null;
         }
 
+        if (! empty($placement['isRelationManager'])) {
+            return [
+                'file' => $placement['file'],
+                'anchor' => null,
+                'searchPattern' => "->headerActions([\n",
+                'isRelationManager' => true,
+            ];
+        }
+
         return [
             'file' => $placement['file'],
             'anchor' => $this->slotAnchor($placement['slot']),
             'searchPattern' => 'return [',
+            'isRelationManager' => false,
         ];
     }
 

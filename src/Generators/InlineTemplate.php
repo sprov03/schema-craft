@@ -41,11 +41,26 @@ class InlineTemplate
 
     private array $extraVariables = [];
 
-    public function __construct(private readonly string $viewName) {}
+    private ?string $rawContent = null;
+
+    public function __construct(private readonly ?string $viewName) {}
 
     public static function make(string $viewName): static
     {
         return new static($viewName);
+    }
+
+    /**
+     * Create an inline insertion from a raw string — no Blade template needed.
+     * Duplicate detection still applies: if the string already exists in the target
+     * file it will be skipped automatically.
+     */
+    public static function raw(string $content): static
+    {
+        $instance = new static(null);
+        $instance->rawContent = $content;
+
+        return $instance;
     }
 
     /** Target file path relative to base_path(). Supports [bracket] placeholders. */
@@ -148,6 +163,7 @@ class InlineTemplate
             anchor: $this->anchor,
             useRegex: $this->useRegex,
             extraVariables: $this->extraVariables,
+            rawContent: $this->rawContent,
         );
     }
 }

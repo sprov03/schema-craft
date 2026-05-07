@@ -137,7 +137,11 @@ class FilamentColumnMapper
 
     private function buildEnumColumn(ColumnDefinition $column): string
     {
-        return "Tables\\Columns\\TextColumn::make('{$column->name}')\n                    ->badge()";
+        $col = "Tables\\Columns\\TextColumn::make('{$column->name}')";
+        $col .= "\n                    ->badge()";
+        $col .= "\n                    ->sortable()";
+
+        return $col;
     }
 
     private function buildCopyableColumn(ColumnDefinition $column): string

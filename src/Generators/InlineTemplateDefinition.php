@@ -21,6 +21,10 @@ namespace SchemaCraft\Generators;
  *
  * Duplicate detection: if the rendered snippet (trimmed) already exists anywhere
  * in the file, the insertion is skipped — safe to run generators more than once.
+ *
+ * Raw content: when $rawContent is set, $viewName is ignored and the string is used
+ * directly as the snippet — no Blade rendering. Useful for injecting short literals
+ * like `use` statements without needing a dedicated template file.
  */
 class InlineTemplateDefinition
 {
@@ -33,8 +37,8 @@ class InlineTemplateDefinition
     public const MODE_PREPEND = 'prepend';
 
     public function __construct(
-        /** Blade view name to render as the inserted content. */
-        public readonly string $viewName,
+        /** Blade view name to render as the inserted content. Ignored when $rawContent is set. */
+        public readonly ?string $viewName,
         /** Target file path relative to base_path(). Supports [bracket] placeholders. */
         public readonly string $targetPath,
         /** Insertion mode: 'after' | 'before' | 'append' | 'prepend'. */
@@ -57,5 +61,7 @@ class InlineTemplateDefinition
         public readonly bool $useRegex = false,
         /** Extra variables merged into the Blade template data for this insertion. */
         public readonly array $extraVariables = [],
+        /** Raw string content to insert directly, bypassing Blade rendering entirely. */
+        public readonly ?string $rawContent = null,
     ) {}
 }

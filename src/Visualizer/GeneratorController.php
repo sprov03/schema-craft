@@ -2,12 +2,10 @@
 
 namespace SchemaCraft\Visualizer;
 
-use Illuminate\Filesystem\Filesystem;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
-use SchemaCraft\Generator\Api\GeneratedFile;
-use SchemaCraft\Generator\Api\InlineGeneratedFile;
+use SchemaCraft\Generator\Api\FileRunResult;
 use SchemaCraft\Generators\GeneratorRegistry;
 use SchemaCraft\Generators\GeneratorRunner;
 use SchemaCraft\Generators\GeneratorSchemaContext;
@@ -206,6 +204,32 @@ class GeneratorController
 
     /**
      * Preview the generated files without writing to disk.
+     *
+     * Runs the same logic as run() — templates + inlines through the shared file cache —
+     * but returns the result as JSON instead of writing to disk. One entry per file.
+     *
+     * ─── Frontend file-entry contract ────────────────────────────────────────────
+     *
+     * Each entry in the `files` array conforms to this shape.
+     * The frontend showFilePreviewModal() and showFile() branch on these keys.
+     *
+     *   {
+     *     type:            'file' | 'inline'
+     *     path:            string        — relative path from project root
+     *     content:         string        — final content after all operations
+     *     exists:          bool          — true when the file already exists on disk
+     *     existingContent: string|null   — on-disk content before this run; null for new files
+     *     skipped:         bool          — true when no change was applied to the file
+     *   }
+     *
+     * The frontend `getCategory()` classifies entries as:
+     *   'new'       — exists === false
+     *   'changed'   — existingContent != null && content !== existingContent
+     *   'unchanged' — existingContent != null && content === existingContent
+     *
+     * CRITICAL: `existingContent` MUST be set for all existing files. Without it,
+     * getCategory() falls through to 'unchanged' and diffs are never shown.
+     * ─────────────────────────────────────────────────────────────────────────────
      */
     public function preview(Request $request): JsonResponse
     {
@@ -217,140 +241,79 @@ class GeneratorController
         $generator = $this->registry->resolve($request->input('generator'));
         $resolved = $this->resolveAccumulated($request->input('accumulated', []), $generator);
 
-        $results = $this->runner->run($generator, $resolved);
+        /** @var FileRunResult[] $results */
+        $results = $this->runner->run($generator, $resolved, writeResults: false);
 
-        // Merge multiple inline results for the same path into one preview entry.
-        // The runner's file cache already chains insertions correctly, so the last
-        // InlineGeneratedFile for a given path holds the fully-modified content.
-        // We keep the first result's originalContent as the true "before" state.
-        $inlineByPath = [];
-        $regularFiles = [];
-
-        // ─── Frontend file-entry contract ────────────────────────────────────────
-        //
-        // Each entry in the `files` array sent to the visualizer must conform to
-        // this shape. The frontend showFilePreviewModal() and showFile() functions
-        // branch entirely on these keys — there are NO type guards on `type`.
-        //
-        //   {
-        //     type:            'file' | 'inline'
-        //     path:            string   — relative path from project root
-        //     content:         string   — the newly generated content
-        //     exists:          bool     — true when the file currently exists on disk
-        //     existingContent: string|null — current on-disk content, or null for new files
-        //     skipped?:        bool     — inline only; true when the insertion was skipped
-        //   }
-        //
-        // The frontend `getCategory()` function classifies entries as:
-        //   'new'       — exists === false  (existingContent is null)
-        //   'changed'   — existingContent != null && content !== existingContent
-        //   'unchanged' — existingContent != null && content === existingContent
-        //   'deleted'   — f.removed === true  (only used in schema-removal flows)
-        //
-        // CRITICAL: `existingContent` MUST be populated for existing files on all
-        // entry types ('file' and 'inline'). Without it, getCategory() permanently
-        // falls through to 'unchanged' and the diff toggle is never shown — even
-        // when the generated content differs significantly from what is on disk.
-        //
-        // This was lost during the unification of the old per-generator preview
-        // controllers (GenerateController::createResourcePreview, filamentPreview,
-        // sdkPreview) into this single generic preview() method. Those older methods
-        // all explicitly read file_get_contents() and set existingContent.
-        // ─────────────────────────────────────────────────────────────────────────
-
-        foreach ($results as $result) {
-            if ($result instanceof InlineGeneratedFile) {
-                $path = $result->path;
-                if (! isset($inlineByPath[$path])) {
-                    $inlineByPath[$path] = [
-                        'type' => 'inline',
-                        'path' => $path,
-                        'content' => $result->content,
-                        'skipped' => $result->skipped,
-                        'exists' => file_exists(base_path($path)),
-                        'existingContent' => $result->originalContent,
-                    ];
-                } else {
-                    // Subsequent insertion into the same file: update to latest content.
-                    // existingContent stays as the true original from the first insertion.
-                    $inlineByPath[$path]['content'] = $result->content;
-                    if (! $result->skipped) {
-                        $inlineByPath[$path]['skipped'] = false;
-                    }
-                }
-            } else {
-                // Read the on-disk content so the frontend can classify this entry
-                // correctly and render the before/after diff view. See contract above.
-                $absPath = base_path($result->path);
-                $existingContent = file_exists($absPath) ? file_get_contents($absPath) : null;
-
-                $regularFiles[] = [
-                    'type' => 'file',
-                    'path' => $result->path,
-                    'content' => $result->content,
-                    'exists' => $existingContent !== null,
-                    'existingContent' => $existingContent,
-                ];
-            }
-        }
-
-        $files = array_merge($regularFiles, array_values($inlineByPath));
+        $files = array_map(fn (FileRunResult $result) => [
+            'type' => $result->isTemplate ? 'file' : 'inline',
+            'path' => $result->path,
+            'content' => $result->content,
+            'exists' => ! $result->isNew,
+            'existingContent' => $result->originalContent,
+            'skipped' => ! $result->isNew && ! $result->isModified(),
+        ], $results);
 
         return new JsonResponse(['success' => true, 'files' => $files]);
     }
 
     /**
      * Generate files and write them to disk.
+     *
+     * Delegates all logic — template rendering, inline insertion, file cache management —
+     * to GeneratorRunner::run(). The runner decides what to write; this method only
+     * maps the results to the API response shape.
      */
-    public function run(Request $request, Filesystem $fs): JsonResponse
+    public function run(Request $request): JsonResponse
     {
         $request->validate([
             'generator' => ['required', 'string'],
             'accumulated' => ['sometimes', 'array'],
+            'skipFiles' => ['sometimes', 'array'],
+            'skipFiles.*' => ['string'],
         ]);
 
         $generator = $this->registry->resolve($request->input('generator'));
-        $force = (bool) $request->input('force', false);
         $resolved = $this->resolveAccumulated($request->input('accumulated', []), $generator);
+        $skipFiles = $request->input('skipFiles', []);
 
-        $results = $this->runner->run($generator, $resolved, writeInlineResults: true);
+        /** @var FileRunResult[] $results */
+        $results = $this->runner->run($generator, $resolved, writeResults: true, skipFiles: $skipFiles);
 
         $resultFiles = [];
         $createdCount = 0;
 
         foreach ($results as $result) {
-            if ($result instanceof InlineGeneratedFile) {
-                $resultFiles[] = $this->writeInlineResult($result);
-
-                if (! $result->skipped) {
-                    $createdCount++;
-                }
-
-                continue;
-            }
-
-            /** @var GeneratedFile $result */
-            $absPath = base_path($result->path);
-
-            if (file_exists($absPath) && ! $force) {
+            if ($result->isNew) {
+                $createdCount++;
                 $resultFiles[] = [
                     'type' => 'file',
                     'path' => $result->path,
-                    'skipped' => true,
-                    'message' => basename($result->path).' already exists.',
+                    'created' => true,
+                    'message' => basename($result->path).' created.',
                 ];
 
                 continue;
             }
 
-            $fs->ensureDirectoryExists(dirname($absPath));
-            $fs->put($absPath, $result->content);
-            $createdCount++;
+            // Existing file with inline insertions — report each inline result
+            if (! empty($result->inlineResults)) {
+                foreach ($result->inlineResults as $inline) {
+                    $resultFiles[] = $this->formatInlineResult($inline);
+
+                    if (! $inline->skipped) {
+                        $createdCount++;
+                    }
+                }
+
+                continue;
+            }
+
+            // Existing file, no inlines — unchanged, nothing written
             $resultFiles[] = [
                 'type' => 'file',
                 'path' => $result->path,
-                'created' => true,
-                'message' => basename($result->path).' created.',
+                'skipped' => true,
+                'message' => basename($result->path).' already exists.',
             ];
         }
 
@@ -388,6 +351,7 @@ class GeneratorController
         $relationships = array_map(fn ($rel) => [
             'name' => $rel->definition->name,
             'type' => $rel->type,
+            'isCollection' => $rel->isCollection(),
         ], $context->allRelationships);
 
         return new JsonResponse([
@@ -521,7 +485,7 @@ class GeneratorController
         return $sections;
     }
 
-    private function writeInlineResult(InlineGeneratedFile $result): array
+    private function formatInlineResult(\SchemaCraft\Generator\Api\InlineGeneratedFile $result): array
     {
         if ($result->skipped) {
             $reason = match ($result->skipReason) {

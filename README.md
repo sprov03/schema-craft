@@ -3150,15 +3150,19 @@ Inputs define the form fields shown in the Visualizer when configuring a generat
 
 | Method | Description |
 |--------|-------------|
-| `Input::schemaSelector($key, $label)` | Schema dropdown with optional column/relationship checkboxes |
-| `Input::text($key, $label)` | Free text field |
-| `Input::select($key, $label, $options)` | Dropdown select |
-| `Input::boolean($key, $label, $default)` | Checkbox toggle |
-| `Input::schemaColumn($key, $label, $selectorKey)` | Single column picker (from a schemaSelector) |
-| `Input::schemaColumns($key, $label, $selectorKey)` | Multi column picker (from a schemaSelector) |
-| `Input::selectResourceDirectory($key, $label)` | Filament resource directory picker |
-| `Input::filamentPlacements($key, $label)` | Filament panel → resource → page → slot cascade picker |
-| `Input::custom($type, $key, $label, $extra)` | Project-registered custom input type |
+| `Input::text($label)` | Free text field |
+| `Input::select($label, $options)` | Dropdown select |
+| `Input::boolean($label, $default)` | Checkbox toggle |
+| `Input::schemaSelector($label)` | Schema dropdown with optional column/relationship checkboxes |
+| `Input::schemaColumn($label, $selectorKey)` | Single column picker (from a schemaSelector) |
+| `Input::schemaColumnCombobox($label, $selectorKey)` | Column picker that also accepts free-text entry |
+| `Input::schemaColumns($label, $selectorKey)` | Multi-column picker (from a schemaSelector) |
+| `Input::schemaFieldPicker($label, $selectorKey)` | Recursive dot-path field picker (e.g. `author.name`, `comments.*.body`) |
+| `Input::nestedFieldSelector($label, $selectorKey)` | Two-section tree: flat columns + expandable per-relationship sub-fields |
+| `Input::selectResourceDirectory($label)` | Filament resource directory picker |
+| `Input::filamentPlacements($label)` | Filament panel → resource → page → slot cascade picker |
+| `Input::computed($value)` | Read-only info row displayed in the wizard, no user input |
+| `Input::custom($type, $label, $extra)` | Project-registered custom input type |
 
 #### Schema Selector
 

@@ -15,6 +15,7 @@ namespace SchemaCraft\Generators;
  *         ->description('e.g. "Create", "Update"')
  *
  *     Input::select('Type', options: ['a' => 'Alpha', 'b' => 'Beta'])
+ *     Input::multiSelect('Panels', options: ['admin' => 'Admin', 'app' => 'App'])
  *     Input::boolean('Soft Delete', default: false)
  *     Input::schemaSelector('Schema', selectColumns: true, selectRelationships: true)
  *     Input::schemaColumn('Column', selectorKey: 'schema')
@@ -49,6 +50,13 @@ class Input
     public static function select(string $label, array $options): InputDefinition
     {
         return new InputDefinition(label: $label, type: 'select', options: $options);
+    }
+
+    /** Multi-select with predefined options — resolves to string[]. */
+    public static function multiSelect(string $label, array $options): InputDefinition
+    {
+        return (new InputDefinition(label: $label, type: 'multiselect', options: $options))
+            ->default([]);
     }
 
     /** Checkbox toggle. */

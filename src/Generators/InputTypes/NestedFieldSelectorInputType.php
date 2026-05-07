@@ -80,7 +80,7 @@ class NestedFieldSelectorInputType implements InputType
 
         // Top-level columns — exclude system columns (pk, timestamps, soft-delete)
         $columns = array_values(array_map(
-            fn ($col) => ['name' => $col->name, 'type' => $col->columnType],
+            fn ($col) => ['name' => $col->name, 'type' => $col->columnType, 'nullable' => $col->nullable, 'hasDefault' => $col->hasDefault],
             array_filter(
                 $context->allColumns,
                 fn ($col) => ! $col->isPrimary() && ! $col->isTimestamp() && ! $col->isSoftDelete(),
