@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SchemaCraft Visualizer</title>
+    <!-- __SCHEMA_CRAFT_VARS__ -->
     <script src="https://cdn.jsdelivr.net/npm/marked@14/marked.min.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1137,6 +1138,13 @@
         }
         .fp-skip-btn:hover { background: var(--error-dim); color: var(--error); }
         .fp-skip-btn.skipped { background: var(--error-dim); color: var(--error); }
+        .fp-ide-btn {
+            flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+            width: 18px; height: 18px; border-radius: 3px; color: var(--text-muted);
+            opacity: 0; transition: opacity 0.15s, color 0.15s; text-decoration: none;
+        }
+        .fp-file-item:hover .fp-ide-btn { opacity: 1; }
+        .fp-ide-btn:hover { color: var(--accent); }
         .fp-file-item.fp-skipped { opacity: 0.4; }
         .fp-file-item.fp-skipped .fp-file-path { text-decoration: line-through; }
         .fp-code-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -6411,8 +6419,14 @@
                 var skipTitle = f.removed ? 'Keep this file (do not delete)' : 'Skip this file';
                 var skipBtn = '<button class="fp-skip-btn" data-fp-skip-idx="' + idx + '" title="' + skipTitle + '">' + skipLabel + '</button>';
                 var fileName = f.path.split('/').pop();
+                var absPath = (window.SCHEMA_CRAFT_BASE_PATH || '') + '/' + f.path;
+                var ideUrl = 'phpstorm://open?file=' + encodeURIComponent(absPath);
+                var ideBtn = '<a class="fp-ide-btn" href="' + ideUrl + '" title="Open in PhpStorm" onclick="event.stopPropagation()">' +
+                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                    '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>' +
+                    '<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>';
                 return '<div class="fp-file-item' + hidden + '" data-fp-idx="' + idx + '" data-fp-category="' + cat + '" title="' + escapeHtml(f.path) + '">' +
-                    '<span class="fp-file-path">' + escapeHtml(fileName) + '</span>' + badgeMap[cat] + skipBtn + '</div>';
+                    ideBtn + '<span class="fp-file-path">' + escapeHtml(fileName) + '</span>' + badgeMap[cat] + skipBtn + '</div>';
             }).join('');
 
             var chipOrder = ['new', 'changed', 'deleted', 'unchanged'];

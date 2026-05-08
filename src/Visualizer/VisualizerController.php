@@ -21,6 +21,11 @@ class VisualizerController
     public function index(): Response
     {
         $html = file_get_contents(__DIR__.'/resources/visualizer.html');
+        $html = str_replace(
+            '<!-- __SCHEMA_CRAFT_VARS__ -->',
+            '<script>window.SCHEMA_CRAFT_BASE_PATH = '.json_encode(base_path()).';</script>',
+            $html
+        );
 
         return new Response($html, 200, [
             'Content-Type' => 'text/html',
