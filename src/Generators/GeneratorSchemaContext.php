@@ -300,11 +300,10 @@ class GeneratorSchemaContext
             }
         }
 
-        $parts = explode('\\', $schemaClass);
-        $class = (string) preg_replace('/Schema$/', '', array_pop($parts));
-        $parts = array_map(fn ($segment) => $segment === 'Schemas' ? 'Models' : $segment, $parts);
+        $connConfig = ConfigResolver::resolveForSchema($schemaClass);
+        $basename = (string) preg_replace('/Schema$/', '', class_basename($schemaClass));
 
-        return implode('\\', [...$parts, $class]);
+        return $connConfig->modelNamespace.'\\'.$basename;
     }
 
     /**
