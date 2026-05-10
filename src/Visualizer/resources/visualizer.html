@@ -1092,7 +1092,8 @@
         }
         .fp-file-item:hover { background: var(--bg-secondary); }
         .fp-file-item.active { background: var(--accent-dim); color: var(--accent); }
-        .fp-file-path { flex: 1 1 100%; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .fp-file-name-row { flex: 1 1 100%; display: flex; align-items: center; gap: 4px; min-width: 0; }
+        .fp-file-path { flex: 1; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .fp-file-badge {
             padding: 2px 8px; border-radius: 10px; font-size: 10px;
             font-weight: 600; text-transform: uppercase; flex-shrink: 0;
@@ -6426,7 +6427,7 @@
                     '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>' +
                     '<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>';
                 return '<div class="fp-file-item' + hidden + '" data-fp-idx="' + idx + '" data-fp-category="' + cat + '" title="' + escapeHtml(f.path) + '">' +
-                    ideBtn + '<span class="fp-file-path">' + escapeHtml(fileName) + '</span>' + badgeMap[cat] + skipBtn + '</div>';
+                    '<span class="fp-file-name-row">' + ideBtn + '<span class="fp-file-path">' + escapeHtml(fileName) + '</span></span>' + badgeMap[cat] + skipBtn + '</div>';
             }).join('');
 
             var chipOrder = ['new', 'changed', 'deleted', 'unchanged'];
