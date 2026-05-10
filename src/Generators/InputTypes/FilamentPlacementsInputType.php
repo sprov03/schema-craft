@@ -114,8 +114,17 @@ class FilamentPlacementsInputType implements InputType
             }
 
             foreach ($panel['relManagers'] as $rm) {
-                if ($modelBasename !== null && ! str_starts_with($rm['name'], $modelBasename)) {
-                    continue;
+                if ($modelBasename !== null) {
+                    // Prefer $relatedResource declaration over class-name prefix — the declaration
+                    // is Filament's own source of truth and handles semantic aliases correctly
+                    // (e.g. KitRelationManager with $relatedResource = RabbitResource::class).
+                    $basename = $rm['relatedResourceBasename'] ?? null;
+                    $matchesResource = $basename !== null && str_starts_with($basename, $modelBasename);
+                    $matchesName = str_starts_with($rm['name'], $modelBasename);
+
+                    if (! $matchesResource && ! $matchesName) {
+                        continue;
+                    }
                 }
 
                 $slotOptions = [];
@@ -245,10 +254,19 @@ class FilamentPlacementsInputType implements InputType
 
             $relPath = ltrim(str_replace(base_path(), '', $file), '/\\');
 
+            // Extract the related resource class basename from the $relatedResource declaration,
+            // if present. More reliable than matching on the RM class name, which may be a
+            // semantic alias (e.g. KitRelationManager targeting RabbitResource).
+            $relatedResourceBasename = null;
+            if (preg_match('/\$relatedResource\s*=\s*([A-Za-z]+)::class/', $content, $m)) {
+                $relatedResourceBasename = $m[1];
+            }
+
             $relManagers[] = [
                 'name' => $rmName,
                 'file' => $relPath,
                 'parentResource' => $parentResourceName,
+                'relatedResourceBasename' => $relatedResourceBasename,
                 'slots' => [
                     [
                         'key' => 'headerActions',

@@ -17,11 +17,12 @@ class NameChainTest extends TestCase
         $this->assertSame('user_profile', (string) $chain);
     }
 
-    public function test_normalizes_studly_input_to_snake_singular(): void
+    public function test_normalizes_studly_input_to_snake(): void
     {
+        // Studly is converted to snake_case but original form (plural) is preserved.
         $chain = new NameChain('UserProfiles');
 
-        $this->assertSame('user_profile', (string) $chain);
+        $this->assertSame('user_profiles', (string) $chain);
     }
 
     public function test_normalizes_camel_input(): void
@@ -31,11 +32,26 @@ class NameChainTest extends TestCase
         $this->assertSame('sales_report', (string) $chain);
     }
 
-    public function test_normalizes_plural_input_to_singular(): void
+    public function test_preserves_plural_form(): void
     {
+        // NameChain no longer silently singularizes. 'user_profiles' stays 'user_profiles'.
+        // This is required so that relationship property names like 'breedings' survive
+        // construction and (string) $relationship->name returns the exact PHP property name.
         $chain = new NameChain('user_profiles');
 
-        $this->assertSame('user_profile', (string) $chain);
+        $this->assertSame('user_profiles', (string) $chain);
+    }
+
+    public function test_relationship_name_preserved(): void
+    {
+        // Regression guard: a HasMany relationship named 'breedings' must not be
+        // silently singularized to 'breeding' on construction.
+        $chain = new NameChain('breedings');
+
+        $this->assertSame('breedings', (string) $chain);
+        $this->assertSame('breeding', (string) $chain->singular);
+        $this->assertSame('Breeding', (string) $chain->singular->title);
+        $this->assertSame('breedings', (string) $chain->plural);
     }
 
     // ─── Plurality ────────────────────────────────────────────────
