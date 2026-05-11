@@ -60,11 +60,17 @@ class FilamentEntryMapperTest extends TestCase
         $this->assertStringContainsString('->columnSpanFull()', $result);
     }
 
-    public function test_json_column_renders_as_badge(): void
+    public function test_json_column_renders_as_formatted_html_dump(): void
     {
         $result = $this->mapper->map(new ColumnDefinition(name: 'tags', columnType: 'json'), '');
 
-        $this->assertStringContainsString('->badge()', $result);
+        // JSON columns get a catch-all pre-formatted dump instead of ->badge(),
+        // which crashes when the array contains nested objects.
+        $this->assertStringContainsString('->formatStateUsing(', $result);
+        $this->assertStringContainsString('json_encode(', $result);
+        $this->assertStringContainsString('->html()', $result);
+        $this->assertStringContainsString('->columnSpanFull()', $result);
+        $this->assertStringNotContainsString('->badge()', $result);
     }
 
     public function test_uuid_column_is_copyable(): void

@@ -109,9 +109,28 @@ class FilamentEntryMapper
         return $entry;
     }
 
+    /**
+     * Catch-all for undocumented JSON/array columns.
+     *
+     * ->badge() would crash at runtime if the array contains nested objects —
+     * Filament's badge renderer calls (string) on each element, which fails
+     * for arrays. Until the column is documented with a JsonColumn subclass
+     * (which provides a proper Filament component), we dump the raw JSON in a
+     * <pre> block so the infolist renders without crashing and shows all data.
+     *
+     * NOTE: Once a column is given a SchemaCraftColumn cast (JsonColumn,
+     * CollectionColumn, etc.), asFilamentEntry() will delegate to that class
+     * instead of reaching this method, and this fallback becomes unreachable
+     * for that column.
+     */
     private function buildJsonEntry(ColumnDefinition $column): string
     {
-        return "Infolists\\Components\\TextEntry::make('{$column->name}')\n                    ->badge()";
+        $entry = "Infolists\\Components\\TextEntry::make('{$column->name}')";
+        $entry .= "\n                    ->formatStateUsing(fn (\$state) => \$state ? '<pre>'.e(json_encode(\$state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)).'</pre>' : '—')";
+        $entry .= "\n                    ->html()";
+        $entry .= "\n                    ->columnSpanFull()";
+
+        return $entry;
     }
 
     private function buildEnumEntry(ColumnDefinition $column): string

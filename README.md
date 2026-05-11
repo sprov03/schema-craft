@@ -1989,6 +1989,41 @@ $post->comments;    // CommentData[]|null (when loaded)
 
 Resource method names are pluralized camelCase: `Post` → `posts()`, `BlogPost` → `blogPosts()`, `Category` → `categories()`.
 
+### Error Handling
+
+All SDK calls throw an exception on any non-2xx response. If you don't catch it, it bubbles like any other PHP exception.
+
+| Exception | When |
+|---|---|
+| `SdkValidationException` | HTTP 422 — field-level validation errors from a `FormRequest` |
+| `SdkRequestException` | Any other 4xx or 5xx response |
+
+`SdkValidationException` extends `SdkRequestException`, so `catch (SdkRequestException $e)` catches both.
+
+```php
+use MyApp\Sdk\SdkValidationException;
+use MyApp\Sdk\SdkRequestException;
+
+// Handle 422 validation errors — e.g. forward them back to your own client
+try {
+    $client->posts()->create(title: '');
+} catch (SdkValidationException $e) {
+    $e->getErrors();     // ['title' => ['The title field is required.']]
+    $e->getMessage();    // 'The given data was invalid.'
+    $e->getStatusCode(); // 422
+}
+
+// Handle everything else
+try {
+    $client->posts()->get(99999);
+} catch (SdkRequestException $e) {
+    $e->getStatusCode(); // 404
+    $e->getMessage();    // 'Record not found.'
+}
+```
+
+The generated SDK README contains a full error handling reference with concrete examples for your specific resource names and namespace.
+
 ### Custom Actions in the SDK
 
 Custom actions added via `schema:generate PostSchema --action=cancel` are automatically detected and included as methods on the SDK resource:

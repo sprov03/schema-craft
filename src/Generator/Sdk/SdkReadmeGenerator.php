@@ -153,6 +153,49 @@ class SdkReadmeGenerator
             $lines[] = '';
         }
 
+        // Error Handling
+        $lines[] = '## Error Handling';
+        $lines[] = '';
+        $lines[] = 'All SDK calls throw an exception on any non-2xx response. If you do not catch the exception it will bubble up like any other PHP exception.';
+        $lines[] = '';
+        $lines[] = '| Exception | When |';
+        $lines[] = '|---|---|';
+        $lines[] = "| `{$namespace}\\SdkValidationException` | HTTP 422 — field-level validation errors |";
+        $lines[] = "| `{$namespace}\\SdkRequestException` | Any other 4xx or 5xx response |";
+        $lines[] = '';
+        $lines[] = '`SdkValidationException` extends `SdkRequestException`, so a single catch of the parent covers both.';
+        $lines[] = '';
+        $lines[] = '### Catching validation errors (422)';
+        $lines[] = '';
+        $lines[] = '```php';
+        $lines[] = "use {$namespace}\\SdkValidationException;";
+        $lines[] = '';
+        $lines[] = 'try {';
+        $lines[] = "    \$client->posts()->create(title: '');";
+        $lines[] = '} catch (SdkValidationException $e) {';
+        $lines[] = "    \$e->getMessage(); // 'The given data was invalid.'";
+        $lines[] = "    \$e->getErrors();  // ['title' => ['The title field is required.']]";
+        $lines[] = '    $e->getStatusCode(); // 422';
+        $lines[] = '';
+        $lines[] = '    // Forward errors back to your own client (Laravel example):';
+        $lines[] = "    return response()->json(['errors' => \$e->getErrors()], 422);";
+        $lines[] = '}';
+        $lines[] = '```';
+        $lines[] = '';
+        $lines[] = '### Catching all other errors';
+        $lines[] = '';
+        $lines[] = '```php';
+        $lines[] = "use {$namespace}\\SdkRequestException;";
+        $lines[] = '';
+        $lines[] = 'try {';
+        $lines[] = '    $client->posts()->get(99999);';
+        $lines[] = '} catch (SdkRequestException $e) {';
+        $lines[] = '    $e->getStatusCode(); // 404';
+        $lines[] = "    \$e->getMessage();    // 'Record not found.'";
+        $lines[] = '}';
+        $lines[] = '```';
+        $lines[] = '';
+
         // Authentication
         $lines[] = '## Authentication';
         $lines[] = '';

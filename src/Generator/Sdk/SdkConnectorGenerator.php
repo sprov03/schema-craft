@@ -53,9 +53,10 @@ class SdkConnectorGenerator
             {
                 \$response = \$this->httpClient->request('GET', \$this->url(\$path), [
                     'headers' => \$this->headers(),
+                    'http_errors' => false,
                 ]);
 
-                return json_decode(\$response->getBody()->getContents(), true);
+                return \$this->handleResponse(\$response);
             }
 
             /**
@@ -68,9 +69,10 @@ class SdkConnectorGenerator
                 \$response = \$this->httpClient->request('POST', \$this->url(\$path), [
                     'headers' => \$this->headers(),
                     'json' => \$data,
+                    'http_errors' => false,
                 ]);
 
-                return json_decode(\$response->getBody()->getContents(), true);
+                return \$this->handleResponse(\$response);
             }
 
             /**
@@ -83,13 +85,15 @@ class SdkConnectorGenerator
                 \$response = \$this->httpClient->request('PUT', \$this->url(\$path), [
                     'headers' => \$this->headers(),
                     'json' => \$data,
+                    'http_errors' => false,
                 ]);
 
-                return json_decode(\$response->getBody()->getContents(), true);
+                return \$this->handleResponse(\$response);
             }
 
             /**
              * @param string \$path
+             * @param array \$data
              * @return array
              */
             public function patch(\$path, array \$data)
@@ -97,9 +101,10 @@ class SdkConnectorGenerator
                 \$response = \$this->httpClient->request('PATCH', \$this->url(\$path), [
                     'headers' => \$this->headers(),
                     'json' => \$data,
+                    'http_errors' => false,
                 ]);
 
-                return json_decode(\$response->getBody()->getContents(), true);
+                return \$this->handleResponse(\$response);
             }
 
             /**
@@ -108,9 +113,12 @@ class SdkConnectorGenerator
              */
             public function delete(\$path)
             {
-                \$this->httpClient->request('DELETE', \$this->url(\$path), [
+                \$response = \$this->httpClient->request('DELETE', \$this->url(\$path), [
                     'headers' => \$this->headers(),
+                    'http_errors' => false,
                 ]);
+
+                \$this->handleResponse(\$response);
             }
 
             /**
@@ -132,6 +140,37 @@ class SdkConnectorGenerator
                     'Accept' => 'application/json',
                     'Content-Type' => 'application/json',
                 ];
+            }
+
+            /**
+             * Parse the response body and throw on any error status code.
+             *
+             * @throws SdkValidationException on 422
+             * @throws SdkRequestException on any other 4xx/5xx
+             * @return array
+             */
+            private function handleResponse(\$response)
+            {
+                \$statusCode = \$response->getStatusCode();
+                \$body = json_decode(\$response->getBody()->getContents(), true) ?? [];
+
+                if (\$statusCode === 422) {
+                    throw new SdkValidationException(
+                        \$body['message'] ?? 'The given data was invalid.',
+                        422,
+                        \$body['errors'] ?? []
+                    );
+                }
+
+                if (\$statusCode >= 400) {
+                    throw new SdkRequestException(
+                        \$body['message'] ?? 'An error occurred.',
+                        \$statusCode,
+                        \$body['errors'] ?? []
+                    );
+                }
+
+                return \$body;
             }
         }
 

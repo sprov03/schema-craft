@@ -42,6 +42,18 @@ class SdkGenerator
             content: (new SdkConnectorGenerator)->generate($namespace),
         );
 
+        // Exceptions — SdkValidationException extends SdkRequestException so a single
+        // catch(SdkRequestException) covers both, but callers can target 422 specifically.
+        $files['exception_request'] = new GeneratedFile(
+            path: 'src/SdkRequestException.php',
+            content: $this->generateRequestException($namespace),
+        );
+
+        $files['exception_validation'] = new GeneratedFile(
+            path: 'src/SdkValidationException.php',
+            content: $this->generateValidationException($namespace),
+        );
+
         // Data DTOs and Resources for each schema
         $primaryModelNames = [];
 
@@ -110,6 +122,77 @@ class SdkGenerator
         );
 
         return $files;
+    }
+
+    public function generateRequestException(string $namespace): string
+    {
+        return <<<PHP
+        <?php
+
+        namespace {$namespace};
+
+        /**
+         * Thrown by SdkConnector when the API returns any 4xx or 5xx response.
+         *
+         * Catch SdkValidationException first when you need to handle 422 specifically.
+         * Catch this class to handle everything else (404, 403, 500, etc.).
+         */
+        class SdkRequestException extends \\RuntimeException
+        {
+            /** @var int */
+            private \$statusCode;
+
+            /** @var array */
+            private \$errors;
+
+            /**
+             * @param string \$message
+             * @param int    \$statusCode
+             * @param array  \$errors
+             */
+            public function __construct(\$message, \$statusCode, array \$errors = [])
+            {
+                parent::__construct(\$message);
+                \$this->statusCode = \$statusCode;
+                \$this->errors = \$errors;
+            }
+
+            /** @return int */
+            public function getStatusCode()
+            {
+                return \$this->statusCode;
+            }
+
+            /** @return array */
+            public function getErrors()
+            {
+                return \$this->errors;
+            }
+        }
+
+        PHP;
+    }
+
+    public function generateValidationException(string $namespace): string
+    {
+        return <<<PHP
+        <?php
+
+        namespace {$namespace};
+
+        /**
+         * Thrown by SdkConnector when the API returns HTTP 422 Unprocessable Entity.
+         *
+         * getErrors() returns the field-level validation messages from the API response:
+         *   ['field' => ['The field is required.', ...], ...]
+         *
+         * Extends SdkRequestException so a single catch(SdkRequestException) catches both.
+         */
+        class SdkValidationException extends SdkRequestException
+        {
+        }
+
+        PHP;
     }
 
     private function generateComposerJson(
