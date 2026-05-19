@@ -235,6 +235,58 @@ The `->value()` method works on **any** input type. The resolved result is store
 
 ---
 
+## Template Engine
+
+Templates are standard **Laravel Blade**. Files end in `.blade.php` and live under `resources/views/generators/`. Every Blade directive works: `@if`, `@foreach`, `@include`, `@php`, `{{ }}` (escaped), `{!! !!}` (raw).
+
+### `@php` blocks are unrestricted
+
+Inside a `@php` block you have full PHP. Use any class, define closures, build arrays, or pre-compute derived data the rest of the template needs.
+
+```blade
+@php
+    use Illuminate\Support\Str;
+
+    $imports = collect($schema->relationships)
+        ->map(fn ($r) => "use {$r->relatedModelClass};")
+        ->unique()
+        ->sort()
+        ->implode("\n");
+@endphp
+```
+
+### `{!! $phpOpenTag !!}` for PHP file output
+
+`$phpOpenTag` is automatically injected as the literal `<?php` opening tag so Blade doesn't try to parse it. Use it at the top of any template that renders a PHP file:
+
+```blade
+{!! $phpOpenTag !!}
+
+namespace App\Foo;
+```
+
+### Partials via `@include`
+
+Templates can include other Blade files; included partials inherit the parent scope, and you can pass extras as the second argument.
+
+```blade
+@foreach ($schema->columns as $column)
+    @include('generators.my-generator.partials.field', ['column' => $column])
+@endforeach
+```
+
+### Available variables
+
+Every Blade template sees the union of:
+
+1. All keys from `data()` — as their fully resolved typed objects, not raw input
+2. Everything returned by `templateData()`
+3. The per-iteration variable when rendered inside `Template::forEach` (under the `as` key)
+4. Any `extraVariables` passed to `Template::file()`
+5. `$phpOpenTag`
+
+---
+
 ## Template System
 
 ### `Template::file`
@@ -318,6 +370,18 @@ public function inlineTemplates(array $data): array
 | `->append()` | Append to the end of the file. |
 | `->prepend()` | Prepend to the beginning of the file. |
 | `->with(array $vars)` | Extra variables merged into the Blade template for this insertion only. |
+
+### `InlineTemplate::raw()`
+
+For short literal snippets — a `use` statement, a single registration line — you can skip the Blade view entirely and pass the content directly:
+
+```php
+InlineTemplate::raw("use {$fqcn};\n")
+    ->into('[service_path]')
+    ->beforeRegex('/^class /m');
+```
+
+Duplicate detection still applies, so re-running the generator won't insert the same `use` twice.
 
 ---
 
@@ -457,6 +521,115 @@ $column->asFilamentEntry()        // 'TextEntry::make(\'name\')...'
 
 ---
 
+## GeneratorRelationship
+
+Each entry in `$schema->relationships` (and the per-item variable inside `Template::forEachRelationship`) is a `GeneratorRelationship`.
+
+### Core Properties
+
+```php
+$relationship->name              // NameChain — e.g. ->title = "Comments", ->camel = "comments"
+$relationship->relatedModel      // NameChain — e.g. ->title = "Comment"
+$relationship->relatedModelClass // "App\Models\Comment"
+```
+
+### Boolean Helpers
+
+```php
+$relationship->isCollection() // hasMany, hasManyThrough, belongsToMany, morphMany, morphToMany
+$relationship->isSingular()   // belongsTo, hasOne, morphOne, morphTo
+```
+
+### Convenience
+
+```php
+$relationship->relatedTitleColumn() // First #[Title] column on the related schema, or PK fallback
+```
+
+### Pass-through from `RelationshipDefinition`
+
+Properties on the underlying `RelationshipDefinition` are exposed via magic `__get`. Useful ones:
+
+```php
+$relationship->type           // "hasMany", "belongsTo", "morphMany", etc.
+$relationship->nullable       // bool
+$relationship->foreignColumn  // FK column name, or null
+$relationship->pivotTable     // pivot table name for many-to-many, or null
+$relationship->morphName      // morph name for polymorphic, or null
+$relationship->inverse        // bool
+```
+
+In path interpolation: `[relationship.name.title]` → `"Comments"`, `[relationship.name.singular.title]` → `"Comment"`.
+
+---
+
+## NestedFieldSelection
+
+Resolved by `Input::nestedFieldSelector`. Available in templates as whatever key you used in `data()`.
+
+### Properties
+
+```php
+$fields->columns                       // GeneratorColumn[] of top-level selected columns
+$fields->relationships                 // NestedRelationshipSelection[]
+$fields->isEmpty()                     // true if nothing was selected
+$fields->hasCollectionRelationships()  // bool
+$fields->hasSingularRelationships()    // bool
+```
+
+Each `NestedRelationshipSelection`:
+
+```php
+$relSel->relationship    // GeneratorRelationship (use ->name, ->relatedModel, etc.)
+$relSel->selectedFields  // GeneratorColumn[] selected on the related schema
+$relSel->isCollection()  // bool
+$relSel->isSingular()    // bool
+$relSel->type()          // "collection" or "singular"
+```
+
+Typical template usage:
+
+```blade
+@foreach ($fields->columns as $column)
+    public {!! $column->phpTypeNullable() !!} ${{ $column->camelName() }};
+@endforeach
+
+@foreach ($fields->relationships as $relSel)
+    public {!! $relSel->isCollection() ? 'array' : $relSel->relationship->relatedModel->title !!} ${{ $relSel->relationship->name->camel }};
+@endforeach
+```
+
+---
+
+## FilamentPlacement
+
+Resolved by `Input::filamentPlacements` as `array[]`. Each placement is an associative array describing one wiring target:
+
+```php
+[
+    'file'              => 'app/Filament/Admin/Pages/Settings.php',
+    'anchor'            => 'getHeaderActions(): array',
+    'searchPattern'     => 'return [',
+    'isRelationManager' => false,
+]
+```
+
+Drive `inlineTemplates()` from the list:
+
+```php
+public function inlineTemplates(array $data): array
+{
+    return array_map(function ($placement) {
+        return Template::inline('generators.my-generator.page-action')
+            ->into($placement['file'])
+            ->anchor($placement['anchor'])
+            ->after($placement['searchPattern']);
+    }, $data['placements']);
+}
+```
+
+---
+
 ## ResourceDirectoryValue
 
 Resolved by `Input::selectResourceDirectory`. Wraps a relative path alongside its derived PSR-4 namespace.
@@ -508,6 +681,95 @@ public function templateData(): array
     ];
 }
 ```
+
+### `afterRun(array $data): void`
+
+Hook for side effects that aren't file writes. Runs **only during actual run, not during preview**. Receives the fully resolved `$data` array.
+
+```php
+public function afterRun(array $data): void
+{
+    Artisan::call('cache:clear');
+}
+```
+
+Prefer `inlineTemplates()` over `afterRun()` for modifying existing files — inlines appear in the preview diff, `afterRun()` runs silently. Reserve `afterRun()` for things the preview shouldn't show (cache clears, shell commands, queued jobs).
+
+---
+
+## Execution Model
+
+Each run executes in three passes against an in-memory file cache:
+
+1. **Templates** — every `Template::file` / `forEach` is rendered through Blade. New files seed the cache with rendered content; existing files seed the cache with disk content.
+2. **Inlines** — every `InlineTemplate` reads from the cache, applies its insertion, writes back. Multiple inlines targeting the same file compound correctly — each sees the previous insertion already applied.
+3. **Results** — each touched path is compared with disk. New or changed files are written; unchanged files are skipped.
+
+**Idempotency is free.** Inline insertions check `str_contains($current, trim($snippet))` before writing, so re-running a generator never inserts the same snippet twice.
+
+**Preview and run share this code path.** Preview returns the diff as JSON without writing; run writes. Anything that should be visible in the preview must happen in `templates()` or `inlineTemplates()`, not `afterRun()`.
+
+---
+
+## Idioms
+
+### Selector ordering
+
+`schemaColumn`, `schemaColumns`, `schemaColumnCombobox`, `schemaFieldPicker`, and `nestedFieldSelector` read their options from a prior `schemaSelector` step (via `selectorKey`, default `'schema'`). **Put the schema step first.** If a dependent step appears before its selector, its option list is empty.
+
+### Conditional input type inside a callback
+
+A `data()` callback can return different input types based on prior context. The wizard re-evaluates each callback every time it advances, so the type can switch based on data the user has already entered.
+
+```php
+'title_attribute' => fn ($data) => ! empty($data['schema']->titleColumns)
+    ? Input::computed($data['schema']->titleColumns[0])->label('Title Attribute')
+    : Input::schemaColumnCombobox('Title Attribute'),
+```
+
+### Spread `Template::forEach` into `templates()`
+
+`Template::forEach` and `forEachRelationship` return a `TemplateDefinition[]` array. Spread it into the parent return so per-item templates merge cleanly with single-file ones:
+
+```php
+return [
+    Template::file('...', '...'),
+    ...Template::forEachRelationship('schema', 'relationship', [
+        Template::file('[relationship.name.title]Manager.php', '...'),
+    ], 'collection'),
+];
+```
+
+### Silent computeds for derived values
+
+If a template needs a value that's purely derived from prior steps, return a scalar or object from the callback (not an `Input`). It becomes a template variable without showing in the wizard.
+
+```php
+'service_class' => fn ($data) => isset($data['schema'])
+    ? $data['schema']->model->title.'Service'
+    : null,
+```
+
+Always null-guard — callbacks are evaluated with partial context as the wizard reconstructs state across steps.
+
+### Prefer inlines over `afterRun()` for editing existing files
+
+Inline insertions appear in the preview diff, so the user can see what's about to change. `afterRun()` runs silently and only during the actual run. Use `afterRun()` only for non-file side effects (cache, queue, shell).
+
+---
+
+## Common Mistakes
+
+| Mistake | Fix |
+|---|---|
+| Flipping `Template::file()` arguments | Order is `(outputPath, viewName)`. Mnemonic: "where it goes, then what renders." |
+| Returning a scalar where an `Input` was meant | A scalar is treated as a silent computed and **never** prompts the user. Return `Input::*` if you wanted a prompt. |
+| Forgetting `{!! $phpOpenTag !!}` | Blade will try to parse a literal `<?php` and break. Always use the injected variable. |
+| Forgetting null-guards in `data()` callbacks | Callbacks run with partial `$resolved` during reconstruction. Always `isset()` or `?? null` before chaining. |
+| Blade view name collisions | View names are a global namespace. Put generator templates under a subdirectory: `resources/views/generators/<generator-name>/...`. |
+| Using `afterRun()` to modify existing files | The change won't appear in the preview. Use `inlineTemplates()` instead. |
+| Dependent input before its selector | `schemaColumn` etc. need their `schemaSelector` step to appear earlier in `data()`. |
+| Using `->value()` when you meant `->default()` | `->value()` bypasses the UI entirely (silent). `->default()` pre-fills a still-visible field. |
 
 ---
 
