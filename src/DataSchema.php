@@ -62,6 +62,32 @@ abstract class DataSchema implements \JsonSerializable
     }
 
     /**
+     * Public reflection accessor for the SDK generator.
+     *
+     * The SDK's SdkDataGenerator reflects a DataSchema's typed properties to emit a
+     * typed nested DTO (rather than a bare `array`). It needs the same field metadata
+     * hydration uses, so this exposes the cached descriptors without duplicating the
+     * reflection logic.
+     *
+     * @return array<int, array{
+     *     name: string,
+     *     typeName: string|null,
+     *     isBuiltin: bool,
+     *     nullable: bool,
+     *     hasDefault: bool,
+     *     default: mixed,
+     *     isDataSchema: bool,
+     *     isCastsProperty: bool,
+     *     isBackedEnum: bool,
+     *     isDatetime: bool,
+     * }>
+     */
+    public static function fieldDescriptors(): array
+    {
+        return static::resolveProperties();
+    }
+
+    /**
      * Resolve and cache property metadata for the given class.
      *
      * @return array<int, array{

@@ -20,11 +20,9 @@ use SchemaCraft\Generator\FactoryGenerator;
 use SchemaCraft\Generator\Filament\FilamentCodeGenerator;
 use SchemaCraft\Generator\Filament\FilamentPolicyGenerator;
 use SchemaCraft\Generator\ModelTestGenerator;
-use SchemaCraft\Generator\Sdk\ControllerActionScanner;
 use SchemaCraft\Generator\Sdk\RuntimeRouteScanner;
-use SchemaCraft\Generator\Sdk\SdkCustomAction;
+use SchemaCraft\Generator\Sdk\SdkContextBuilder;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
-use SchemaCraft\Generator\Sdk\SdkSchemaContext;
 use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Migration\SchemaDiscovery;
 use SchemaCraft\Scanner\ResourceScanner;
@@ -790,354 +788,25 @@ class GenerateController
     public function apiRoutes(Request $request): JsonResponse
     {
         $apiConfig = ConfigResolver::resolve($request->query('api'));
+        $directories = ConfigResolver::schemaDirectories();
+        $discovery = new SchemaDiscovery;
+        $schemaClasses = $discovery->discover($directories);
 
-        $scanner = new RuntimeRouteScanner;
-        $result = $scanner->scanAll(
-            controllerNamespace: $apiConfig->controllerNamespace,
-            schemaNamespace: $apiConfig->schemaNamespace,
-            routePrefix: $apiConfig->routePrefix,
+        if ($apiConfig->schemas !== null) {
+            $schemaClasses = array_filter($schemaClasses, function (string $schemaClass) use ($apiConfig) {
+                return in_array(class_basename($schemaClass), $apiConfig->schemas);
+            });
+        }
+
+        // Single source of truth: same SdkContextBuilder both the SDK pipeline (via buildSdkFiles)
+        // and the API docs panel consume. The unified payload the visualizer renders IS the SDK
+        // pipeline's internal model — no visualizer-specific carve-outs, no separate enrichment
+        // path, no shape divergence between what the visualizer shows and what the SDK ships.
+        $result = (new SdkContextBuilder)->build($apiConfig, $schemaClasses);
+
+        return new JsonResponse(
+            $result->toApiDocsJson($apiConfig->name, $apiConfig->routeFile, $apiConfig->routePrefix)
         );
-
-        $groups = [];
-
-        foreach ($result['schemas'] as $schemaClass => $endpoints) {
-            $modelName = class_basename(str_replace('Schema', '', $schemaClass));
-
-            $enrichedEndpoints = array_map(function ($ep) {
-                return $this->enrichEndpoint($ep);
-            }, $endpoints);
-
-            $groups[] = [
-                'schema' => $schemaClass,
-                'modelName' => $modelName,
-                'endpoints' => array_values($enrichedEndpoints),
-            ];
-        }
-
-        // Sort groups by model name
-        usort($groups, fn ($a, $b) => strcmp($a['modelName'], $b['modelName']));
-
-        // Enrich unassigned routes too
-        $unassigned = array_map(function ($ep) {
-            return $this->enrichEndpoint($ep);
-        }, $result['unassigned']);
-
-        return new JsonResponse([
-            'groups' => $groups,
-            'unassigned' => array_values($unassigned),
-            'apiName' => $apiConfig->name,
-            'routeFile' => $apiConfig->routeFile,
-            'routePrefix' => $apiConfig->routePrefix,
-        ]);
-    }
-
-    /**
-     * Enrich an endpoint from RuntimeRouteScanner with parameter metadata and response field docs.
-     *
-     * Both action and controller endpoints flow through the same response-resolution path so that
-     * the API docs and SDK generator consume an identical data structure regardless of source.
-     *
-     * Response fields are only populated when a resource class is explicitly declared and scannable.
-     * Endpoints with no declared resource, or with a manual JsonResource, show no response shape —
-     * we do not infer or fabricate a shape from the schema.
-     *
-     * @param  array<string, mixed>  $endpoint
-     * @return array<string, mixed>
-     */
-    private function enrichEndpoint(array $endpoint): array
-    {
-        $parameters = [];
-        $relationships = [];
-
-        // Action endpoints: extract typed parameters and nested relationship info from the action class
-        if ($endpoint['source'] === 'action' && $endpoint['actionClass'] !== null && class_exists($endpoint['actionClass'])) {
-            try {
-                $definition = (new \SchemaCraft\Scanner\ActionScanner($endpoint['actionClass']))->scan();
-                $meta = $endpoint['actionClass']::meta();
-
-                $endpoint['label'] = $meta?->label ?? Str::headline($definition->serviceMethod);
-                $endpoint['serviceMethod'] = $definition->serviceMethod;
-
-                $parameters = array_map(fn ($p) => [
-                    'name' => $p->name,
-                    'type' => $p->type,
-                    'nullable' => $p->nullable,
-                    'isModel' => $p->isModel,
-                    'hasDefault' => $p->hasDefault,
-                    'default' => $p->default,
-                    'columnName' => $p->columnName,
-                    'columnType' => $p->columnType,
-                    'foreignKeyColumn' => $p->foreignKeyColumn,
-                    'isNestedRelationship' => $p->isNestedRelationship,
-                    'morphPairName' => $p->morphPairName,
-                    'isMorphType' => $p->isMorphType,
-                ], $definition->parameters);
-
-                foreach ($definition->nestedParameters() as $nested) {
-                    $nr = $nested->nestedRelationship;
-                    if ($nr) {
-                        $relationships[] = [
-                            'name' => $nr->name,
-                            'type' => $nr->relationshipType,
-                            'relatedModel' => class_basename($nr->relatedModel),
-                            'isCollection' => $nr->isCollection,
-                        ];
-                    }
-                }
-            } catch (\Throwable) {
-                // Skip enrichment if scan fails
-            }
-        }
-
-        // Controller endpoints: build canonical parameters from FormRequest rules so the SDK
-        // and API docs consume the same parameter shape regardless of endpoint source
-        if ($endpoint['source'] === 'controller' && ! empty($endpoint['rules'])) {
-            $parameters = $this->buildParametersFromRules($endpoint['rules']);
-        }
-
-        // Response resolution — three possible outcomes:
-        //   responseFields        — resource declared and introspectable (SchemaCraftResource)
-        //   responseManualResource — resource declared but manual JsonResource (opaque toArray())
-        //   responseUndocumented  — controller with generic/missing return type (already set by scanner)
-        //   (nothing)             — no resource declared at all
-        if (! empty($endpoint['responseResource'])) {
-            $rr = $endpoint['responseResource'];
-            $resourceClass = $rr['resourceClass'] ?? null;
-
-            if ($resourceClass !== null && class_exists($resourceClass)) {
-                $endpoint['resolvedResourceClass'] = $resourceClass;
-                $endpoint['responseCollection'] = $rr['collection'] ?? false;
-                $endpoint['responseModelName'] = str_replace('Resource', '', class_basename($resourceClass));
-
-                $fields = $this->buildResponseFieldsFromResource($resourceClass);
-
-                if ($fields !== null) {
-                    $endpoint['responseFields'] = $fields;
-                } else {
-                    // Resource is declared but uses a manual toArray() — known but not introspectable
-                    $endpoint['responseManualResource'] = $resourceClass;
-                }
-            }
-
-            unset($endpoint['responseResource']);
-        }
-
-        $endpoint['parameters'] = $parameters;
-        $endpoint['relationships'] = $relationships;
-        $endpoint['sourceFiles'] = $this->resolveSourceFiles($endpoint);
-
-        unset($endpoint['controllerClass']);
-
-        return $endpoint;
-    }
-
-    /**
-     * Resolve the relevant source files for an endpoint.
-     *
-     * Action routes: Action class + declared Resource class.
-     * Controller routes: Controller class + FormRequest + declared Resource class.
-     *
-     * @return array<int, array{label: string, path: string, content: string}>
-     */
-    private function resolveSourceFiles(array $endpoint): array
-    {
-        $files = [];
-
-        if ($endpoint['source'] === 'action') {
-            if (! empty($endpoint['actionClass'])) {
-                $file = $this->readClassFile($endpoint['actionClass']);
-                if ($file !== null) {
-                    $files[] = $file;
-                }
-            }
-        } elseif ($endpoint['source'] === 'controller') {
-            if (! empty($endpoint['controllerClass'])) {
-                $file = $this->readClassFile($endpoint['controllerClass']);
-                if ($file !== null) {
-                    $files[] = $file;
-                }
-            }
-
-            if (! empty($endpoint['formRequest'])) {
-                $file = $this->readClassFile($endpoint['formRequest']);
-                if ($file !== null) {
-                    $files[] = $file;
-                }
-            }
-        }
-
-        if (! empty($endpoint['resolvedResourceClass'])) {
-            $file = $this->readClassFile($endpoint['resolvedResourceClass']);
-            if ($file !== null) {
-                $files[] = $file;
-            }
-        }
-
-        return $files;
-    }
-
-    /**
-     * Read a class file via reflection and return a labelled source entry.
-     *
-     * @return array{label: string, path: string, content: string}|null
-     */
-    private function readClassFile(string $class): ?array
-    {
-        try {
-            $filePath = (new \ReflectionClass($class))->getFileName();
-
-            if (! $filePath || ! file_exists($filePath)) {
-                return null;
-            }
-
-            return [
-                'label' => class_basename($class),
-                'path' => str_replace(base_path().'/', '', $filePath),
-                'content' => file_get_contents($filePath),
-            ];
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    /**
-     * Convert FormRequest rules into the canonical parameter shape used by action endpoints.
-     *
-     * Produces the same array structure as the action parameter map so the SDK generator
-     * and API docs can consume controller and action endpoint params identically.
-     *
-     * @param  array<string, mixed>  $rules
-     * @return array<int, array<string, mixed>>
-     */
-    private function buildParametersFromRules(array $rules): array
-    {
-        $parameters = [];
-        $fieldNames = array_keys($rules);
-
-        foreach ($rules as $field => $fieldRules) {
-            // Dot-notation fields (e.g. items.*.id) are sub-fields of a nested param — skip the leaf
-            if (str_contains($field, '.')) {
-                continue;
-            }
-
-            $ruleList = is_array($fieldRules) ? $fieldRules : explode('|', (string) $fieldRules);
-            $ruleStrings = array_filter(array_map(fn ($r) => is_string($r) ? $r : null, $ruleList));
-
-            $nullable = in_array('nullable', $ruleStrings, true);
-            $type = $this->inferTypeFromRules(array_values($ruleStrings));
-
-            // A field is a nested relationship when it has sub-rules (e.g. 'items' with 'items.*.id')
-            $hasSubRules = collect($fieldNames)->contains(fn ($k) => str_starts_with($k, $field.'.'));
-
-            $parameters[] = [
-                'name' => $field,
-                'type' => $type,
-                'nullable' => $nullable,
-                'isModel' => false,
-                'hasDefault' => false,
-                'default' => null,
-                'columnName' => $field,
-                'columnType' => $type,
-                'foreignKeyColumn' => null,
-                'isNestedRelationship' => $hasSubRules,
-                'morphPairName' => null,
-                'isMorphType' => false,
-            ];
-        }
-
-        return $parameters;
-    }
-
-    /**
-     * Infer a PHP type string from a list of Laravel validation rule strings.
-     */
-    private function inferTypeFromRules(array $rules): string
-    {
-        foreach ($rules as $rule) {
-            if ($rule === 'integer' || $rule === 'int') {
-                return 'integer';
-            }
-            if ($rule === 'boolean' || $rule === 'bool') {
-                return 'boolean';
-            }
-            if ($rule === 'numeric' || $rule === 'decimal') {
-                return 'float';
-            }
-            if ($rule === 'array') {
-                return 'array';
-            }
-        }
-
-        return 'string';
-    }
-
-    /**
-     * Build response field documentation from a SchemaCraftResource class.
-     *
-     * Reflects on the resource's typed public properties, relationship attributes,
-     * and computed methods. Recursively scans related resource classes and embeds
-     * their fields under `relatedFields` on each relationship entry.
-     *
-     * Returns null for manual JsonResource subclasses (toArray() is opaque).
-     *
-     * @param  string[]  $visited  Resource classes already scanned (prevents infinite recursion)
-     * @return array{columns: array, relationships: array}|null
-     */
-    private function buildResponseFieldsFromResource(string $resourceClass, array $visited = []): ?array
-    {
-        if (in_array($resourceClass, $visited, true)) {
-            return null;
-        }
-
-        try {
-            $definition = (new ResourceScanner)->scanClass($resourceClass);
-
-            if ($definition->isManual) {
-                return null;
-            }
-
-            $visited[] = $resourceClass;
-
-            $columns = array_map(fn ($p) => [
-                'name' => $p['name'],
-                'type' => $p['type'],
-                'nullable' => $p['nullable'] ?? false,
-            ], $definition->properties);
-
-            foreach ($definition->computed as $c) {
-                $columns[] = [
-                    'name' => Str::snake($c['name']),
-                    'type' => $c['returnType'] ?? 'mixed',
-                    'nullable' => false,
-                    'computed' => true,
-                ];
-            }
-
-            $collectionTypes = ['hasMany', 'morphMany', 'morphToMany', 'hasManyThrough'];
-            $relationships = array_map(function ($r) use ($collectionTypes, $visited) {
-                $rel = [
-                    'name' => $r['name'],
-                    'type' => $r['type'],
-                    'relatedModel' => str_replace('Resource', '', class_basename($r['resource'])),
-                    'isCollection' => in_array($r['type'], $collectionTypes, true),
-                    'conditional' => true,
-                ];
-
-                // Recursively scan the related resource class
-                if (class_exists($r['resource'])) {
-                    $nested = $this->buildResponseFieldsFromResource($r['resource'], $visited);
-                    if ($nested !== null) {
-                        $rel['relatedFields'] = $nested;
-                    }
-                }
-
-                return $rel;
-            }, $definition->relationships);
-
-            return ['columns' => $columns, 'relationships' => $relationships];
-        } catch (\Throwable) {
-            return null;
-        }
     }
 
     /**
@@ -1418,6 +1087,27 @@ class GenerateController
 
     /**
      * Preview SDK generation without writing.
+     *
+     * Response shape:
+     *   {
+     *     success: bool,
+     *     files: [
+     *       {
+     *         path: string,             // relative path the generator would write
+     *         content: string,          // full content the generator would write
+     *         exists: bool,             // does a file already exist at this path
+     *         existingContent?: string, // present when exists=true; the current on-disk content
+     *         removed?: true,           // present (true) for files on disk the generator no longer produces (would be deleted)
+     *       }, ...
+     *     ],
+     *     errors: [{ route, message }],
+     *     warnings: [{ route, message }]
+     *   }
+     *
+     * The shape is intentionally different from sdkGenerate(): preview describes file *content*
+     * (for the diff modal); generate describes file *outcome* (created/deleted/message). The
+     * asymmetry reflects an operation difference, not accidental drift — file content is meaningless
+     * post-write, file outcome is meaningless pre-write.
      */
     public function sdkPreview(Request $request): JsonResponse
     {
@@ -1495,6 +1185,26 @@ class GenerateController
 
     /**
      * Generate SDK and write files to disk.
+     *
+     * Response shape:
+     *   {
+     *     success: bool,
+     *     files: [
+     *       {
+     *         path: string,
+     *         created?: true,  // present (true) for files written
+     *         deleted?: true,  // present (true) for files removed (came from removeFiles in the request)
+     *         message: string  // human-readable status (filename + action)
+     *       }, ...
+     *     ],
+     *     message: string,                       // overall summary
+     *     errors: [{ route, message }],
+     *     warnings: [{ route, message }]
+     *   }
+     *
+     * The shape is intentionally different from sdkPreview(): preview describes file *content*
+     * (for the diff modal); generate describes file *outcome* (created/deleted/message). The
+     * asymmetry reflects an operation difference, not accidental drift.
      */
     public function sdkGenerate(Request $request, Filesystem $fs): JsonResponse
     {
@@ -1976,161 +1686,14 @@ class GenerateController
             });
         }
 
-        // Primary: use RuntimeRouteScanner to find schemas with registered routes
-        $routeScanner = new RuntimeRouteScanner;
-        $routeData = $routeScanner->scanAll(
-            controllerNamespace: $apiConfig->controllerNamespace,
-            schemaNamespace: $apiConfig->schemaNamespace,
-            routePrefix: $apiConfig->routePrefix ?: null,
-        );
+        // Delegate the whole discover -> scan -> enrich -> assign -> filter -> resolve-deps
+        // pipeline to the shared SdkContextBuilder so the GUI-generated SDK is byte-for-byte
+        // identical to the CLI one. Warnings/errors are passed straight through to the response.
+        $result = (new SdkContextBuilder)->build($apiConfig, $schemaClasses);
 
-        $schemaEndpoints = $routeData['schemas'] ?? [];
-        $allowedSchemas = array_flip($schemaClasses);
-        $discoveredSchemaClasses = [];
-
-        // Enrich all schema-assigned endpoints (same data the API docs panel uses)
-        foreach ($schemaEndpoints as $schemaClass => &$endpointList) {
-            $endpointList = array_map(fn ($ep) => $this->enrichEndpoint($ep), $endpointList);
-        }
-        unset($endpointList);
-
-        // Enrich unassigned endpoints and attempt to resolve their schema via #[ResourceSchema]
-        $unassigned = array_map(fn ($ep) => $this->enrichEndpoint($ep), $routeData['unassigned'] ?? []);
-
-        $sdkErrors = [];
-        $sdkWarnings = [];
-
-        foreach ($unassigned as $endpoint) {
-            $resourceClass = $endpoint['resolvedResourceClass'] ?? null;
-
-            if ($resourceClass === null) {
-                $sdkWarnings[] = [
-                    'route' => $endpoint['method'].' '.$endpoint['path'],
-                    'message' => 'No #[ApiResponse] attribute — add one to include this route in the SDK.',
-                ];
-
-                continue;
-            }
-
-            $definition = (new ResourceScanner)->scanClass($resourceClass);
-
-            if ($definition->schema === null) {
-                $sdkErrors[] = [
-                    'route' => $endpoint['method'].' '.$endpoint['path'],
-                    'message' => class_basename($resourceClass).' has no #[ResourceSchema] — cannot assign to a schema group.',
-                ];
-
-                continue;
-            }
-
-            if (! isset($allowedSchemas[$definition->schema])) {
-                continue;
-            }
-
-            $schemaEndpoints[$definition->schema][] = $endpoint;
-        }
-
-        $schemas = [];
-        foreach ($schemaEndpoints as $schemaClass => $endpoints) {
-            if (! isset($allowedSchemas[$schemaClass])) {
-                continue;
-            }
-
-            $modelName = $this->resolveModelName($schemaClass);
-            $scanner = new SchemaScanner($schemaClass);
-            $table = $scanner->scan();
-
-            // Exclude endpoints whose response is undocumented (generic return type / no type hint).
-            // These cannot be reliably generated in the SDK.
-            $documentedEndpoints = array_values(array_filter($endpoints, fn ($ep) => ! ($ep['responseUndocumented'] ?? false)));
-
-            $customActions = [];
-            foreach ($documentedEndpoints as $endpoint) {
-                if ($endpoint['type'] === 'custom') {
-                    $methods = explode('|', $endpoint['method']);
-                    $httpMethod = strtolower($methods[0]);
-
-                    $customActions[] = new SdkCustomAction(
-                        name: $endpoint['action'],
-                        httpMethod: $httpMethod,
-                    );
-                }
-            }
-
-            // Pick the response fields from the first endpoint that has a resolved resource.
-            // This is the exact same data buildResponseFieldsFromResource() produced for the
-            // API docs panel — one call, shared result, so SDK and API docs are always in sync.
-            $resourceFields = null;
-            foreach ($documentedEndpoints as $endpoint) {
-                if (isset($endpoint['responseFields'])) {
-                    $resourceFields = $endpoint['responseFields'];
-                    break;
-                }
-            }
-
-            $schemas[$modelName] = new SdkSchemaContext(
-                table: $table,
-                customActions: $customActions,
-                endpoints: $documentedEndpoints,
-                resourceFields: $resourceFields,
-            );
-            $discoveredSchemaClasses[$schemaClass] = true;
-        }
-
-        // Fallback: check for controller files for schemas not found via routes
-        if ($apiConfig->controllerNamespace !== '') {
-            $fs = new Filesystem;
-            $actionScanner = new ControllerActionScanner;
-
-            foreach ($schemaClasses as $schemaClass) {
-                if (isset($discoveredSchemaClasses[$schemaClass])) {
-                    continue;
-                }
-
-                $modelName = $this->resolveModelName($schemaClass);
-                $controllerPath = $apiConfig->controllerPath($modelName);
-
-                if (! $fs->exists($controllerPath)) {
-                    continue;
-                }
-
-                $scanner = new SchemaScanner($schemaClass);
-                $table = $scanner->scan();
-
-                $actionNames = $actionScanner->scanFile($controllerPath);
-                $customActions = array_map(
-                    fn (string $name) => new SdkCustomAction(name: $name, httpMethod: 'put'),
-                    $actionNames,
-                );
-
-                $schemas[$modelName] = new SdkSchemaContext(
-                    table: $table,
-                    customActions: $customActions,
-                );
-            }
-        }
-
-        if (empty($schemas)) {
+        if (empty($result->schemas)) {
             return null;
         }
-
-        // Resolve dependency schemas
-        $resolver = new DependencyResolver;
-        $dependencySchemas = [];
-
-        foreach ($schemas as $context) {
-            $deps = $resolver->resolveDependencies($context->table);
-            foreach ($deps as $depModelName => $depTable) {
-                if (! isset($schemas[$depModelName]) && ! isset($dependencySchemas[$depModelName])) {
-                    $dependencySchemas[$depModelName] = new SdkSchemaContext(
-                        table: $depTable,
-                        isDependencyOnly: true,
-                    );
-                }
-            }
-        }
-
-        $allSchemas = array_merge($schemas, $dependencySchemas);
 
         $sdkName = $request->input('name') ?? $apiConfig->sdkName;
         $sdkNamespace = $request->input('namespace') ?? $apiConfig->sdkNamespace;
@@ -2142,15 +1705,15 @@ class GenerateController
 
         return [
             'files' => $generator->generate(
-                schemas: $allSchemas,
+                schemas: $result->schemas,
                 packageName: $sdkName,
                 namespace: $sdkNamespace,
                 clientClassName: $sdkClient,
                 stubsPath: $stubsPath,
                 version: $sdkVersion,
             ),
-            'errors' => $sdkErrors ?? [],
-            'warnings' => $sdkWarnings ?? [],
+            'errors' => $result->errors,
+            'warnings' => $result->warnings,
         ];
     }
 

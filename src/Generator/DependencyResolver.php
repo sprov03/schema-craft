@@ -13,8 +13,12 @@ use SchemaCraft\SchemaModel;
  * Resolves the full dependency tree for a schema by walking its
  * child relationships recursively with cycle detection.
  *
- * Used by both the API generator (to cascade Resource files) and the
- * SDK generator (to cascade Data DTOs for referenced models).
+ * This is the schema walker — used by code-generation paths where the
+ * DB-level relationship graph is the right primitive: API stack gen
+ * (GenerateApiCommand), query-builder methods (QueryCodeWriter), and
+ * the visualizer's parallel gen path. NOT used by SDK generation —
+ * SDK gen walks Resources via EndpointEnricher::collectDepResources;
+ * see the sdk-walker-separation knowledge entry for the rationale.
  */
 class DependencyResolver
 {

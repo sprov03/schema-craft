@@ -45,7 +45,8 @@ class SdkDataGeneratorTest extends TestCase
         $this->assertStringContainsString('public $id;', $output);
         $this->assertStringContainsString('/** @var string */', $output);
         $this->assertStringContainsString('public $title;', $output);
-        $this->assertStringContainsString('public $viewCount;', $output);
+        // Property name is the verbatim snake_case column name (no casing translation).
+        $this->assertStringContainsString('public $view_count;', $output);
     }
 
     public function test_nullable_column_becomes_nullable_property(): void
@@ -103,7 +104,7 @@ class SdkDataGeneratorTest extends TestCase
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'User');
 
         $this->assertStringContainsString('/** @var bool */', $output);
-        $this->assertStringContainsString('public $isActive;', $output);
+        $this->assertStringContainsString('public $is_active;', $output);
     }
 
     public function test_maps_decimal_column_type(): void
@@ -119,17 +120,20 @@ class SdkDataGeneratorTest extends TestCase
         $this->assertStringContainsString('public $price;', $output);
     }
 
-    public function test_maps_json_column_type(): void
+    public function test_bare_json_column_is_rejected(): void
     {
+        // Phase B guard: a plain json column resolves to a bare `array`, which can't be
+        // documented down to its properties — generation must hard-fail (no opt-out),
+        // naming the offending DTO + field.
         $table = $this->makeTable([
             new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true),
             new ColumnDefinition(name: 'settings', columnType: 'json'),
         ]);
 
-        $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'User');
+        $this->expectException(\SchemaCraft\Exceptions\SdkGenerationException::class);
+        $this->expectExceptionMessage('UserData::$settings');
 
-        $this->assertStringContainsString('/** @var array */', $output);
-        $this->assertStringContainsString('public $settings;', $output);
+        $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'User');
     }
 
     public function test_maps_timestamp_column_type(): void
@@ -142,7 +146,7 @@ class SdkDataGeneratorTest extends TestCase
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
         $this->assertStringContainsString('/** @var string|null */', $output);
-        $this->assertStringContainsString('public $publishedAt;', $output);
+        $this->assertStringContainsString('public $published_at;', $output);
     }
 
     public function test_includes_timestamp_properties_when_has_timestamps(): void
@@ -161,8 +165,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public $createdAt;', $output);
-        $this->assertStringContainsString('public $updatedAt;', $output);
+        $this->assertStringContainsString('public $created_at;', $output);
+        $this->assertStringContainsString('public $updated_at;', $output);
     }
 
     public function test_does_not_duplicate_timestamp_columns(): void
@@ -182,8 +186,8 @@ class SdkDataGeneratorTest extends TestCase
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
         // Property declaration should only appear once (in the managed section, not in regular columns)
-        $this->assertSame(1, substr_count($output, 'public $createdAt;'));
-        $this->assertSame(1, substr_count($output, 'public $updatedAt;'));
+        $this->assertSame(1, substr_count($output, 'public $created_at;'));
+        $this->assertSame(1, substr_count($output, 'public $updated_at;'));
     }
 
     public function test_includes_soft_delete_property(): void
@@ -201,7 +205,7 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public $deletedAt;', $output);
+        $this->assertStringContainsString('public $deleted_at;', $output);
     }
 
     public function test_excludes_hidden_columns(): void
@@ -240,8 +244,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('$createdAt', $output);
-        $this->assertStringNotContainsString('$updatedAt', $output);
+        $this->assertStringContainsString('$created_at', $output);
+        $this->assertStringNotContainsString('$updated_at', $output);
     }
 
     public function test_includes_has_many_relationship_as_nullable_array(): void
@@ -318,8 +322,8 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        // FK column is included as a regular column
-        $this->assertStringContainsString('$authorId', $output);
+        // FK column is included as a regular column (verbatim snake_case name).
+        $this->assertStringContainsString('$author_id', $output);
         // But no UserData relationship property
         $this->assertStringNotContainsString('UserData', $output);
     }
@@ -383,7 +387,7 @@ class SdkDataGeneratorTest extends TestCase
         $this->assertStringContainsString("ProfileData::fromArray(\$data['profile'])", $output);
     }
 
-    public function test_camel_cases_snake_case_column_names(): void
+    public function test_serves_snake_case_column_names_verbatim(): void
     {
         $table = $this->makeTable([
             new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true),
@@ -393,8 +397,9 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'User');
 
-        $this->assertStringContainsString('$firstName', $output);
-        $this->assertStringContainsString('$lastLoginAt', $output);
+        // DTO property names match the JSON wire keys verbatim — no casing translation.
+        $this->assertStringContainsString('$first_name', $output);
+        $this->assertStringContainsString('$last_login_at', $output);
     }
 
     public function test_from_array_uses_original_snake_case_keys(): void
@@ -406,7 +411,7 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'User');
 
-        // Property is camelCase, but data key is original snake_case (positional)
+        // Property name and data key are both the original snake_case (positional, verbatim).
         $this->assertStringContainsString("isset(\$data['first_name']) ? \$data['first_name']", $output);
     }
 

@@ -168,6 +168,34 @@ abstract class AbstractBitmaskType implements CastsAttributes, JsonSerializable,
         return 'array';
     }
 
+    /**
+     * The bitmask has no DataSchema to reflect — its wire shape ({value, flags})
+     * is synthesized here from flags() so the SDK can type it fully ("documented
+     * to the bottom") instead of collapsing to `array`. The flags sub-object gets
+     * one bool field per declared flag, named {TypeBasename}FlagsData; the wrapper
+     * is {TypeBasename}Data.
+     */
+    public static function sdkShape(): \SchemaCraft\Generator\Sdk\SdkShape
+    {
+        $basename = class_basename(static::class);
+
+        $flagFields = [];
+        foreach (array_keys(static::flags()) as $flag) {
+            // Each declared flag is a present/absent boolean in the flags object.
+            $flagFields[] = \SchemaCraft\Generator\Sdk\SdkShapeField::scalar($flag, 'bool');
+        }
+
+        $flagsShape = \SchemaCraft\Generator\Sdk\SdkShape::synthesizedObject(
+            $basename.'FlagsData',
+            $flagFields,
+        );
+
+        return \SchemaCraft\Generator\Sdk\SdkShape::synthesizedObject($basename.'Data', [
+            \SchemaCraft\Generator\Sdk\SdkShapeField::scalar('value', 'int'),
+            \SchemaCraft\Generator\Sdk\SdkShapeField::nested('flags', $flagsShape),
+        ]);
+    }
+
     // ─── FilamentRenderable ──────────────────────────────────────
 
     public static function asFilamentField(GeneratorColumn $column): string

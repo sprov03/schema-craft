@@ -26,5 +26,12 @@ class ColumnDefinition
         public ?string $renamedFrom = null,
         public ?string $expressionDefault = null,
         public ?string $phpType = null,
+        /**
+         * True when the column is marked #[Generated] — DB owns the DDL,
+         * the column is read-only from the app's perspective. Downstream
+         * consumers (migration writer, factory generator, SDK / Filament
+         * generators) should skip or read-only this column when true.
+         */
+        public bool $generated = false,
     ) {}
 }

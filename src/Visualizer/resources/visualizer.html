@@ -8051,13 +8051,6 @@
                             '<span>\u2B07\uFE0F</span>' +
                             '<span>Import Actions</span>' +
                         '</div>' +
-                        '<div class="gen-sidebar-sdk">' +
-                            '<div class="gen-sidebar-section-title">Tools</div>' +
-                            '<div class="gen-sdk-item' + (genSelectedView === 'sdk' ? ' active' : '') + '" id="gen-sdk-nav">' +
-                                '<span>\uD83D\uDCE6</span>' +
-                                '<span>SDK Management</span>' +
-                            '</div>' +
-                        '</div>' +
                     '</div>' +
                     '<div class="gen-content" id="gen-content">' +
                         '<div class="gen-empty-state">Loading...</div>' +
@@ -8069,7 +8062,6 @@
             document.getElementById('gen-nav-docs').addEventListener('click', function() { switchGenView('docs'); });
             document.getElementById('gen-nav-resources').addEventListener('click', function() { switchGenView('resources'); });
             document.getElementById('gen-nav-import').addEventListener('click', function() { switchGenView('import'); });
-            document.getElementById('gen-sdk-nav').addEventListener('click', function() { switchGenView('sdk'); });
 
             // Load initial view
             var initialView = genSelectedView || 'docs';
@@ -8077,13 +8069,16 @@
         }
 
         function switchGenView(view) {
+            // SDK generation is folded into the API Docs view, so an old 'sdk' selection
+            // (e.g. a restored deep link) resolves to docs rather than a now-dead view.
+            if (view === 'sdk') { view = 'docs'; }
             genSelectedView = view;
 
             // Update sidebar active states
             document.querySelectorAll('.gen-sidebar .gen-sdk-item').forEach(function(item) {
                 item.classList.remove('active');
             });
-            var navMap = { docs: 'gen-nav-docs', resources: 'gen-nav-resources', import: 'gen-nav-import', sdk: 'gen-sdk-nav' };
+            var navMap = { docs: 'gen-nav-docs', resources: 'gen-nav-resources', import: 'gen-nav-import' };
             var activeNav = document.getElementById(navMap[view]);
             if (activeNav) activeNav.classList.add('active');
 
@@ -8093,8 +8088,6 @@
                 showResourcesView();
             } else if (view === 'import') {
                 showImportActionsView();
-            } else if (view === 'sdk') {
-                showSdkView();
             }
         }
 
@@ -8129,9 +8122,20 @@
             var data = docsData;
             var content = document.getElementById('gen-content');
 
-            var hasEndpoints = data.groups.length > 0 || (data.unassigned && data.unassigned.length > 0);
+            // Walk data.schemas (the unified per-Resource map from SdkBuildResult). Schemas
+            // with endpoints render as "groups" in the existing UX; schema-less or dep-only
+            // schemas are still in the map (so renderResponseFields can resolve nested
+            // relationships) but don't render route lists. Sorted alphabetically for stable UX.
+            var schemaKeys = Object.keys(data.schemas || {}).sort();
+            var endpointSchemaKeys = schemaKeys.filter(function(key) {
+                return (data.schemas[key].endpoints || []).length > 0;
+            });
 
-            if (!hasEndpoints) {
+            var warningCount = (data.warnings || []).length;
+            var errorCount = (data.errors || []).length;
+            var hasAnything = endpointSchemaKeys.length > 0 || warningCount > 0 || errorCount > 0;
+
+            if (!hasAnything) {
                 content.innerHTML =
                     '<div class="gen-import">' +
                         '<div class="gen-import-title">API Documentation</div>' +
@@ -8149,8 +8153,9 @@
             var groupsHtml = '';
             var totalEndpoints = 0;
 
-            data.groups.forEach(function(group, gIdx) {
-                var endpoints = group.endpoints || [];
+            endpointSchemaKeys.forEach(function(modelKey, gIdx) {
+                var schema = data.schemas[modelKey];
+                var endpoints = schema.endpoints || [];
                 totalEndpoints += endpoints.length;
 
                 var endpointsHtml = '';
@@ -8159,7 +8164,6 @@
                     var primaryMethod = methods[0].toLowerCase();
                     var methodLabel = methods.join(' | ');
                     var label = ep.label || ep.action || '';
-                    var description = ep.description || '';
                     var relCount = ep.relationships ? ep.relationships.length : 0;
                     var ruleCount = ep.rules ? Object.keys(ep.rules).length : 0;
 
@@ -8175,7 +8179,7 @@
 
                     endpointsHtml +=
                         '<div class="docs-endpoint-row" data-docs-ep=\'' + escapeAttr(JSON.stringify(ep)) + '\' ' +
-                            'data-docs-model="' + escapeAttr(group.modelName) + '">' +
+                            'data-docs-model="' + escapeAttr(modelKey) + '">' +
                             '<span class="gen-import-action-method ' + primaryMethod + '">' + escapeHtml(methodLabel) + '</span>' +
                             '<span class="docs-endpoint-path">' + escapeHtml(ep.path) + '</span>' +
                             '<span class="docs-endpoint-label">' + escapeHtml(label) + '</span>' +
@@ -8190,7 +8194,7 @@
                     '<div class="gen-import-group docs-group" data-docs-group="' + gIdx + '">' +
                         '<div class="gen-import-group-header" data-docs-toggle="' + gIdx + '">' +
                             '<span class="gen-import-group-toggle open">&#9654;</span>' +
-                            '<span class="gen-import-group-name">' + escapeHtml(group.modelName) + '</span>' +
+                            '<span class="gen-import-group-name">' + escapeHtml(modelKey) + '</span>' +
                             '<span class="gen-import-group-count">' + endpoints.length + ' endpoint' + (endpoints.length !== 1 ? 's' : '') + '</span>' +
                         '</div>' +
                         '<div class="gen-import-group-body open" data-docs-body="' + gIdx + '">' +
@@ -8199,52 +8203,80 @@
                     '</div>';
             });
 
-            // Unassigned routes section
-            var unassignedHtml = '';
-            if (data.unassigned && data.unassigned.length > 0) {
-                totalEndpoints += data.unassigned.length;
-                var unassignedIdx = data.groups.length;
-
-                var uEndpointsHtml = '';
-                data.unassigned.forEach(function(ep) {
-                    var methods = ep.method.split('|');
-                    var primaryMethod = methods[0].toLowerCase();
-                    var methodLabel = methods.join(' | ');
-                    var label = ep.action || '';
-                    var ruleCount = ep.rules ? Object.keys(ep.rules).length : 0;
-
-                    var sourceBadge = '';
-                    if (ep.source === 'controller') {
-                        sourceBadge = '<span class="docs-endpoint-badge" style="background:var(--info-dim);color:var(--info);">Controller</span>';
-                    } else {
-                        sourceBadge = '<span class="docs-endpoint-badge" style="background:var(--bg-tertiary);color:var(--text-muted);">Closure</span>';
-                    }
-
-                    uEndpointsHtml +=
-                        '<div class="docs-endpoint-row" data-docs-ep=\'' + escapeAttr(JSON.stringify(ep)) + '\' ' +
-                            'data-docs-model="">' +
-                            '<span class="gen-import-action-method ' + primaryMethod + '">' + escapeHtml(methodLabel) + '</span>' +
-                            '<span class="docs-endpoint-path">' + escapeHtml(ep.path) + '</span>' +
-                            '<span class="docs-endpoint-label">' + escapeHtml(label) + '</span>' +
-                            sourceBadge +
-                            (ruleCount > 0 ? '<span class="docs-endpoint-badge params">' + ruleCount + ' rule' + (ruleCount !== 1 ? 's' : '') + '</span>' : '') +
+            // Issues section (replaces the old "Other Routes" / unassigned UI). The unified
+            // payload surfaces route-level concerns as warnings + errors from SdkContextBuilder
+            // — same set of issues the SDK pipeline would surface, rendered consistently here.
+            var diagnosticsHtml = '';
+            if (warningCount > 0 || errorCount > 0) {
+                var diagIdx = endpointSchemaKeys.length;
+                var diagItems = '';
+                (data.errors || []).forEach(function(e) {
+                    diagItems +=
+                        '<div class="docs-endpoint-row" style="cursor:default;">' +
+                            '<span class="docs-endpoint-badge" style="background:var(--error-dim,#3a0000);color:var(--error,#f85149);">error</span>' +
+                            '<span class="docs-endpoint-path">' + escapeHtml(e.route) + '</span>' +
+                            '<span class="docs-endpoint-label">' + escapeHtml(e.message) + '</span>' +
+                        '</div>';
+                });
+                (data.warnings || []).forEach(function(w) {
+                    diagItems +=
+                        '<div class="docs-endpoint-row" style="cursor:default;">' +
+                            '<span class="docs-endpoint-badge" style="background:var(--warning-dim,#3a2a00);color:var(--warning,#f0a500);">warning</span>' +
+                            '<span class="docs-endpoint-path">' + escapeHtml(w.route) + '</span>' +
+                            '<span class="docs-endpoint-label">' + escapeHtml(w.message) + '</span>' +
                         '</div>';
                 });
 
-                unassignedHtml =
-                    '<div class="gen-import-group docs-group" data-docs-group="' + unassignedIdx + '">' +
-                        '<div class="gen-import-group-header" data-docs-toggle="' + unassignedIdx + '">' +
+                var diagSummary = '';
+                if (errorCount > 0) diagSummary += errorCount + ' error' + (errorCount !== 1 ? 's' : '');
+                if (errorCount > 0 && warningCount > 0) diagSummary += ', ';
+                if (warningCount > 0) diagSummary += warningCount + ' warning' + (warningCount !== 1 ? 's' : '');
+
+                diagnosticsHtml =
+                    '<div class="gen-import-group docs-group" data-docs-group="' + diagIdx + '">' +
+                        '<div class="gen-import-group-header" data-docs-toggle="' + diagIdx + '">' +
                             '<span class="gen-import-group-toggle open">&#9654;</span>' +
-                            '<span class="gen-import-group-name" style="color:var(--text-muted);">Other Routes</span>' +
-                            '<span class="gen-import-group-count">' + data.unassigned.length + ' endpoint' + (data.unassigned.length !== 1 ? 's' : '') + '</span>' +
+                            '<span class="gen-import-group-name" style="color:var(--text-muted);">Issues</span>' +
+                            '<span class="gen-import-group-count">' + diagSummary + '</span>' +
                         '</div>' +
-                        '<div class="gen-import-group-body open" data-docs-body="' + unassignedIdx + '">' +
-                            uEndpointsHtml +
+                        '<div class="gen-import-group-body open" data-docs-body="' + diagIdx + '">' +
+                            diagItems +
                         '</div>' +
                     '</div>';
             }
 
-            var groupCount = data.groups.length + (data.unassigned && data.unassigned.length > 0 ? 1 : 0);
+            var groupCount = endpointSchemaKeys.length + ((warningCount + errorCount) > 0 ? 1 : 0);
+
+            // SDK readiness — computed from the unified payload (no extra request). Undocumented
+            // endpoints get excluded from the generated SDK; we surface them here and gate the
+            // Generate SDK button until they're addressed. Errors (resource misconfigurations
+            // surfaced by SdkContextBuilder) also block readiness.
+            var sdkIssues = [];
+            endpointSchemaKeys.forEach(function(modelKey) {
+                (data.schemas[modelKey].endpoints || []).forEach(function(ep) {
+                    if (ep.responseUndocumented) {
+                        sdkIssues.push({ route: ep.method + ' ' + ep.path, model: modelKey });
+                    }
+                });
+            });
+            var sdkReady = sdkIssues.length === 0 && errorCount === 0;
+
+            var sdkBarHtml =
+                '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin-bottom:16px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);">' +
+                    '<div style="font-size:13px;line-height:1.5;">' +
+                        (sdkReady
+                            ? '<span style="color:var(--success,#3fb950);">✓ All endpoints documented — ready to generate the SDK.</span>'
+                            : '<span style="color:var(--warning,#f0a500);">⚠ ' + sdkIssues.length + ' endpoint' + (sdkIssues.length !== 1 ? 's are' : ' is') + ' undocumented and will be excluded. Add <code>#[ApiResponse]</code> or a typed resource return to include ' + (sdkIssues.length !== 1 ? 'them' : 'it') + '.</span>') +
+                        (warningCount > 0 ? ' <span style="color:var(--text-muted);">(' + warningCount + ' route warning' + (warningCount !== 1 ? 's' : '') + ' below.)</span>' : '') +
+                    '</div>' +
+                    '<button class="sc-btn primary" id="docs-gen-sdk-btn"' + (sdkReady ? '' : ' disabled title="Document the endpoints listed below to generate the SDK"') + ' style="white-space:nowrap;">📦 Generate SDK</button>' +
+                '</div>' +
+                (sdkIssues.length
+                    ? '<div style="margin-bottom:16px;font-size:12px;color:var(--text-muted);">' +
+                        sdkIssues.map(function(i) { return '<div style="padding:2px 0;"><code>' + escapeHtml(i.route) + '</code> in ' + escapeHtml(i.model) + '</div>'; }).join('') +
+                      '</div>'
+                    : '') +
+                '<div id="gen-sdk-diagnostics"></div>';
 
             content.innerHTML =
                 '<div class="gen-import">' +
@@ -8252,11 +8284,12 @@
                     '<div class="gen-import-subtitle">' + totalEndpoints + ' registered endpoint' + (totalEndpoints !== 1 ? 's' : '') + ' across ' +
                         groupCount + ' group' + (groupCount !== 1 ? 's' : '') + ' in the <strong>' + escapeHtml(data.apiName) + '</strong> API.' +
                         (data.routeFile ? ' Route file: <code>' + escapeHtml(data.routeFile) + '</code>' : '') + '</div>' +
+                    sdkBarHtml +
                     '<div style="margin-bottom:16px;">' +
                         '<input type="search" id="docs-search" placeholder="Search endpoints..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);font-size:13px;outline:none;">' +
                     '</div>' +
                     groupsHtml +
-                    unassignedHtml +
+                    diagnosticsHtml +
                 '</div>';
 
             // Toggle group expand/collapse
@@ -8281,7 +8314,8 @@
                     group.querySelectorAll('.docs-endpoint-row').forEach(function(row) {
                         var path = row.querySelector('.docs-endpoint-path').textContent.toLowerCase();
                         var label = row.querySelector('.docs-endpoint-label').textContent.toLowerCase();
-                        var method = row.querySelector('.gen-import-action-method').textContent.toLowerCase();
+                        var methodEl = row.querySelector('.gen-import-action-method');
+                        var method = methodEl ? methodEl.textContent.toLowerCase() : '';
                         var visible = groupMatch || path.indexOf(query) !== -1 || label.indexOf(query) !== -1 || method.indexOf(query) !== -1;
                         row.style.display = visible ? '' : 'none';
                         if (visible) hasVisible = true;
@@ -8291,49 +8325,71 @@
                 });
             });
 
-            // Click endpoint to open detail modal
-            content.querySelectorAll('.docs-endpoint-row').forEach(function(row) {
+            // Click endpoint to open detail modal — filtered to rows that carry endpoint data
+            // (the issues section uses the same row class but has no data-docs-ep, so it stays
+            // non-clickable). The modal looks up the response schema by modelKey from docsData.
+            content.querySelectorAll('.docs-endpoint-row[data-docs-ep]').forEach(function(row) {
                 row.addEventListener('click', function() {
                     var ep = JSON.parse(row.dataset.docsEp);
-                    var modelName = row.dataset.docsModel;
-                    var responseFields = ep.responseFields || null;
-                    var resolvedModelName = ep.responseModelName || modelName;
-                    showEndpointDetailModal(ep, resolvedModelName, responseFields, ep.responseCollection || false);
+                    var modelKey = ep.responseModelName || row.dataset.docsModel;
+                    showEndpointDetailModal(ep, modelKey, ep.responseCollection || false);
                 });
             });
+
+            // "Generate SDK" button — only wired when documentation-complete (gated above).
+            var docsSdkBtn = document.getElementById('docs-gen-sdk-btn');
+            if (docsSdkBtn && !docsSdkBtn.disabled) {
+                docsSdkBtn.addEventListener('click', generateSdkFromDocs);
+            }
         }
 
         /**
          * Render response fields (columns + relationships) as HTML.
-         * Recursively renders nested relatedFields on relationships.
          *
-         * @param {object} fields  { columns: [...], relationships: [...] }
-         * @param {number} depth   Nesting depth (0 = top level)
+         * Consumes the unified API docs payload: looks up the schema by key in docsData.schemas
+         * and renders its columns + relationships. Relationships are walked by following the
+         * relatedResource FQCN to its entry in docsData.schemas \u2014 the visualizer and the SDK
+         * pipeline now consume the same map identically; there is no separate `relatedFields`
+         * payload anymore. Cycle-safe via the visited Set (mirrors EndpointEnricher's $visited).
+         *
+         * Only badges the contract actually delivers are rendered: nullable, computed, and
+         * innerDtoName (for rich-type columns). The 8 schema-level badge code paths (primary,
+         * autoIncrement, unique, unsigned, cast, managed, length, default) were removed \u2014 those
+         * are runtime DB concerns, not API documentation concerns; the Resource layer doesn't
+         * expose them. See the align-visualizer-data-consumption-with-sdk-pipeline task.
+         *
+         * @param {string} schemaKey  Bare model name key into docsData.schemas (no "Resource" suffix).
+         * @param {number} depth      Nesting depth (0 = top level).
+         * @param {Set}    visited    Cycle-safety accumulator; pass `new Set()` at top level.
          * @returns {string} HTML string
          */
-        function renderResponseFields(fields, depth) {
+        function renderResponseFields(schemaKey, depth, visited) {
             depth = depth || 0;
+            visited = visited || new Set();
+
+            if (visited.has(schemaKey)) {
+                return '<div class="ep-rel-body" style="padding:6px 12px;font-size:11px;color:var(--text-muted);font-style:italic;">(cycle &mdash; ' + escapeHtml(schemaKey) + ' already shown above)</div>';
+            }
+            visited.add(schemaKey);
+
+            var schema = docsData && docsData.schemas ? docsData.schemas[schemaKey] : null;
+            if (!schema) {
+                return '<div class="ep-rel-body" style="padding:6px 12px;font-size:11px;color:var(--text-muted);">Unknown Resource: ' + escapeHtml(schemaKey) + '</div>';
+            }
+
             var html = '';
             var indent = depth > 0 ? 'margin-left:' + (depth * 12) + 'px;' : '';
 
-            if (fields.columns && fields.columns.length > 0) {
+            if (schema.columns && schema.columns.length > 0) {
                 html += '<table class="ep-field-table" style="' + indent + '">' +
                     (depth === 0 ? '<thead><tr><th>Field</th><th>Type</th><th>Info</th></tr></thead>' : '') +
                     '<tbody>';
-                fields.columns.forEach(function(col) {
+                schema.columns.forEach(function(col) {
                     var flags = '';
-                    if (col.primary) flags += '<span class="ep-field-flag pk">PK</span>';
-                    if (col.autoIncrement) flags += '<span class="ep-field-flag ai">AI</span>';
-                    if (col.unique) flags += '<span class="ep-field-flag unique">unique</span>';
                     if (col.nullable) flags += '<span class="ep-rule-tag nullable">nullable</span>';
-                    if (col.unsigned) flags += '<span class="ep-field-flag unsigned">unsigned</span>';
-                    if (col.cast) flags += '<span class="ep-rule-tag">' + escapeHtml(col.cast) + '</span>';
-                    if (col.managed) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">managed</span>';
                     if (col.computed) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">computed</span>';
-                    if (col.length) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">len:' + col.length + '</span>';
-                    if (col.hasOwnProperty('default') && col['default'] !== null && col['default'] !== undefined) {
-                        flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">default: ' + escapeHtml(String(col['default'])) + '</span>';
-                    }
+                    if (col.innerDtoName) flags += '<span class="ep-rule-tag">&rarr; ' + escapeHtml(col.innerDtoName) + '</span>';
+
                     html += '<tr>' +
                         '<td class="ep-field-name">' + escapeHtml(col.name) + '</td>' +
                         '<td class="ep-field-type">' + escapeHtml(col.type) + '</td>' +
@@ -8343,26 +8399,32 @@
                 html += '</tbody></table>';
             }
 
-            if (fields.relationships && fields.relationships.length > 0) {
-                fields.relationships.forEach(function(rel) {
+            if (schema.relationships && schema.relationships.length > 0) {
+                schema.relationships.forEach(function(rel) {
                     var info = rel.isCollection ? '<span class="ep-rule-tag">collection</span>' : '<span class="ep-rule-tag">single</span>';
-                    if (rel.pivotColumns && rel.pivotColumns.length > 0) {
-                        info += '<span class="ep-rule-tag" style="background:var(--warning-dim);color:var(--warning);">pivot: ' + escapeHtml(rel.pivotColumns.join(', ')) + '</span>';
+
+                    // Resolve the related Resource's display name + lookup key from the FQCN.
+                    // class basename (split on backslash, take last segment) gives the Resource
+                    // class name (e.g. "CatalogBrandResource"); stripping "Resource" gives the
+                    // canonical key into docsData.schemas. The same naming convention is owned
+                    // server-side by SdkResourceNaming \u2014 there is no per-consumer dance.
+                    var relatedDisplayName = '';
+                    var relatedKey = null;
+                    if (rel.relatedResource) {
+                        relatedDisplayName = rel.relatedResource.split('\\').pop();
+                        relatedKey = relatedDisplayName.replace(/Resource$/, '');
                     }
-                    var hasNested = rel.relatedFields && (
-                        (rel.relatedFields.columns && rel.relatedFields.columns.length > 0) ||
-                        (rel.relatedFields.relationships && rel.relatedFields.relationships.length > 0)
-                    );
+                    var hasNested = relatedKey && docsData.schemas[relatedKey];
 
                     html += '<details class="ep-rel-details" style="' + indent + 'margin-top:6px;">' +
                         '<summary class="ep-rel-summary">' +
                             '<span class="ep-field-name">' + escapeHtml(rel.name) + (rel.isCollection ? '[]' : '') + '</span>' +
                             '<span class="ep-field-type" style="margin-left:12px;">' + escapeHtml(rel.type) + '</span>' +
-                            '<span style="margin-left:12px;color:var(--text-secondary);font-size:11px;">' + escapeHtml(rel.relatedModel) + 'Resource</span>' +
+                            '<span style="margin-left:12px;color:var(--text-secondary);font-size:11px;">' + escapeHtml(relatedDisplayName) + '</span>' +
                             '<span style="margin-left:auto;display:flex;gap:4px;">' + info + '</span>' +
                         '</summary>' +
                         (hasNested
-                            ? '<div class="ep-rel-body">' + renderResponseFields(rel.relatedFields, depth + 1) + '</div>'
+                            ? '<div class="ep-rel-body">' + renderResponseFields(relatedKey, depth + 1, visited) + '</div>'
                             : '<div class="ep-rel-body" style="padding:6px 12px;font-size:11px;color:var(--text-muted);">No typed fields defined.</div>'
                         ) +
                     '</details>';
@@ -8372,7 +8434,7 @@
             return html;
         }
 
-        function showEndpointDetailModal(ep, modelName, responseFields, isCollection) {
+        function showEndpointDetailModal(ep, modelName, isCollection) {
             var methods = ep.method.split('|');
             var primaryMethod = methods[0];
             var methodLabel = methods.join(' | ');
@@ -8509,13 +8571,20 @@
                     '<div class="ep-section-title">Response <span class="ep-section-badge meta">info</span></div>' +
                     '<div style="font-size:12px;color:var(--text-secondary);"><code>204 No Content</code> \u2014 Empty response on success.</div>' +
                 '</div>';
-            } else if (responseFields && (responseFields.columns.length > 0 || responseFields.relationships.length > 0)) {
-                var resourceLabel = modelName ? (escapeHtml(modelName) + 'Resource' + (isCollection ? '[]' : '')) : 'Resource';
+            } else if (modelName && docsData && docsData.schemas && docsData.schemas[modelName]
+                && ((docsData.schemas[modelName].columns || []).length > 0 || (docsData.schemas[modelName].relationships || []).length > 0)) {
+                // Look up the response schema's display label from its canonical resourceClass
+                // FQCN — the visualizer reads what the server serves, no strip/re-append dance.
+                var schemaEntry = docsData.schemas[modelName];
+                var resourceLabel = 'Resource';
+                if (schemaEntry.resourceClass) {
+                    resourceLabel = escapeHtml(schemaEntry.resourceClass.split('\\').pop()) + (isCollection ? '[]' : '');
+                }
                 responseHtml += '<div class="ep-section">' +
                     '<div class="ep-section-title">Response Body ' +
                         '<span class="ep-section-badge fields">' + resourceLabel + '</span>' +
                     '</div>' +
-                    renderResponseFields(responseFields, 0) +
+                    renderResponseFields(modelName, 0, new Set()) +
                 '</div>';
             } else if (ep.responseManualResource) {
                 var manualName = ep.responseManualResource.split('\\').pop();
@@ -9390,50 +9459,27 @@
             });
         }
 
-        // ── SDK View ───────────────────────────────────
-        function showSdkView() {
-            var content = document.getElementById('gen-content');
-            content.innerHTML = '<div class="gen-empty-state">Loading SDK config...</div>';
+        // ── SDK generation (folded into the API Docs view) ──────────
+        // Triggered by the "Generate SDK" button on the API Docs view. renderDocsView gates the
+        // button (disabled when undocumented endpoints exist), so reaching here means the API is
+        // documentation-complete. Loads the SDK config defaults, then runs the existing
+        // preview → file-diff modal → write flow (doSdkAction). Diagnostics render into the
+        // #gen-sdk-diagnostics element that now lives on the docs view.
+        function generateSdkFromDocs() {
+            var btn = document.getElementById('docs-gen-sdk-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
 
             fetch('/_schema-craft/api/sdk/config?api=' + encodeURIComponent(genSelectedApi))
                 .then(handleResponse)
                 .then(function(data) {
                     genSdkConfig = data;
-                    renderSdkView();
+                    if (btn) { btn.disabled = false; btn.textContent = '📦 Generate SDK'; }
+                    doSdkAction(true);
                 })
                 .catch(function(e) {
-                    content.innerHTML = '<div class="gen-empty-state">Failed to load SDK config.</div>';
+                    if (btn) { btn.disabled = false; btn.textContent = '📦 Generate SDK'; }
+                    showToast('Failed to load SDK config: ' + e.message, 'error');
                 });
-        }
-
-        function renderSdkView() {
-            var d = genSdkConfig;
-            var content = document.getElementById('gen-content');
-
-            content.innerHTML =
-                '<div class="gen-sdk-detail">' +
-                    '<div class="gen-sdk-title">Client SDK</div>' +
-                    '<div class="gen-sdk-info-grid">' +
-                        '<span class="gen-sdk-info-label">Package Name</span>' +
-                        '<span class="gen-sdk-info-value">' + escapeHtml(d.name || '-') + '</span>' +
-                        '<span class="gen-sdk-info-label">Namespace</span>' +
-                        '<span class="gen-sdk-info-value">' + escapeHtml(d.namespace || '-') + '</span>' +
-                        '<span class="gen-sdk-info-label">Client Class</span>' +
-                        '<span class="gen-sdk-info-value">' + escapeHtml(d.client || '-') + '</span>' +
-                        '<span class="gen-sdk-info-label">Version</span>' +
-                        '<span class="gen-sdk-info-value">' + escapeHtml(d.version || '-') + '</span>' +
-                        '<span class="gen-sdk-info-label">Output Path</span>' +
-                        '<span class="gen-sdk-info-value">' + escapeHtml(d.path || '-') + '</span>' +
-                    '</div>' +
-                    '<div style="display:flex;gap:10px;">' +
-                        '<button class="sc-btn" id="gen-sdk-preview-btn">Preview SDK</button>' +
-                        '<button class="sc-btn primary" id="gen-sdk-generate-btn">Generate SDK</button>' +
-                    '</div>' +
-                    '<div id="gen-sdk-diagnostics"></div>' +
-                '</div>';
-
-            document.getElementById('gen-sdk-preview-btn').addEventListener('click', function() { doSdkAction(true); });
-            document.getElementById('gen-sdk-generate-btn').addEventListener('click', function() { doSdkAction(false); });
         }
 
         function renderSdkDiagnostics(errors, warnings) {

@@ -4,18 +4,12 @@ namespace SchemaCraft\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
-use Illuminate\Support\Str;
 use SchemaCraft\Config\ApiConfig;
 use SchemaCraft\Config\ConfigResolver;
-use SchemaCraft\Generator\DependencyResolver;
-use SchemaCraft\Generator\Sdk\ControllerActionScanner;
-use SchemaCraft\Generator\Sdk\RuntimeRouteScanner;
-use SchemaCraft\Generator\Sdk\SdkCustomAction;
+use SchemaCraft\Generator\Sdk\SdkContextBuilder;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
-use SchemaCraft\Generator\Sdk\SdkSchemaContext;
 use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Migration\SchemaDiscovery;
-use SchemaCraft\Scanner\SchemaScanner;
 
 class GenerateSdkCommand extends Command
 {
@@ -91,8 +85,22 @@ class GenerateSdkCommand extends Command
             }
         }
 
-        // Build SDK contexts for schemas that have registered API routes
-        $schemas = $this->buildSchemaContexts($schemaClasses, $apiConfig);
+        // Build SDK contexts via the shared SdkContextBuilder — the exact same pipeline the
+        // visualizer uses, so the CLI-generated SDK is byte-for-byte identical to the GUI one.
+        $result = (new SdkContextBuilder)->build($apiConfig, $schemaClasses);
+
+        // Surface every collected warning/error in console idiom. Warnings are non-fatal
+        // (e.g. an undocumented endpoint excluded from the SDK); errors flag misconfigured
+        // resources the author should fix, but generation still proceeds for the rest.
+        foreach ($result->warnings as $warning) {
+            $this->components->warn($warning['message']);
+        }
+
+        foreach ($result->errors as $error) {
+            $this->components->error($error['message']);
+        }
+
+        $schemas = $result->schemas;
 
         if (empty($schemas)) {
             $this->components->error('No schemas with registered API routes found. Ensure your routes are registered and the route prefix matches your API config.');
@@ -101,9 +109,6 @@ class GenerateSdkCommand extends Command
         }
 
         $this->components->info('Found '.count($schemas).' API schema(s): '.implode(', ', array_keys($schemas)));
-
-        // Resolve dependency schemas (related models that need Data DTOs)
-        $schemas = $this->resolveDependencySchemas($schemas);
 
         // Resolve values: CLI options override config
         $sdkPath = $this->option('path') ?? $apiConfig->sdkPath;
@@ -151,148 +156,6 @@ class GenerateSdkCommand extends Command
         $this->components->info("SDK package generated at [{$outputPath}]");
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Build SdkSchemaContext for each schema that has an API surface.
-     *
-     * Primary discovery: RuntimeRouteScanner checks for registered routes
-     * (works with hand-written controllers, action-based routes, and generated controllers).
-     *
-     * Fallback: controller file existence check (for environments where routes
-     * aren't registered at scan time, e.g., after schema:generate before boot).
-     *
-     * @param  class-string[]  $schemaClasses
-     * @return array<string, SdkSchemaContext>
-     */
-    private function buildSchemaContexts(
-        array $schemaClasses,
-        ApiConfig $apiConfig,
-    ): array {
-        $schemas = [];
-
-        // Primary: use RuntimeRouteScanner to find schemas with registered routes
-        $routeScanner = new RuntimeRouteScanner;
-        $routeData = $routeScanner->scanAll(
-            controllerNamespace: $apiConfig->controllerNamespace,
-            schemaNamespace: $apiConfig->schemaNamespace,
-            routePrefix: $apiConfig->routePrefix ?: null,
-        );
-
-        $schemaEndpoints = $routeData['schemas'] ?? [];
-        $allowedSchemas = array_flip($schemaClasses);
-        $discoveredSchemaClasses = [];
-
-        foreach ($schemaEndpoints as $schemaClass => $endpoints) {
-            if (! isset($allowedSchemas[$schemaClass])) {
-                continue;
-            }
-
-            $modelName = $this->resolveModelName($schemaClass);
-            $scanner = new SchemaScanner($schemaClass);
-            $table = $scanner->scan();
-
-            // Extract custom actions with actual HTTP methods from route data
-            $customActions = [];
-            foreach ($endpoints as $endpoint) {
-                if ($endpoint['type'] === 'custom') {
-                    $methods = explode('|', $endpoint['method']);
-                    $httpMethod = strtolower($methods[0]);
-
-                    $customActions[] = new SdkCustomAction(
-                        name: $endpoint['action'],
-                        httpMethod: $httpMethod,
-                    );
-                }
-            }
-
-            $schemas[$modelName] = new SdkSchemaContext(
-                table: $table,
-                customActions: $customActions,
-                endpoints: $endpoints,
-            );
-            $discoveredSchemaClasses[$schemaClass] = true;
-        }
-
-        // Fallback: check for controller files for schemas not found via routes
-        if ($apiConfig->controllerNamespace !== '') {
-            $files = new Filesystem;
-            $actionScanner = new ControllerActionScanner;
-
-            foreach ($schemaClasses as $schemaClass) {
-                if (isset($discoveredSchemaClasses[$schemaClass])) {
-                    continue;
-                }
-
-                $modelName = $this->resolveModelName($schemaClass);
-                $controllerPath = $apiConfig->controllerPath($modelName);
-
-                if (! $files->exists($controllerPath)) {
-                    continue;
-                }
-
-                $scanner = new SchemaScanner($schemaClass);
-                $table = $scanner->scan();
-
-                $actionNames = $actionScanner->scanFile($controllerPath);
-                $customActions = array_map(
-                    fn (string $name) => new SdkCustomAction(name: $name, httpMethod: 'put'),
-                    $actionNames,
-                );
-
-                $schemas[$modelName] = new SdkSchemaContext(
-                    table: $table,
-                    customActions: $customActions,
-                );
-            }
-        }
-
-        return $schemas;
-    }
-
-    /**
-     * Resolve dependency schemas for all primary schemas.
-     *
-     * Walks the relationship tree to find models referenced by child
-     * relationships (HasMany, HasOne, etc.) that need Data DTOs in the SDK.
-     *
-     * @param  array<string, SdkSchemaContext>  $schemas
-     * @return array<string, SdkSchemaContext>
-     */
-    private function resolveDependencySchemas(array $schemas): array
-    {
-        $resolver = new DependencyResolver;
-        $dependencySchemas = [];
-
-        foreach ($schemas as $modelName => $context) {
-            $deps = $resolver->resolveDependencies($context->table);
-
-            foreach ($deps as $depModelName => $depTable) {
-                if (! isset($schemas[$depModelName]) && ! isset($dependencySchemas[$depModelName])) {
-                    $dependencySchemas[$depModelName] = new SdkSchemaContext(
-                        table: $depTable,
-                        isDependencyOnly: true,
-                    );
-                }
-            }
-
-            foreach ($resolver->getWarnings() as $warning) {
-                $this->components->warn($warning);
-            }
-        }
-
-        if (! empty($dependencySchemas)) {
-            $this->components->info('Resolved '.count($dependencySchemas).' dependency schema(s): '.implode(', ', array_keys($dependencySchemas)));
-        }
-
-        return array_merge($schemas, $dependencySchemas);
-    }
-
-    private function resolveModelName(string $schemaClass): string
-    {
-        $className = class_basename($schemaClass);
-
-        return Str::beforeLast($className, 'Schema') ?: $className;
     }
 
     /**

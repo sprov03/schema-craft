@@ -83,10 +83,12 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('public function create($title, $body = null, $isActive)', $output);
+        // Required params (title, is_active) precede the optional one (body) — valid PHP signature.
+        // Param names are the verbatim snake_case column names (no casing translation).
+        $this->assertStringContainsString('public function create($title, $is_active, $body = null)', $output);
         $this->assertStringContainsString("'title' => \$title", $output);
         $this->assertStringContainsString("'body' => \$body", $output);
-        $this->assertStringContainsString("'is_active' => \$isActive", $output);
+        $this->assertStringContainsString("'is_active' => \$is_active", $output);
     }
 
     public function test_generates_update_method_with_same_params_as_create(): void
@@ -224,8 +226,8 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'User');
 
-        // With 4 params, should be multiline
-        $this->assertStringContainsString("\$firstName,\n", $output);
+        // With 4 params, should be multiline. Param name is the verbatim snake_case column name.
+        $this->assertStringContainsString("\$first_name,\n", $output);
     }
 
     public function test_maps_integer_param_types(): void
@@ -238,10 +240,11 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('$userId', $output);
+        // Param names are verbatim snake_case column names (no casing translation).
+        $this->assertStringContainsString('$user_id', $output);
         $this->assertStringContainsString('$count', $output);
         // Types are in PHPDoc, not in the method signature
-        $this->assertStringContainsString('@param int $userId', $output);
+        $this->assertStringContainsString('@param int $user_id', $output);
         $this->assertStringContainsString('@param int $count', $output);
     }
 
@@ -267,8 +270,9 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'User');
 
-        $this->assertStringContainsString('$isActive', $output);
-        $this->assertStringContainsString('@param bool $isActive', $output);
+        // Param name is the verbatim snake_case column name (no casing translation).
+        $this->assertStringContainsString('$is_active', $output);
+        $this->assertStringContainsString('@param bool $is_active', $output);
     }
 
     public function test_data_array_uses_original_snake_case_keys(): void
@@ -280,7 +284,8 @@ class SdkResourceGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'User');
 
-        $this->assertStringContainsString("'first_name' => \$firstName", $output);
+        // Body key AND param name are both the verbatim snake_case column name — they match.
+        $this->assertStringContainsString("'first_name' => \$first_name", $output);
     }
 
     private function makeSimpleTable(): TableDefinition

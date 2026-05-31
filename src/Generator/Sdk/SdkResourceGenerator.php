@@ -97,12 +97,13 @@ class SdkResourceGenerator
      * Build the method lines for a single scanned endpoint.
      *
      * Uses the actual action name and path from the route — no renaming.
-     * PUT/PATCH/DELETE routes have {id} in the path → $id is the first parameter.
+     * Every {placeholder} in the path becomes a leading method param named after it
+     * (e.g. catalog/{catalog} → $catalog), so route binding works for non-{id} params too.
      * Body params come from the canonical $endpoint['parameters'] produced by enrichEndpoint().
      *
      * Return type is derived from the endpoint's responseModelName when present:
-     * - GET with {id} → DataClass (single)
-     * - GET without {id} → Collection<int, DataClass>
+     * - GET with a path {param} → DataClass (single)
+     * - GET without a path {param} → Collection<int, DataClass>
      * - Any other method with declared resource → DataClass
      * - No declared resource → void
      *
@@ -122,16 +123,23 @@ class SdkResourceGenerator
             : $dataClassName;
 
         $hasResponse = isset($endpoint['responseModelName']);
+        // Manual JsonResource: known to return a body but its shape is opaque (no DTO generated).
+        // We surface the raw decoded data array rather than referencing a phantom XManualData class.
+        $hasManualResponse = ! $hasResponse && isset($endpoint['responseManualResource']);
         $parameters = $endpoint['parameters'] ?? $endpoint['actionParameters'] ?? null;
 
-        $hasId = str_contains($path, '{id}');
+        // Bind every {placeholder} in the path to a leading method param named after it
+        // (e.g. catalog/{catalog} -> $catalog). buildConnectorPath interpolates {$placeholder},
+        // so the names must line up or we'd emit an undefined variable (invalid PHP).
+        preg_match_all('/\{(\w+)\}/', $path, $pathParamMatches);
+        $pathParams = $pathParamMatches[1];
         $isGet = $httpMethod === 'get';
         $bodyParams = $this->resolveBodyParamsFromAction($httpMethod, $parameters);
         $connectorPath = $this->buildConnectorPath($path);
 
         $allParams = [];
-        if ($hasId) {
-            $allParams[] = '$id';
+        foreach ($pathParams as $pathParam) {
+            $allParams[] = "\${$pathParam}";
         }
         foreach ($bodyParams as $param) {
             $allParams[] = $param['optional'] ? "\${$param['name']} = null" : "\${$param['name']}";
@@ -143,8 +151,8 @@ class SdkResourceGenerator
 
         // PHPDoc
         $lines[] = '    /**';
-        if ($hasId) {
-            $lines[] = '     * @param int|string $id';
+        foreach ($pathParams as $pathParam) {
+            $lines[] = "     * @param int|string \${$pathParam}";
         }
         foreach ($bodyParams as $param) {
             $nullSuffix = $param['optional'] ? '|null' : '';
@@ -157,6 +165,8 @@ class SdkResourceGenerator
                 : "     * @return Collection<int, {$endpointDataClass}>";
         } elseif ($hasResponse) {
             $lines[] = "     * @return {$endpointDataClass}";
+        } elseif ($hasManualResponse) {
+            $lines[] = '     * @return array';
         } else {
             $lines[] = '     * @return void';
         }
@@ -187,6 +197,21 @@ class SdkResourceGenerator
             $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, []);";
             $lines[] = '';
             $lines[] = "        return {$endpointDataClass}::fromArray(\$response['data']);";
+        } elseif ($hasManualResponse) {
+            // Opaque resource — return the decoded data array verbatim, no DTO hydration.
+            if ($isGet) {
+                $lines[] = "        \$response = \$this->connector->get({$connectorPath});";
+            } elseif (! empty($bodyParams)) {
+                $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, [";
+                foreach ($bodyParams as $param) {
+                    $lines[] = "            '{$param['key']}' => \${$param['name']},";
+                }
+                $lines[] = '        ]);';
+            } else {
+                $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, []);";
+            }
+            $lines[] = '';
+            $lines[] = "        return \$response['data'];";
         } elseif (! empty($bodyParams)) {
             $lines[] = "        \$this->connector->{$httpMethod}({$connectorPath}, [";
             foreach ($bodyParams as $param) {
@@ -223,10 +248,11 @@ class SdkResourceGenerator
 
         foreach ($parameters as $param) {
             if ($param['isNestedRelationship']) {
-                // Nested relationship — represent as array in the SDK method signature
+                // Nested relationship — represent as array in the SDK method signature.
+                // Param name == wire key (snake_case) so method args and body keys match verbatim.
                 $key = $param['columnName'] ?? Str::snake($param['name']);
                 $params[] = [
-                    'name' => Str::camel($key),
+                    'name' => $key,
                     'key' => $key,
                     'type' => 'array',
                     'optional' => $param['nullable'] || $param['hasDefault'],
@@ -238,7 +264,7 @@ class SdkResourceGenerator
             if ($param['isModel']) {
                 $key = $param['foreignKeyColumn'] ?? (Str::snake($param['name']).'_id');
                 $params[] = [
-                    'name' => Str::camel($key),
+                    'name' => $key,
                     'key' => $key,
                     'type' => 'int',
                     'optional' => $param['nullable'] || $param['hasDefault'],
@@ -246,7 +272,7 @@ class SdkResourceGenerator
             } else {
                 $key = $param['columnName'] ?? Str::snake($param['name']);
                 $params[] = [
-                    'name' => Str::camel($key),
+                    'name' => $key,
                     'key' => $key,
                     'type' => $this->phpTypeFromString($param['type']),
                     'optional' => $param['nullable'] || $param['hasDefault'],
@@ -254,7 +280,7 @@ class SdkResourceGenerator
             }
         }
 
-        return $params;
+        return $this->sortRequiredBeforeOptional($params);
     }
 
     /**
@@ -293,14 +319,34 @@ class SdkResourceGenerator
             }
 
             $params[] = [
-                'name' => Str::camel($column->name),
+                // Param name == column/wire key (snake_case); no casing translation.
+                'name' => $column->name,
                 'key' => $column->name,
                 'type' => $this->columnTypeToPhpType($column->columnType),
                 'optional' => $column->nullable,
             ];
         }
 
-        return $params;
+        return $this->sortRequiredBeforeOptional($params);
+    }
+
+    /**
+     * Stable-partition body params so required ones precede optional ones.
+     *
+     * PHP forbids a required param after an optional ($x = null) one, but FormRequest
+     * rules (and column order) can interleave them. We keep relative order within each
+     * group; the body-key mapping uses each param's explicit 'key', so reordering the
+     * signature does not change the request payload.
+     *
+     * @param  array<int, array{name: string, key: string, type: string, optional: bool}>  $params
+     * @return array<int, array{name: string, key: string, type: string, optional: bool}>
+     */
+    private function sortRequiredBeforeOptional(array $params): array
+    {
+        $required = array_filter($params, fn ($p) => $p['optional'] === false);
+        $optional = array_filter($params, fn ($p) => $p['optional'] === true);
+
+        return array_merge(array_values($required), array_values($optional));
     }
 
     /**

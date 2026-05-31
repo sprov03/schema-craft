@@ -97,6 +97,13 @@ class TestAddressDto extends DataSchema implements CastsAttributes, SchemaCraftC
         return 'array';
     }
 
+    // This class is BOTH a DataSchema and a column, so it describes its own
+    // object shape — reflect itself to emit a typed TestAddressDtoData.
+    public static function sdkShape(): \SchemaCraft\Generator\Sdk\SdkShape
+    {
+        return \SchemaCraft\Generator\Sdk\SdkShape::object(static::class);
+    }
+
     // ─── FilamentRenderable ──────────────────────────────────────
 
     public static function asFilamentField(GeneratorColumn $column): string

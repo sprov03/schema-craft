@@ -59,23 +59,36 @@ class SdkGenerator
 
         foreach ($schemas as $modelName => $context) {
             // Data DTO — generated for all schemas (primary and dependency-only).
-            // When resourceFields is present the DTO is driven by the exact same data that
-            // buildResponseFieldsFromResource() already produced for the API docs panel,
-            // ensuring the SDK and API docs always display the same response shape.
-            $dataClassName = $modelName.'Data';
+            // When resourceFields is present, the DTO is driven by the same per-Resource shape
+            // the API docs panel renders — both consume SdkBuildResult's schema map (projected
+            // via toApiDocsJson() for the visualizer). The SDK and the visualizer display the
+            // same response shape because they consume the same model; no separate enrichment,
+            // no visualizer-specific payload. See knowledge entry sdk-walker-separation.
+            // Inner DTOs (from rich column-type SdkShapes) carry their full class name
+            // in the innerDto definition; everything else appends 'Data' to the model name.
+            $dataClassName = $context->innerDto !== null
+                ? $context->innerDto['name']
+                : $modelName.'Data';
+
             $files["data_{$modelName}"] = new GeneratedFile(
                 path: "src/Data/{$dataClassName}.php",
-                content: $context->resourceFields !== null
-                    ? (new SdkDataGenerator)->generateFromFields(
+                content: match (true) {
+                    // Rich column-type nested DTO — emitted from its resolved field set.
+                    $context->innerDto !== null => (new SdkDataGenerator)->generateFromInnerDto(
+                        $context->innerDto,
+                        $dataNamespace,
+                    ),
+                    $context->resourceFields !== null => (new SdkDataGenerator)->generateFromFields(
                         $context->resourceFields,
                         $dataNamespace,
                         $dataClassName,
-                    )
-                    : (new SdkDataGenerator)->generate(
+                    ),
+                    default => (new SdkDataGenerator)->generate(
                         $context->table,
                         $dataNamespace,
                         $modelName,
                     ),
+                },
             );
 
             // Resource — only for primary schemas (not dependency-only)

@@ -3,10 +3,12 @@
 namespace SchemaCraft\Generator\Sdk;
 
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
-use Illuminate\Support\Str;
 use ReflectionEnum;
 use RuntimeException;
+use SchemaCraft\Contracts\GeneratesSdkType;
 use SchemaCraft\Contracts\SchemaCraftColumn;
+use SchemaCraft\DataSchema;
+use SchemaCraft\Exceptions\SdkGenerationException;
 use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Scanner\RelationshipDefinition;
 use SchemaCraft\Scanner\TableDefinition;
@@ -24,10 +26,6 @@ class SdkDataGenerator
 
     private const SOFT_DELETE_COLUMNS = ['deleted_at'];
 
-    private const COLLECTION_RELATIONSHIPS = ['hasMany', 'belongsToMany', 'morphMany', 'morphToMany'];
-
-    private const SINGULAR_RELATIONSHIPS = ['hasOne', 'morphOne'];
-
     /**
      * Generate the DTO class PHP code.
      */
@@ -37,9 +35,9 @@ class SdkDataGenerator
         string $modelName,
     ): string {
         $dataClassName = $modelName.'Data';
-        $properties = $this->buildProperties($table, $dataNamespace);
+        $properties = $this->buildProperties($table, $dataNamespace, $dataClassName);
         $constructorAssignments = $this->buildConstructorAssignments($table, $dataNamespace);
-        $constructorParams = $this->buildConstructorParams($table, $dataNamespace);
+        $constructorParams = $this->buildConstructorParams($table, $dataNamespace, $dataClassName);
         $fromArrayAssignments = $this->buildFromArrayAssignments($table, $dataNamespace);
 
         $lines = [];
@@ -106,7 +104,7 @@ class SdkDataGenerator
      * and SDK generator call buildResponseFieldsFromResource() once and share the result,
      * so the DTO always matches exactly what the API docs display.
      *
-     * @param  array{columns: array<int, array{name: string, type: string, nullable: bool, computed?: bool}>, relationships: array<int, array{name: string, type: string, relatedModel: string, isCollection: bool, conditional: bool, relatedFields?: array}>}  $fields
+     * @param  array{columns: array<int, array{name: string, type: string, nullable: bool, computed?: bool, innerDtoName?: string}>, relationships: array<int, array{name: string, type: string, relatedResource: string, isCollection: bool, conditional: bool}>}  $fields
      */
     public function generateFromFields(
         array $fields,
@@ -125,19 +123,22 @@ class SdkDataGenerator
         $lines[] = '{';
 
         // Property declarations
+        // Why no casing translation: SDK property names match the JSON wire keys
+        // verbatim so consumers don't have to translate between conventions and a
+        // future toArray() round-trips symmetrically.
         foreach ($columns as $col) {
-            $phpType = $this->resourcePhpType($col['type']);
+            $phpType = $this->resourcePhpType($col['type'], $dataClassName, $col['name']);
             if ($col['nullable'] ?? false) {
                 $lines[] = "    /** @var {$phpType}|null */";
             } else {
                 $lines[] = "    /** @var {$phpType} */";
             }
-            $lines[] = '    public $'.Str::camel($col['name']).';';
+            $lines[] = '    public $'.$col['name'].';';
             $lines[] = '';
         }
 
         foreach ($relationships as $rel) {
-            $relDataClass = $rel['relatedModel'].'Data';
+            $relDataClass = SdkResourceNaming::dtoNameFromResourceFqcn($rel['relatedResource']);
             if ($rel['isCollection']) {
                 $lines[] = "    /** @var {$relDataClass}[]|null */";
             } else {
@@ -150,12 +151,12 @@ class SdkDataGenerator
         // Constructor PHPDoc + signature
         $lines[] = '    /**';
         foreach ($columns as $col) {
-            $phpType = $this->resourcePhpType($col['type']);
+            $phpType = $this->resourcePhpType($col['type'], $dataClassName, $col['name']);
             $nullSuffix = ($col['nullable'] ?? false) ? '|null' : '';
-            $lines[] = "     * @param {$phpType}{$nullSuffix} \$".Str::camel($col['name']);
+            $lines[] = "     * @param {$phpType}{$nullSuffix} \${$col['name']}";
         }
         foreach ($relationships as $rel) {
-            $relDataClass = $rel['relatedModel'].'Data';
+            $relDataClass = SdkResourceNaming::dtoNameFromResourceFqcn($rel['relatedResource']);
             $colType = $rel['isCollection'] ? "{$relDataClass}[]" : $relDataClass;
             $lines[] = "     * @param {$colType}|null \${$rel['name']}";
         }
@@ -164,8 +165,7 @@ class SdkDataGenerator
 
         $allParams = [];
         foreach ($columns as $col) {
-            $propName = Str::camel($col['name']);
-            $allParams[] = ($col['nullable'] ?? false) ? "\${$propName} = null" : "\${$propName}";
+            $allParams[] = ($col['nullable'] ?? false) ? "\${$col['name']} = null" : "\${$col['name']}";
         }
         foreach ($relationships as $rel) {
             $allParams[] = "\${$rel['name']} = null";
@@ -178,8 +178,7 @@ class SdkDataGenerator
 
         $lines[] = '    ) {';
         foreach ($columns as $col) {
-            $propName = Str::camel($col['name']);
-            $lines[] = "        \$this->{$propName} = \${$propName};";
+            $lines[] = "        \$this->{$col['name']} = \${$col['name']};";
         }
         foreach ($relationships as $rel) {
             $lines[] = "        \$this->{$rel['name']} = \${$rel['name']};";
@@ -202,7 +201,7 @@ class SdkDataGenerator
             $assignments[] = "isset(\$data['{$key}']) ? \$data['{$key}'] : null";
         }
         foreach ($relationships as $rel) {
-            $relDataClass = $rel['relatedModel'].'Data';
+            $relDataClass = SdkResourceNaming::dtoNameFromResourceFqcn($rel['relatedResource']);
             if ($rel['isCollection']) {
                 $assignments[] = "isset(\$data['{$rel['name']}']) ? array_map(function (array \$item) { return {$relDataClass}::fromArray(\$item); }, \$data['{$rel['name']}']) : null";
             } else {
@@ -224,17 +223,314 @@ class SdkDataGenerator
     }
 
     /**
-     * Map a type string from ResourceScanner (PHP type or column type) to a PHPDoc-safe type.
+     * Generate an inner DTO class from an SdkShape's resolved field set.
+     *
+     * This is the DataSchema/bitmask counterpart to generate()/generateFromFields():
+     * the rich column types (collection/json-dto/bitmask) describe a nested object
+     * shape that has no TableDefinition, so we emit it from the field list the shape
+     * (or the reflected DataSchema) produced. Unlike generateFromFields(), the field
+     * `type` here is ALREADY the final PHPDoc type ({X}Data / {X}Data[] / scalar) —
+     * collectInnerDtos() resolved it — so we emit it verbatim rather than re-running
+     * resourcePhpType() (which would choke on a DTO name that isn't a real class).
+     *
+     * @param  array{name: string, fields: array<int, array{name: string, type: string, nullable: bool}>}  $dto
      */
-    private function resourcePhpType(string $type): string
+    public function generateFromInnerDto(array $dto, string $dataNamespace): string
     {
-        return match ($type) {
+        $fields = $dto['fields'];
+        $className = $dto['name'];
+
+        $lines = [];
+        $lines[] = '<?php';
+        $lines[] = '';
+        $lines[] = "namespace {$dataNamespace};";
+        $lines[] = '';
+        $lines[] = "class {$className}";
+        $lines[] = '{';
+
+        // Property declarations — types are already resolved; names served verbatim.
+        foreach ($fields as $f) {
+            $type = $f['type'];
+            $lines[] = $f['nullable'] ? "    /** @var {$type}|null */" : "    /** @var {$type} */";
+            $lines[] = '    public $'.$f['name'].';';
+            $lines[] = '';
+        }
+
+        // Constructor PHPDoc + signature
+        $lines[] = '    /**';
+        foreach ($fields as $f) {
+            $nullSuffix = $f['nullable'] ? '|null' : '';
+            $lines[] = "     * @param {$f['type']}{$nullSuffix} \${$f['name']}";
+        }
+        $lines[] = '     */';
+        $lines[] = '    public function __construct(';
+
+        $params = array_map(
+            fn ($f) => $f['nullable'] ? "\${$f['name']} = null" : "\${$f['name']}",
+            $fields,
+        );
+        foreach ($params as $i => $param) {
+            $comma = $i < count($params) - 1 ? ',' : '';
+            $lines[] = "        {$param}{$comma}";
+        }
+
+        $lines[] = '    ) {';
+        foreach ($fields as $f) {
+            $lines[] = "        \$this->{$f['name']} = \${$f['name']};";
+        }
+        $lines[] = '    }';
+
+        // fromArray factory — raw passthrough per field (the wire data is already the
+        // right scalar/array shape; nested DTOs decode lazily on access if needed).
+        $lines[] = '';
+        $lines[] = '    /**';
+        $lines[] = '     * @param array $data';
+        $lines[] = '     * @return self';
+        $lines[] = '     */';
+        $lines[] = '    public static function fromArray(array $data)';
+        $lines[] = '    {';
+        $lines[] = '        return new self(';
+
+        foreach ($fields as $i => $f) {
+            $comma = $i < count($fields) - 1 ? ',' : '';
+            $lines[] = "            isset(\$data['{$f['name']}']) ? \$data['{$f['name']}'] : null{$comma}";
+        }
+
+        $lines[] = '        );';
+        $lines[] = '    }';
+        $lines[] = '}';
+        $lines[] = '';
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Flatten an SdkShape into the set of inner DTOs that must be emitted for it,
+     * deduped by DTO name. Recurses into nested DataSchemas, nested casts
+     * (SchemaCraftColumn properties), and synthesized sub-objects (bitmask flags),
+     * so the type is documented all the way to the bottom.
+     *
+     * @param  array<string, array{name: string, fields: array}>  $collected  Accumulator, keyed by DTO name
+     * @return array<string, array{name: string, fields: array}>
+     */
+    public function collectInnerDtos(SdkShape $shape, array $collected = []): array
+    {
+        if ($shape->isScalar()) {
+            return $collected;
+        }
+
+        $dtoName = $shape->dtoName();
+
+        // Already emitted under this name — stop (also breaks DataSchema cycles).
+        if ($dtoName === null || isset($collected[$dtoName])) {
+            return $collected;
+        }
+
+        // Reserve the slot first so a self-referential DataSchema doesn't recurse forever.
+        $collected[$dtoName] = ['name' => $dtoName, 'fields' => []];
+
+        if ($shape->synthesizedFields !== null) {
+            // Synthesized object (bitmask) — fields are spelled out explicitly.
+            [$fields, $collected] = $this->fieldsFromSynthesized($shape->synthesizedFields, $collected);
+        } else {
+            // DataSchema-backed object/collection — reflect the class's fields.
+            [$fields, $collected] = $this->fieldsFromDataSchema($shape->dataSchemaClass, $collected);
+        }
+
+        $collected[$dtoName]['fields'] = $fields;
+
+        return $collected;
+    }
+
+    /**
+     * Build the field list for a synthesized object and recurse into nested shapes.
+     *
+     * @param  \SchemaCraft\Generator\Sdk\SdkShapeField[]  $synthesizedFields
+     * @param  array<string, array>  $collected
+     * @return array{0: array<int, array{name: string, type: string, nullable: bool}>, 1: array<string, array>}
+     */
+    private function fieldsFromSynthesized(array $synthesizedFields, array $collected): array
+    {
+        $fields = [];
+
+        foreach ($synthesizedFields as $f) {
+            if ($f->shape !== null) {
+                // Nested synthesized/DataSchema sub-object (e.g. bitmask flags) — recurse.
+                $collected = $this->collectInnerDtos($f->shape, $collected);
+                $fields[] = [
+                    'name' => $f->name,
+                    'type' => $this->shapeToPhpType($f->shape),
+                    'nullable' => $f->nullable,
+                ];
+
+                continue;
+            }
+
+            $fields[] = ['name' => $f->name, 'type' => $f->scalarType ?? 'mixed', 'nullable' => $f->nullable];
+        }
+
+        return [$fields, $collected];
+    }
+
+    /**
+     * Reflect a DataSchema subclass into a DTO field list, recursing into nested
+     * DataSchemas and nested SchemaCraftColumn casts.
+     *
+     * @param  class-string<DataSchema>  $dataSchemaClass
+     * @param  array<string, array>  $collected
+     * @return array{0: array<int, array{name: string, type: string, nullable: bool}>, 1: array<string, array>}
+     */
+    private function fieldsFromDataSchema(string $dataSchemaClass, array $collected): array
+    {
+        $fields = [];
+
+        foreach ($dataSchemaClass::fieldDescriptors() as $prop) {
+            $name = $prop['name'];
+            $nullable = $prop['nullable'];
+
+            // Nested DataSchema -> recurse into its own DTO, reference it by type.
+            if ($prop['isDataSchema']) {
+                $nestedShape = SdkShape::object($prop['typeName']);
+                $collected = $this->collectInnerDtos($nestedShape, $collected);
+                $fields[] = ['name' => $name, 'type' => $nestedShape->dtoName(), 'nullable' => $nullable];
+
+                continue;
+            }
+
+            // Property whose cast is itself a SchemaCraftColumn -> consult its shape (recurse).
+            if ($prop['typeName'] !== null
+                && ! $prop['isBuiltin']
+                && is_subclass_of($prop['typeName'], SchemaCraftColumn::class)
+            ) {
+                $castShape = $prop['typeName']::sdkShape();
+                $collected = $this->collectInnerDtos($castShape, $collected);
+                $fields[] = ['name' => $name, 'type' => $this->shapeToPhpType($castShape), 'nullable' => $nullable];
+
+                continue;
+            }
+
+            // Backed enum -> its backing scalar type.
+            if ($prop['isBackedEnum']) {
+                $fields[] = [
+                    'name' => $name,
+                    'type' => (new ReflectionEnum($prop['typeName']))->getBackingType()->getName(),
+                    'nullable' => $nullable,
+                ];
+
+                continue;
+            }
+
+            // Datetime -> string (ISO8601 on the wire).
+            if ($prop['isDatetime']) {
+                $fields[] = ['name' => $name, 'type' => 'string', 'nullable' => $nullable];
+
+                continue;
+            }
+
+            // Builtin scalar -> the existing scalar mapping. Guarded the same as schema/resource
+            // fields: a DataSchema with a bare `array`/untypeable field would otherwise smuggle an
+            // untyped field into an inner DTO, bypassing the column/resource-level guard.
+            $fields[] = [
+                'name' => $name,
+                'type' => $this->guardTyped($this->scalarFromTypeName($prop['typeName']), SdkShape::dtoNameFor($dataSchemaClass), $name),
+                'nullable' => $nullable,
+            ];
+        }
+
+        return [$fields, $collected];
+    }
+
+    /**
+     * Map a builtin PHP type name from DataSchema reflection to a PHPDoc scalar.
+     */
+    private function scalarFromTypeName(?string $typeName): string
+    {
+        return match ($typeName) {
+            'int' => 'int',
+            'bool' => 'bool',
+            'float' => 'float',
+            'array' => 'array',
+            'string' => 'string',
+            default => 'mixed',
+        };
+    }
+
+    /**
+     * Map a type string from ResourceScanner (PHP type or column type) to a PHPDoc-safe type.
+     *
+     * Resolution order mirrors the table-driven phpType(): scalars first, then well-known
+     * stdlib classes that SchemaCraftType's docblock excuses from the contract
+     * (DateTimeInterface family), then BackedEnum backing types via reflection, then
+     * anything implementing GeneratesSdkType. Any other class throws — silent fallbacks
+     * here would let custom value objects ship as the wrong type in the SDK without
+     * anyone noticing. The escape hatch is the contract, not a one-off match arm.
+     */
+    private function resourcePhpType(string $type, string $context, string $field): string
+    {
+        $scalar = match ($type) {
             'int', 'integer' => 'int',
             'bool', 'boolean' => 'bool',
             'float', 'double', 'decimal', 'numeric' => 'float',
             'array', 'json' => 'array',
-            default => 'string',
+            'string', 'text', 'date', 'datetime', 'timestamp' => 'string',
+            default => null,
         };
+
+        if ($scalar !== null) {
+            return $this->guardTyped($scalar, $context, $field);
+        }
+
+        if (class_exists($type) || interface_exists($type)) {
+            if ($type === \DateTimeInterface::class || is_subclass_of($type, \DateTimeInterface::class)) {
+                return 'string';
+            }
+
+            if (is_subclass_of($type, \BackedEnum::class)) {
+                return (new ReflectionEnum($type))->getBackingType()->getName();
+            }
+
+            if (is_subclass_of($type, GeneratesSdkType::class)) {
+                // Consult the structured shape so rich types emit a typed nested DTO
+                // ({X}Data / {X}Data[]) instead of the flat sdkType() 'array'.
+                return $this->guardTyped($this->shapeToPhpType($type::sdkShape()), $context, $field);
+            }
+        }
+
+        throw SdkGenerationException::unsupportedResourceType($type);
+    }
+
+    /**
+     * Phase B guard: the SDK must be typed to the bottom, so a field resolving to a bare
+     * `array` is a hard error (no opt-out). Centralised so every resolution path fails the
+     * same way, naming the offending DTO + field.
+     */
+    private function guardTyped(string $resolved, string $context, string $field): string
+    {
+        // Both `array` (shape unknown) and `mixed` (no type at all) fail the "typed to the
+        // bottom" contract — no opt-out.
+        if ($resolved === 'array' || $resolved === 'mixed') {
+            throw SdkGenerationException::untypedField($context, $field, $resolved);
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Map an SdkShape to the PHPDoc type hint used in a generated DTO property.
+     *
+     * collection -> {Item}Data[]   object -> {X}Data   scalar -> the scalar string.
+     */
+    private function shapeToPhpType(SdkShape $shape): string
+    {
+        if ($shape->isCollection()) {
+            return $shape->dtoName().'[]';
+        }
+
+        if ($shape->isObject()) {
+            return $shape->dtoName();
+        }
+
+        return $shape->scalarType ?? 'array';
     }
 
     /**
@@ -242,7 +538,7 @@ class SdkDataGenerator
      *
      * @return string[]
      */
-    private function buildProperties(TableDefinition $table, string $dataNamespace): array
+    private function buildProperties(TableDefinition $table, string $dataNamespace, string $dataClassName): array
     {
         $properties = [];
         $hiddenSet = array_flip($table->hidden);
@@ -255,7 +551,7 @@ class SdkDataGenerator
                 continue;
             }
 
-            $type = $this->phpType($column);
+            $type = $this->phpType($column, $dataClassName);
             $propName = $this->propertyName($column->name);
 
             if ($column->nullable) {
@@ -355,7 +651,7 @@ class SdkDataGenerator
      *
      * @return string[]
      */
-    private function buildConstructorParams(TableDefinition $table, string $dataNamespace): array
+    private function buildConstructorParams(TableDefinition $table, string $dataNamespace, string $dataClassName): array
     {
         $params = [];
         $hiddenSet = array_flip($table->hidden);
@@ -367,7 +663,7 @@ class SdkDataGenerator
                 continue;
             }
 
-            $type = $this->phpType($column);
+            $type = $this->phpType($column, $dataClassName);
             $propName = $this->propertyName($column->name);
             $nullSuffix = $column->nullable ? '|null' : '';
             $params[] = "{$type}{$nullSuffix} \${$propName}";
@@ -396,9 +692,9 @@ class SdkDataGenerator
 
             $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
-            if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
+            if (SdkRelationshipCardinality::isCollection($rel->type)) {
                 $params[] = "{$relatedDataClass}[]|null \${$rel->name}";
-            } elseif (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
+            } elseif (SdkRelationshipCardinality::isSingular($rel->type)) {
                 $params[] = "{$relatedDataClass}|null \${$rel->name}";
             } else {
                 $params[] = "mixed \${$rel->name}";
@@ -512,13 +808,13 @@ class SdkDataGenerator
 
     private function buildRelationshipPropertyDeclaration(RelationshipDefinition $rel): string
     {
-        if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
+        if (SdkRelationshipCardinality::isCollection($rel->type)) {
             $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
             return "/** @var {$relatedDataClass}[]|null */\n    public \${$rel->name};";
         }
 
-        if (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
+        if (SdkRelationshipCardinality::isSingular($rel->type)) {
             $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
             return "/** @var {$relatedDataClass}|null */\n    public \${$rel->name};";
@@ -531,11 +827,11 @@ class SdkDataGenerator
     {
         $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
-        if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
+        if (SdkRelationshipCardinality::isCollection($rel->type)) {
             return "isset(\$data['{$rel->name}']) ? array_map(function (array \$item) { return {$relatedDataClass}::fromArray(\$item); }, \$data['{$rel->name}']) : null";
         }
 
-        if (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
+        if (SdkRelationshipCardinality::isSingular($rel->type)) {
             return "isset(\$data['{$rel->name}']) ? {$relatedDataClass}::fromArray(\$data['{$rel->name}']) : null";
         }
 
@@ -567,16 +863,17 @@ class SdkDataGenerator
      * BackedEnum backing types are resolved via reflection.
      * Any other existing class that does NOT implement SchemaCraftColumn throws.
      */
-    private function phpType(ColumnDefinition $column): string
+    private function phpType(ColumnDefinition $column, string $context): string
     {
         if ($column->castType !== null && class_exists($column->castType)) {
             if (is_subclass_of($column->castType, \BackedEnum::class)) {
                 return (new ReflectionEnum($column->castType))->getBackingType()->getName();
             }
 
-            // Fully compliant — delegate.
+            // Fully compliant — delegate to the structured shape so rich types
+            // emit a typed nested DTO ({X}Data / {X}Data[]) rather than 'array'.
             if (is_subclass_of($column->castType, SchemaCraftColumn::class)) {
-                return $column->castType::sdkType();
+                return $this->guardTyped($this->shapeToPhpType($column->castType::sdkShape()), $context, $column->name);
             }
 
             // Custom Eloquent cast without SchemaCraftColumn — throw.
@@ -610,14 +907,18 @@ class SdkDataGenerator
             'date' => 'string',
         ];
 
-        return $typeMap[$column->columnType] ?? 'string';
+        return $this->guardTyped($typeMap[$column->columnType] ?? 'string', $context, $column->name);
     }
 
     /**
-     * Convert a snake_case column name to a camelCase property name.
+     * SDK property name for a column — the column name verbatim.
+     *
+     * No casing translation: the DTO property must match the JSON wire key exactly so
+     * consumers never translate between conventions and a future toArray() round-trips
+     * symmetrically (same rationale as the resource-driven generateFromFields path).
      */
     private function propertyName(string $columnName): string
     {
-        return Str::camel($columnName);
+        return $columnName;
     }
 }

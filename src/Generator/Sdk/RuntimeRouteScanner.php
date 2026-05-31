@@ -15,8 +15,9 @@ use SchemaCraft\Scanner\ActionScanner;
  * Discovers API routes at runtime via Route::getRoutes() and maps them
  * to schemas using controller class names and action route defaults.
  *
- * Replaces the regex-based RouteDefinitionScanner with a reliable,
- * runtime approach that catches all routes regardless of registration pattern.
+ * Why runtime over static parsing: catches all routes regardless of how
+ * they're registered (apiRoutes(), webhooks(), action attributes, etc.)
+ * without having to model every registration pattern.
  */
 class RuntimeRouteScanner
 {

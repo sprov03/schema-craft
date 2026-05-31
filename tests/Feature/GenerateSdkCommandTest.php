@@ -19,6 +19,34 @@ class GenerateSdkCommandTest extends TestCase
         return [SchemaCraftServiceProvider::class];
     }
 
+    /**
+     * Point the SDK config at the hand-written fixture namespaces so
+     * RuntimeRouteScanner can match fixture routes to fixture schemas.
+     */
+    protected function defineEnvironment($app): void
+    {
+        $app['config']->set(
+            'schema-craft.apis.default.namespaces.controller',
+            'SchemaCraft\\Tests\\Fixtures\\Api',
+        );
+        $app['config']->set(
+            'schema-craft.apis.default.namespaces.schema',
+            'SchemaCraft\\Tests\\Fixtures\\Schemas',
+        );
+    }
+
+    /**
+     * Register the fixture API's routes so they're discoverable at runtime.
+     * Avoids the previous pattern of generating + falling back through the
+     * controller-file scanner — that fallback is gone (SdkGenerationException).
+     */
+    protected function defineRoutes($router): void
+    {
+        $router->prefix('api')->middleware('api')->group(function () {
+            \SchemaCraft\Tests\Fixtures\Api\PostController::apiRoutes();
+        });
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -72,19 +100,14 @@ class GenerateSdkCommandTest extends TestCase
         $this->createdDirs[] = $path;
     }
 
+    /**
+     * No-op — the fixture API is set up automatically via defineEnvironment()
+     * and defineRoutes(). Kept as an explicit call site so tests read clearly:
+     * "this test exercises the SDK gen against the fixture API."
+     */
     private function generateApiForPost(): void
     {
-        $this->artisan('schema:generate', [
-            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
-        ])->assertSuccessful();
-
-        $this->trackFile(app_path('Http/Controllers/Api/PostController.php'));
-        $this->trackFile(app_path('Models/Services/PostService.php'));
-        $this->trackFile(app_path('Http/Requests/CreatePostRequest.php'));
-        $this->trackFile(app_path('Http/Requests/UpdatePostRequest.php'));
-        $this->trackFile(app_path('Resources/PostResource.php'));
-        $this->trackFile(app_path('Resources/CommentResource.php'));
-        $this->trackFile(app_path('Resources/TagResource.php'));
+        // intentionally empty
     }
 
     // ─── Basic generation ──────────────────────────────────────────
@@ -96,12 +119,11 @@ class GenerateSdkCommandTest extends TestCase
         ])->assertFailed();
     }
 
-    public function test_fails_when_no_routes_registered(): void
-    {
-        $this->artisan('schema:generate-sdk', [
-            '--schema-path' => [dirname(__DIR__).'/Fixtures/Schemas'],
-        ])->assertFailed();
-    }
+    // Note: the old test_fails_when_no_routes_registered case was deleted —
+    // with fixture-based setup, routes are always registered. The no-routes
+    // failure mode is now exercised by the SdkGenerationException path that
+    // fires when a controller file exists without matching routes (covered
+    // by Fix 1 unit tests for SdkGenerationException::missingRoutes).
 
     public function test_generates_sdk_for_schema_with_api(): void
     {
@@ -164,11 +186,24 @@ class GenerateSdkCommandTest extends TestCase
 
         $content = $this->files->get($outputPath.'/src/Data/PostData.php');
 
+        // PostData is now RESOURCE-driven (PostResource), so its fields are the resource's typed
+        // props served verbatim in snake_case — not the raw schema columns.
         $this->assertStringContainsString('class PostData', $content);
-        $this->assertStringContainsString('$title', $content);
-        $this->assertStringContainsString('$slug', $content);
-        $this->assertStringContainsString('$body', $content);
+        $this->assertStringContainsString('public $title;', $content);
+        $this->assertStringContainsString('public $slug;', $content);
+        $this->assertStringContainsString('public $body;', $content);
+        // snake_case keys preserved verbatim (no casing translation).
+        $this->assertStringContainsString('public $view_count;', $content);
+        $this->assertStringContainsString('public $is_featured;', $content);
+        $this->assertStringContainsString('public $published_at;', $content);
         $this->assertStringContainsString('fromArray', $content);
+
+        // The structured ActionResultData DTO (referenced by delete/archive) is generated too.
+        $this->assertFileExists($outputPath.'/src/Data/ActionResultData.php');
+        $actionResult = $this->files->get($outputPath.'/src/Data/ActionResultData.php');
+        $this->assertStringContainsString('class ActionResultData', $actionResult);
+        $this->assertStringContainsString('public $success;', $actionResult);
+        $this->assertStringContainsString('public $message;', $actionResult);
     }
 
     public function test_generated_resource_has_crud_methods(): void
@@ -188,11 +223,26 @@ class GenerateSdkCommandTest extends TestCase
 
         $content = $this->files->get($outputPath.'/src/Resources/PostResource.php');
 
-        $this->assertStringContainsString('public function list()', $content);
+        // SDK methods mirror the controller method names verbatim (no mapping —
+        // 'getCollection' on the controller stays 'getCollection' on the SDK).
+        $this->assertStringContainsString('public function getCollection(', $content);
         $this->assertStringContainsString('public function get(', $content);
         $this->assertStringContainsString('public function create(', $content);
         $this->assertStringContainsString('public function update(', $content);
         $this->assertStringContainsString('public function delete(', $content);
+
+        // Every Post endpoint is now documented (#[ApiResponse]) so methods carry typed returns:
+        //   getCollection -> Collection<int, PostData>, the rest of the reads/writes -> PostData,
+        //   delete/archive -> the structured ActionResultData (no longer void).
+        $this->assertStringContainsString('     * @return Collection<int, PostData>', $content);
+        $this->assertStringContainsString("return collect(\$response['data'])->map(function (array \$item) {", $content);
+        $this->assertStringContainsString('return PostData::fromArray($item);', $content);
+        $this->assertStringContainsString("return PostData::fromArray(\$response['data']);", $content);
+        $this->assertStringContainsString('     * @return ActionResultData', $content);
+        $this->assertStringContainsString("return ActionResultData::fromArray(\$response['data']);", $content);
+
+        // archive is a documented custom action returning the structured result.
+        $this->assertStringContainsString('public function archive(', $content);
     }
 
     public function test_generated_client_has_resource_accessors(): void
@@ -415,9 +465,13 @@ class GenerateSdkCommandTest extends TestCase
 
     public function test_api_option_uses_config_for_sdk_metadata(): void
     {
+        // Point the partner API at the fixture namespaces so it discovers the
+        // same fixture controller/schema the default api uses. The test is
+        // about config-driven SDK metadata, not about API surface isolation.
         config()->set('schema-craft.apis.partner', [
             'namespaces' => [
-                'controller' => 'App\\Http\\Controllers\\Api',
+                'controller' => 'SchemaCraft\\Tests\\Fixtures\\Api',
+                'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas',
                 'resource' => 'App\\Resources',
             ],
             'sdk' => [
@@ -454,7 +508,8 @@ class GenerateSdkCommandTest extends TestCase
     {
         config()->set('schema-craft.apis.partner', [
             'namespaces' => [
-                'controller' => 'App\\Http\\Controllers\\Api',
+                'controller' => 'SchemaCraft\\Tests\\Fixtures\\Api',
+                'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas',
                 'resource' => 'App\\Resources',
             ],
             'sdk' => [
@@ -488,13 +543,26 @@ class GenerateSdkCommandTest extends TestCase
         $this->assertStringContainsString('"9.9.9"', $composerContent);
     }
 
-    public function test_api_option_uses_custom_controller_path_for_discovery(): void
+    public function test_api_option_throws_when_controller_has_no_routes(): void
     {
+        // This test exercises Fix 1's fail-loud behavior: when a controller
+        // file exists for the partner API but no routes are registered for
+        // its namespace, SdkGenerationException::missingRoutes fires rather
+        // than the old silent fallback that produced an SDK with `httpMethod: put`
+        // hardcoded for every action.
+        //
+        // Scoped to Category specifically: the fixture's defineRoutes() registers the
+        // documented PostController, whose #[ApiResponse]-tagged routes now resolve to
+        // PostSchema and would otherwise "leak" into any unfiltered partner build. No
+        // registered route references CategorySchema, so generating its controller with
+        // no routes is the clean way to hit the missing-routes path.
         config()->set('schema-craft.apis.partner', [
             'namespaces' => [
                 'controller' => 'App\\Http\\Controllers\\PartnerApi',
+                'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas',
                 'resource' => 'App\\Resources\\PartnerApi',
             ],
+            'schemas' => ['CategorySchema'],
             'sdk' => [
                 'path' => 'packages/partner-sdk',
                 'name' => 'acme/partner-sdk',
@@ -502,35 +570,30 @@ class GenerateSdkCommandTest extends TestCase
                 'client' => 'PartnerClient',
             ],
         ]);
-
-        // Generate API for partner namespace
         config()->set('schema-craft.apis.partner.namespaces.service', 'App\\Services\\PartnerApi');
         config()->set('schema-craft.apis.partner.namespaces.request', 'App\\Http\\Requests\\PartnerApi');
 
+        // Generate the partner API stack so a controller file exists on disk —
+        // but the fixture's defineRoutes() only registers routes for the default
+        // (fixture) namespace, not the partner namespace.
         $this->artisan('schema:generate', [
-            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
+            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\CategorySchema',
             '--api' => 'partner',
         ])->assertSuccessful();
 
-        $this->trackFile(app_path('Http/Controllers/PartnerApi/PostController.php'));
-        $this->trackFile(app_path('Services/PartnerApi/PostService.php'));
-        $this->trackFile(app_path('Http/Requests/PartnerApi/CreatePostRequest.php'));
-        $this->trackFile(app_path('Http/Requests/PartnerApi/UpdatePostRequest.php'));
-        $this->trackFile(app_path('Resources/PartnerApi/PostResource.php'));
-        $this->trackFile(app_path('Resources/PartnerApi/CommentResource.php'));
-        $this->trackFile(app_path('Resources/PartnerApi/TagResource.php'));
+        $this->trackFile(app_path('Http/Controllers/PartnerApi/CategoryController.php'));
+        $this->trackFile(app_path('Services/PartnerApi/CategoryService.php'));
+        $this->trackFile(app_path('Http/Requests/PartnerApi/CreateCategoryRequest.php'));
+        $this->trackFile(app_path('Http/Requests/PartnerApi/UpdateCategoryRequest.php'));
+        $this->trackFile(app_path('Resources/PartnerApi/CategoryResource.php'));
 
-        $outputPath = base_path('packages/partner-sdk');
-        $this->trackDir($outputPath);
+        $this->expectException(\SchemaCraft\Exceptions\SdkGenerationException::class);
+        $this->expectExceptionMessageMatches('/no routes are registered for this schema/');
 
         $this->artisan('schema:generate-sdk', [
             '--schema-path' => [dirname(__DIR__).'/Fixtures/Schemas'],
             '--api' => 'partner',
-        ])->assertSuccessful();
-
-        // Should discover PostController at the partner path
-        $this->assertFileExists($outputPath.'/src/Data/PostData.php');
-        $this->assertFileExists($outputPath.'/src/Resources/PostResource.php');
+        ]);
     }
 
     // ─── --sdk-version flag ──────────────────────────────────────────
@@ -581,7 +644,8 @@ class GenerateSdkCommandTest extends TestCase
     {
         config()->set('schema-craft.apis.alpha', [
             'namespaces' => [
-                'controller' => 'App\\Http\\Controllers\\Api',
+                'controller' => 'SchemaCraft\\Tests\\Fixtures\\Api',
+                'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas',
                 'resource' => 'App\\Resources',
             ],
             'sdk' => [
@@ -622,15 +686,9 @@ class GenerateSdkCommandTest extends TestCase
 
     public function test_includes_custom_actions_in_sdk_resource(): void
     {
+        // The fixture controller already declares an `archive` custom action
+        // (POST posts/{post}/archive) — no schema:generate call needed.
         $this->generateApiForPost();
-
-        // Add a custom action to the controller
-        $this->artisan('schema:generate', [
-            'schema' => 'SchemaCraft\\Tests\\Fixtures\\Schemas\\PostSchema',
-            '--action' => 'archive',
-        ])->assertSuccessful();
-
-        $this->trackFile(app_path('Http/Requests/ArchivePostRequest.php'));
 
         $outputPath = base_path('packages/test-sdk');
         $this->trackDir($outputPath);

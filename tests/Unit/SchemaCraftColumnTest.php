@@ -27,7 +27,19 @@ class SampleBitmask extends AbstractBitmaskType
 }
 
 /**
+ * Object shape backing SampleJsonDto.
+ */
+class SampleSpec extends \SchemaCraft\DataSchema
+{
+    public ?string $key = null;
+}
+
+/**
  * Concrete TestJsonDto for testing.
+ *
+ * Declares dtoClass() to satisfy the DataSchema-backed contract, but keeps its
+ * free-form array round-trip (the legacy behaviour these tests assert) by
+ * overriding fromArray()/toArray() — the base treats those as defaults, not final.
  */
 class SampleJsonDto extends AbstractJsonDtoType
 {
@@ -36,6 +48,11 @@ class SampleJsonDto extends AbstractJsonDtoType
     public function __construct(array $data = [])
     {
         $this->data = $data;
+    }
+
+    protected static function dtoClass(): string
+    {
+        return SampleSpec::class;
     }
 
     public static function fromArray(array $data): static

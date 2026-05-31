@@ -22,6 +22,7 @@ use SchemaCraft\Attributes\Decimal;
 use SchemaCraft\Attributes\DefaultExpression;
 use SchemaCraft\Attributes\DefaultValue;
 use SchemaCraft\Attributes\Fillable;
+use SchemaCraft\Attributes\Generated;
 use SchemaCraft\Attributes\FloatColumn;
 use SchemaCraft\Attributes\ForeignColumn;
 use SchemaCraft\Attributes\Hidden;
@@ -316,6 +317,7 @@ class SchemaScanner
         $index = false;
         $primary = false;
         $autoIncrement = false;
+        $generated = false;
         $expressionDefault = null;
 
         $phpAttributes = $property->getAttributes();
@@ -356,6 +358,7 @@ class SchemaScanner
                 })(),
                 $attrInstance instanceof Primary => $primary = true,
                 $attrInstance instanceof AutoIncrement => $autoIncrement = true,
+                $attrInstance instanceof Generated => $generated = true,
                 $attrInstance instanceof ColumnType => $columnType = $attrInstance->type,
                 default => null,
             };
@@ -389,6 +392,7 @@ class SchemaScanner
             renamedFrom: $renamedFrom,
             expressionDefault: $expressionDefault,
             phpType: $typeName,
+            generated: $generated,
         );
     }
 

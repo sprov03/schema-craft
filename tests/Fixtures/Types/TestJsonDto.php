@@ -2,24 +2,33 @@
 
 namespace SchemaCraft\Tests\Fixtures\Types;
 
+use SchemaCraft\DataSchema;
 use SchemaCraft\Types\AbstractJsonDtoType;
 
+/**
+ * JSON-DTO fixture for the SDK golden test.
+ *
+ * Migrated to the DataSchema-backed form: the object shape lives in TestSpec
+ * (a DataSchema), and the SDK reflects it to emit a typed TestSpecData nested
+ * DTO instead of a bare `array`. Runtime hydrate/dehydrate is handled by the
+ * base via dtoClass().
+ */
 class TestJsonDto extends AbstractJsonDtoType
 {
-    private array $data;
-
-    public function __construct(array $data = [])
+    protected static function dtoClass(): string
     {
-        $this->data = $data;
+        return TestSpec::class;
     }
+}
 
-    public static function fromArray(array $data): static
-    {
-        return new static($data);
-    }
+/**
+ * The object shape stored in a TestJsonDto column.
+ */
+class TestSpec extends DataSchema
+{
+    public string $sku;
 
-    public function toArray(): array
-    {
-        return $this->data;
-    }
+    public int $weight;
+
+    public ?string $material;
 }

@@ -172,6 +172,16 @@ abstract class AbstractCollectionType extends Collection implements Castable, Sc
         return 'array';
     }
 
+    /**
+     * The collection serializes as a JSON array of its item DataSchema, so the
+     * SDK shape is a collection of {ItemBasename}Data — the generator reflects
+     * itemClass() to emit that inner DTO.
+     */
+    public static function sdkShape(): \SchemaCraft\Generator\Sdk\SdkShape
+    {
+        return \SchemaCraft\Generator\Sdk\SdkShape::collectionOf(static::itemClass());
+    }
+
     // ─── FilamentRenderable ──────────────────────────────────────
 
     public static function asFilamentField(GeneratorColumn $column): string
