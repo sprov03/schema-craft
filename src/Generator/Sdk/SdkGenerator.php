@@ -110,6 +110,37 @@ class SdkGenerator
             }
         }
 
+        // Companion options classes for closed-enumeration column types — bitmasks and enums.
+        // One file per unique type (deduped by source FQCN), placed in src/Data/ alongside the
+        // DTOs that reference it. Wire shape isn't changed; the companions are additive so
+        // consumers can autocomplete + type-check (MissionBitmaskOptions::LOAN instead of `1`,
+        // PostStatusOptions::PUBLISHED instead of `'published'`).
+        $companions = [];
+        foreach ($schemas as $context) {
+            if ($context->resourceFields === null) {
+                continue;
+            }
+            foreach ($context->resourceFields['columns'] ?? [] as $col) {
+                if (empty($col['options']) || empty($col['type'])) {
+                    continue;
+                }
+                $sourceFqcn = $col['type'];
+                if (isset($companions[$sourceFqcn])) {
+                    continue;
+                }
+                $companionClassName = $this->companionClassName($sourceFqcn);
+                $files["options_{$sourceFqcn}"] = new GeneratedFile(
+                    path: "src/Data/{$companionClassName}.php",
+                    content: (new SdkOptionsGenerator)->generate(
+                        $companionClassName,
+                        $col['options'],
+                        $dataNamespace,
+                    ),
+                );
+                $companions[$sourceFqcn] = true;
+            }
+        }
+
         // Client — only references primary schemas
         $files['client'] = new GeneratedFile(
             path: "src/{$clientClassName}.php",
@@ -230,5 +261,20 @@ class SdkGenerator
             [$packageName, $clientClassName, $escapedNamespace, $version],
             $stub,
         );
+    }
+
+    /**
+     * Companion class name for a closed-enumeration source type. Bitmask and enum both get
+     * `<TypeBasename>Options` so consumers find them in one consistent place under the SDK's
+     * Data namespace. The "Options" suffix avoids name collisions with the source class (which
+     * isn't copied into the SDK) and signals "constants for valid values."
+     */
+    private function companionClassName(string $sourceFqcn): string
+    {
+        $basename = ($pos = strrpos($sourceFqcn, '\\')) !== false
+            ? substr($sourceFqcn, $pos + 1)
+            : $sourceFqcn;
+
+        return $basename.'Options';
     }
 }

@@ -131,7 +131,7 @@ class ApiRoutesShapeTest extends TestCase
         $payload = $this->payload();
         $catalog = $payload['schemas']['Catalog'];
 
-        $allowedColumnKeys = ['name', 'type', 'nullable', 'computed', 'innerDtoName'];
+        $allowedColumnKeys = ['name', 'type', 'nullable', 'computed', 'innerDtoName', 'options'];
         $forbiddenColumnKeys = ['primary', 'autoIncrement', 'unique', 'unsigned', 'cast', 'managed', 'length', 'default'];
 
         foreach ($catalog['columns'] as $col) {

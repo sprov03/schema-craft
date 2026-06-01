@@ -210,7 +210,17 @@ class EndpointEnricher
                 continue;
             }
 
-            $ruleList = is_array($fieldRules) ? $fieldRules : explode('|', (string) $fieldRules);
+            // Normalize the rule list: arrays pass through; pipe-strings get split; a single
+            // Rule object (e.g. `'amount' => new CurrencyValidationRule(...)`) becomes a
+            // one-element list. The downstream filter drops anything that isn't a string,
+            // so Rule objects safely contribute zero rule-name signals to type inference.
+            if (is_array($fieldRules)) {
+                $ruleList = $fieldRules;
+            } elseif (is_string($fieldRules)) {
+                $ruleList = explode('|', $fieldRules);
+            } else {
+                $ruleList = [$fieldRules];
+            }
             $ruleStrings = array_filter(array_map(fn ($r) => is_string($r) ? $r : null, $ruleList));
 
             $nullable = in_array('nullable', $ruleStrings, true);
@@ -317,6 +327,16 @@ class EndpointEnricher
                     }
                 }
 
+                // Closed-enumeration primitives — bitmask and native PHP enum — surface their
+                // option set so both API docs and the SDK can render/emit it. Two well-known
+                // introspection surfaces (Bitmask::definitions() and BackedEnum::cases()), no
+                // opt-in interface required. Anything else (structured rich types like
+                // AbstractJsonDtoType) is documented via its inner DTO above, not options.
+                $options = $this->optionsForType($type);
+                if ($options !== null) {
+                    $col['options'] = $options;
+                }
+
                 return $col;
             }, $definition->properties);
 
@@ -338,12 +358,14 @@ class EndpointEnricher
                 // the visualizer's API tab (via apiRoutes + renderResponseFields) consume identical
                 // data. relatedResource carries the canonical Resource FQCN; SdkResourceNaming
                 // owns the FQCN → bare-model and FQCN → DTO-name transforms when each consumer
-                // needs them. No strip/re-append dance, no per-consumer recursion shape.
+                // needs them. isCollection comes straight from the ResourceScanner — it determined
+                // collection vs singular at scan time from the property type (singular) or
+                // #[CollectionOf] attribute (collection).
                 return [
                     'name' => $r['name'],
                     'type' => $r['type'],
                     'relatedResource' => $r['resource'],
-                    'isCollection' => SdkRelationshipCardinality::isCollection($r['type']),
+                    'isCollection' => $r['isCollection'],
                     'conditional' => true,
                 ];
             }, $definition->relationships);
@@ -388,5 +410,59 @@ class EndpointEnricher
         }
 
         return $visited;
+    }
+
+    /**
+     * Extract the closed-enumeration option set for a column type, if any.
+     *
+     * Two well-known introspection surfaces, no opt-in interface:
+     *   - Bitmask subclasses expose their flag set via the primitive's definitions() method.
+     *   - Native PHP enums (BackedEnum / UnitEnum) expose their cases via ::cases().
+     *
+     * For native enums, label() and description() are convention-based — invoked when the
+     * enum defines them, fall back to a humanized case name otherwise. Project enums get
+     * coverage for free; no contract change required.
+     *
+     * @return array{kind: string, values: array<int, array{value: mixed, name?: string, label: string, description?: string}>}|null
+     */
+    private function optionsForType(mixed $type): ?array
+    {
+        if (! is_string($type) || ! class_exists($type)) {
+            return null;
+        }
+
+        if (is_subclass_of($type, \SchemaCraft\Primitives\Bitmask::class)) {
+            return [
+                'kind' => 'bitmask',
+                'values' => array_map(
+                    fn (array $d) => array_filter([
+                        'name' => $d['name'],
+                        'value' => $d['value'],
+                        'label' => $d['label'],
+                        'description' => $d['description'],
+                    ], fn ($v) => $v !== null),
+                    $type::definitions()
+                ),
+            ];
+        }
+
+        if (is_subclass_of($type, \UnitEnum::class)) {
+            return [
+                'kind' => 'enum',
+                'values' => array_map(function (\UnitEnum $case) {
+                    $label = method_exists($case, 'label') ? $case->label() : Str::headline(strtolower($case->name));
+                    $description = method_exists($case, 'description') ? $case->description() : null;
+
+                    return array_filter([
+                        'name' => $case->name,
+                        'value' => $case instanceof \BackedEnum ? $case->value : $case->name,
+                        'label' => $label,
+                        'description' => $description,
+                    ], fn ($v) => $v !== null);
+                }, $type::cases()),
+            ];
+        }
+
+        return null;
     }
 }

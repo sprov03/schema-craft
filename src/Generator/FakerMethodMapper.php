@@ -37,7 +37,7 @@ class FakerMethodMapper
             if (is_subclass_of($column->castType, CastsAttributes::class)) {
                 throw new RuntimeException(
                     "Cast class [{$column->castType}] must implement SchemaCraftColumn. "
-                    .'Extend AbstractBitmaskType, AbstractJsonDtoType, or AbstractCollectionType, '
+                    .'Extend Bitmask (SchemaCraft\\Primitives), AbstractJsonDtoType, or AbstractCollectionType, '
                     .'or implement SchemaCraftColumn directly. No fallback is provided.'
                 );
             }

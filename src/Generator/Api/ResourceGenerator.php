@@ -90,10 +90,11 @@ class ResourceGenerator
                 continue;
             }
 
+            // Collection relationships need #[CollectionOf] to supply the item type that PHP
+            // can't carry on a Collection-typed property. Singular relationships need no
+            // attribute — the property type itself carries the target FQCN and nullability.
             if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
-                $imports[] = 'SchemaCraft\Attributes\Resources\HasMany';
-            } elseif (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
-                $imports[] = 'SchemaCraft\Attributes\Resources\HasOne';
+                $imports[] = 'SchemaCraft\Attributes\Resources\CollectionOf';
             }
 
             $relatedResourceName = $overrides[$rel->name] ?? (class_basename($rel->relatedModel).'Resource');
@@ -175,10 +176,10 @@ class ResourceGenerator
             }
 
             if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
-                $lines[] = "    #[HasMany({$relatedResourceName}::class)]";
+                $lines[] = "    #[CollectionOf({$relatedResourceName}::class)]";
                 $lines[] = "    public Collection \${$rel->name};";
             } elseif (in_array($rel->type, self::SINGULAR_RELATIONSHIPS)) {
-                $lines[] = "    #[HasOne({$relatedResourceName}::class)]";
+                // Singular relationship — property type alone carries target + nullability.
                 $lines[] = "    public ?{$relatedResourceName} \${$rel->name};";
             }
         }

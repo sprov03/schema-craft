@@ -2,7 +2,6 @@
 
 namespace SchemaCraft\Tests\Fixtures\Resources;
 
-use SchemaCraft\Attributes\Resources\HasOne;
 use SchemaCraft\Attributes\Resources\ResourceSchema;
 use SchemaCraft\SchemaCraftResource;
 use SchemaCraft\Tests\Fixtures\Schemas\CatalogSupplierSchema;
@@ -23,8 +22,8 @@ class CatalogSupplierResource extends SchemaCraftResource
 
     public string $name;
 
-    // CatalogSupplier hasOne CatalogBrand — declared so the SDK walker pulls CatalogBrandData
-    // through the Resource layer. Mirrors the existing schema-walked behavior the goldens assert.
-    #[HasOne(CatalogBrandResource::class)]
+    // Singular Resource relationship — property type alone carries everything (target FQCN,
+    // singular cardinality, nullability). The walker pulls CatalogBrandData through the
+    // Resource layer based on this typed property.
     public ?CatalogBrandResource $brand;
 }

@@ -48,9 +48,71 @@ class SdkBuildResult
             'routeFile' => $routeFile,
             'routePrefix' => $routePrefix,
             'schemas' => $schemas,
+            // FQCN → absolute source-file path. Populated for every class FQCN that appears
+            // in the payload (resourceClass, schemaClass, column types, relationship targets)
+            // and resolves to a file via reflection. The visualizer renders an "open in IDE"
+            // icon next to type references when an entry is present. Centralized map so the
+            // same FQCN appearing in N places doesn't bloat the payload with N copies.
+            'classSources' => $this->collectClassSources($schemas),
             'warnings' => $this->warnings,
             'errors' => $this->errors,
         ];
+    }
+
+    /**
+     * Walk the projected schemas and collect FQCN → absolute file path for every class
+     * reference that has a discoverable source file. Synthesized inner DTOs (bitmask
+     * FlagsData, etc.) don't have source files — only declared classes do.
+     *
+     * @param  array<string, array>  $schemas
+     * @return array<string, string>
+     */
+    private function collectClassSources(array $schemas): array
+    {
+        $fqcns = [];
+
+        foreach ($schemas as $entry) {
+            foreach (['resourceClass', 'schemaClass'] as $key) {
+                if (! empty($entry[$key])) {
+                    $fqcns[$entry[$key]] = true;
+                }
+            }
+            foreach ($entry['columns'] ?? [] as $col) {
+                if (! empty($col['type']) && is_string($col['type'])) {
+                    $fqcns[$col['type']] = true;
+                }
+            }
+            foreach ($entry['relationships'] ?? [] as $rel) {
+                if (! empty($rel['relatedResource'])) {
+                    $fqcns[$rel['relatedResource']] = true;
+                }
+            }
+        }
+
+        $sources = [];
+        foreach (array_keys($fqcns) as $fqcn) {
+            $path = $this->resolveSourceFile($fqcn);
+            if ($path !== null) {
+                $sources[$fqcn] = $path;
+            }
+        }
+
+        return $sources;
+    }
+
+    private function resolveSourceFile(string $fqcn): ?string
+    {
+        if (! class_exists($fqcn) && ! interface_exists($fqcn) && ! enum_exists($fqcn)) {
+            return null;
+        }
+
+        try {
+            $file = (new \ReflectionClass($fqcn))->getFileName();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $file === false ? null : $file;
     }
 
     private function projectSchema(SdkSchemaContext $ctx, string $modelName): array

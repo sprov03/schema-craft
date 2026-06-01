@@ -5,10 +5,8 @@ namespace SchemaCraft\Scanner;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionProperty;
-use SchemaCraft\Attributes\Resources\BelongsTo;
+use SchemaCraft\Attributes\Resources\CollectionOf;
 use SchemaCraft\Attributes\Resources\Computed;
-use SchemaCraft\Attributes\Resources\HasMany;
-use SchemaCraft\Attributes\Resources\HasOne;
 use SchemaCraft\Attributes\Resources\ResourceSchema;
 use SchemaCraft\SchemaCraftResource;
 
@@ -93,31 +91,63 @@ class ResourceScanner
             $type = $reflectionType instanceof \ReflectionNamedType ? $reflectionType->getName() : 'mixed';
             $nullable = $reflectionType instanceof \ReflectionNamedType ? $reflectionType->allowsNull() : true;
 
-            if ($attrs = $property->getAttributes(HasMany::class)) {
+            // Singular relationship: property type is itself a SchemaCraftResource subclass.
+            // The property type carries everything (target FQCN, cardinality, nullability) — no
+            // attribute is required. Replaces the redundant pre-cutover #[BelongsTo] / #[HasOne]
+            // attributes which encoded Laravel relationship mechanics the Resource layer ignored.
+            if ($type !== 'mixed' && class_exists($type) && is_subclass_of($type, SchemaCraftResource::class)) {
                 $relationships[] = [
                     'name' => $propName,
-                    'type' => 'hasMany',
-                    'resource' => $attrs[0]->newInstance()->resource,
-                ];
-            } elseif ($attrs = $property->getAttributes(HasOne::class)) {
-                $relationships[] = [
-                    'name' => $propName,
-                    'type' => 'hasOne',
-                    'resource' => $attrs[0]->newInstance()->resource,
-                ];
-            } elseif ($attrs = $property->getAttributes(BelongsTo::class)) {
-                $relationships[] = [
-                    'name' => $propName,
-                    'type' => 'belongsTo',
-                    'resource' => $attrs[0]->newInstance()->resource,
-                ];
-            } else {
-                $properties[] = [
-                    'name' => $propName,
-                    'type' => $type,
+                    'type' => 'singular',
+                    'resource' => $type,
+                    'isCollection' => false,
                     'nullable' => $nullable,
                 ];
+
+                continue;
             }
+
+            // Collection relationship: #[CollectionOf(X::class)] supplies the item type that PHP's
+            // type system can't carry on a collection property. The Resource layer doesn't care
+            // which DB-side mechanic produces the collection (hasMany vs belongsToMany vs morphMany
+            // vs hasManyThrough — all collapse to "collection of X" at this layer).
+            if ($collectionAttrs = $property->getAttributes(CollectionOf::class)) {
+                $relationships[] = [
+                    'name' => $propName,
+                    'type' => 'collection',
+                    'resource' => $collectionAttrs[0]->newInstance()->resource,
+                    'isCollection' => true,
+                    'nullable' => false,
+                ];
+
+                continue;
+            }
+
+            // Hard-fail on the misconfiguration case: bare Collection-typed property without
+            // #[CollectionOf]. PHP reflection can't read collection item types; silently treating
+            // it as a scalar would produce broken SDK output. Caught at scan time so the developer
+            // sees the cause immediately rather than chasing it through generated code.
+            //
+            // Exempt: rich-type collections that implement SchemaCraftColumn (e.g. subclasses of
+            // AbstractCollectionType — they extend Laravel's Collection but declare their shape
+            // via sdkShape(). The type contract carries the item type info instead).
+            if ($type !== 'mixed' && class_exists($type)
+                && is_a($type, \Illuminate\Support\Collection::class, true)
+                && ! is_subclass_of($type, \SchemaCraft\Contracts\SchemaCraftColumn::class)
+            ) {
+                throw new \RuntimeException(
+                    "Resource property [{$fqcn}::\${$propName}] is typed as {$type} but has no #[CollectionOf(X::class)] attribute. "
+                    ."PHP's type system can't carry collection item types — declare the item type via the attribute, "
+                    ."e.g. #[CollectionOf(CatalogVariantResource::class)] public Collection \${$propName};"
+                );
+            }
+
+            // Scalar / column property.
+            $properties[] = [
+                'name' => $propName,
+                'type' => $type,
+                'nullable' => $nullable,
+            ];
         }
 
         $computed = [];

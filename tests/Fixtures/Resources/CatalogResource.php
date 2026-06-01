@@ -3,10 +3,8 @@
 namespace SchemaCraft\Tests\Fixtures\Resources;
 
 use Illuminate\Database\Eloquent\Collection;
-use SchemaCraft\Attributes\Resources\BelongsTo;
+use SchemaCraft\Attributes\Resources\CollectionOf;
 use SchemaCraft\Attributes\Resources\Computed;
-use SchemaCraft\Attributes\Resources\HasMany;
-use SchemaCraft\Attributes\Resources\HasOne;
 use SchemaCraft\Attributes\Resources\ResourceSchema;
 use SchemaCraft\SchemaCraftResource;
 use SchemaCraft\Tests\Fixtures\Enums\CatalogTier;
@@ -56,18 +54,16 @@ class CatalogResource extends SchemaCraftResource
 
     public TestPriceHistory $price_history; // SchemaCraftColumn -> TestPricePointData[]
 
-    #[BelongsTo(CatalogBrandResource::class)]
     public ?CatalogBrandResource $brand;
 
-    #[HasMany(CatalogVariantResource::class)]
+    #[CollectionOf(CatalogVariantResource::class)]
     public Collection $variants;
 
-    #[HasOne(CatalogShipmentResource::class)]
     public ?CatalogShipmentResource $shipment;
 
     // Reviews surface CatalogReview via the Resource path so the dependency walker doesn't
     // fall back to the schema-driven morphMany (which would emit a `mixed` reviewable).
-    #[HasMany(CatalogReviewResource::class)]
+    #[CollectionOf(CatalogReviewResource::class)]
     public Collection $reviews;
 
     /**

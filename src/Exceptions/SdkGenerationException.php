@@ -29,7 +29,7 @@ class SdkGenerationException extends RuntimeException
             ."bool, float, array), DateTimeInterface subclasses (Carbon, DateTime, ...), "
             ."BackedEnum subclasses, or classes implementing "
             ."SchemaCraft\\Contracts\\GeneratesSdkType (typically via SchemaCraftColumn — extend "
-            ."AbstractBitmaskType, AbstractJsonDtoType, or AbstractCollectionType). Add the "
+            ."Bitmask (SchemaCraft\\Primitives), AbstractJsonDtoType, or AbstractCollectionType). Add the "
             ."contract to [{$type}] or change the resource property type. Silent fallbacks "
             ."here would ship the wrong type in the SDK without anyone noticing."
         );

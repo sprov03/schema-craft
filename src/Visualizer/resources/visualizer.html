@@ -1146,6 +1146,17 @@
         }
         .fp-file-item:hover .fp-ide-btn { opacity: 1; }
         .fp-ide-btn:hover { color: var(--accent); }
+        /* Jump-to-IDE icon for API tab type references. Reuses the file-preview pattern
+           (phpstorm://open?file=...) but stays softly visible at rest — the docs view doesn't
+           have the file-list's row-hover affordance, so the icon needs to telegraph clickability
+           on its own. */
+        .api-ide-btn {
+            flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+            width: 14px; height: 14px; margin-left: 6px; border-radius: 3px;
+            color: var(--text-muted); opacity: 0.55; transition: opacity 0.15s, color 0.15s;
+            text-decoration: none; vertical-align: middle;
+        }
+        .api-ide-btn:hover { opacity: 1; color: var(--accent); }
         .fp-file-item.fp-skipped { opacity: 0.4; }
         .fp-file-item.fp-skipped .fp-file-path { text-decoration: line-through; }
         .fp-code-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -8261,15 +8272,73 @@
             });
             var sdkReady = sdkIssues.length === 0 && errorCount === 0;
 
+            // Compose the readiness bar from the actual blockers, not a single hardcoded message.
+            // Three independent signals can be present in any combination:
+            //   - sdkIssues: in-group endpoints flagged responseUndocumented (will be excluded if shipped)
+            //   - errorCount: route-level errors from the build (e.g., Resource without #[ResourceSchema])
+            //   - warningCount: route-level warnings from the build (e.g., route with no #[ApiResponse])
+            // The previous text was hardcoded to talk about sdkIssues even when sdkIssues=0 and the
+            // actual blocker was errorCount — producing the misleading "⚠ 0 endpoints undocumented".
+            var barMessage = '';
+            var barColor;
+            var barIcon;
+            var gateTitle;
+            if (sdkReady && warningCount === 0) {
+                barColor = 'var(--success,#3fb950)';
+                barIcon = '✓';
+                barMessage = 'All endpoints documented — ready to generate the SDK.';
+                gateTitle = '';
+            } else if (sdkReady && warningCount > 0) {
+                // Truly ready (no per-endpoint undocumented + no errors), but route-level warnings
+                // are surfaced below. SDK is still generatable; warnings are informational.
+                barColor = 'var(--success,#3fb950)';
+                barIcon = '✓';
+                barMessage = 'All endpoints documented — ready to generate the SDK. '
+                    + warningCount + ' non-blocking route warning' + (warningCount !== 1 ? 's' : '')
+                    + ' below (informational; SDK generation will proceed).';
+                gateTitle = '';
+            } else if (sdkIssues.length > 0) {
+                // Per-endpoint undocumented case — actionable: add #[ApiResponse] or typed resource return.
+                barColor = 'var(--warning,#f0a500)';
+                barIcon = '⚠';
+                barMessage = sdkIssues.length + ' endpoint' + (sdkIssues.length !== 1 ? 's are' : ' is')
+                    + ' undocumented and will be excluded. Add <code>#[ApiResponse]</code> or a typed resource return to include '
+                    + (sdkIssues.length !== 1 ? 'them' : 'it') + '.';
+                if (errorCount > 0) {
+                    barMessage += ' Plus ' + errorCount + ' route-level error'
+                        + (errorCount !== 1 ? 's' : '') + ' below.';
+                }
+                gateTitle = 'Document the endpoints listed below to generate the SDK';
+            } else if (errorCount > 0) {
+                // Route-level errors (not in-group undocumented). Different fix path: the route's
+                // resource is misconfigured (typically a Resource without #[ResourceSchema], or a
+                // manual JsonResource the scanner can't introspect). See the Issues section below.
+                barColor = 'var(--error,#f85149)';
+                barIcon = '⛔';
+                barMessage = errorCount + ' route-level error' + (errorCount !== 1 ? 's' : '')
+                    + ' prevent' + (errorCount !== 1 ? '' : 's') + ' SDK generation — see Issues below.'
+                    + (warningCount > 0 ? ' (' + warningCount + ' route warning'
+                        + (warningCount !== 1 ? 's' : '') + ' also below.)' : '');
+                gateTitle = 'Resolve the route-level errors listed below to generate the SDK';
+            }
+
+            // When the gate fails (route warnings/errors block strict SDK gen), still offer a
+            // "Generate anyway" override. The preview-changes modal protects the actual write —
+            // the developer reviews diffs before commit. Force mode flips failOnMissingRoutes
+            // off in the backend; warnings + errors stay loud in the response and below the bar.
+            var forceBtnHtml = sdkReady
+                ? ''
+                : '<button class="sc-btn" id="docs-gen-sdk-force-btn" title="Generate the SDK from documented routes only; surface warnings + errors but proceed. Preview the diff before commit." style="white-space:nowrap;background:var(--warning-dim,#3a2a00);color:var(--warning,#f0a500);border-color:var(--warning,#f0a500);">⚠ Generate anyway</button>';
+
             var sdkBarHtml =
                 '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin-bottom:16px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);">' +
                     '<div style="font-size:13px;line-height:1.5;">' +
-                        (sdkReady
-                            ? '<span style="color:var(--success,#3fb950);">✓ All endpoints documented — ready to generate the SDK.</span>'
-                            : '<span style="color:var(--warning,#f0a500);">⚠ ' + sdkIssues.length + ' endpoint' + (sdkIssues.length !== 1 ? 's are' : ' is') + ' undocumented and will be excluded. Add <code>#[ApiResponse]</code> or a typed resource return to include ' + (sdkIssues.length !== 1 ? 'them' : 'it') + '.</span>') +
-                        (warningCount > 0 ? ' <span style="color:var(--text-muted);">(' + warningCount + ' route warning' + (warningCount !== 1 ? 's' : '') + ' below.)</span>' : '') +
+                        '<span style="color:' + barColor + ';">' + barIcon + ' ' + barMessage + '</span>' +
                     '</div>' +
-                    '<button class="sc-btn primary" id="docs-gen-sdk-btn"' + (sdkReady ? '' : ' disabled title="Document the endpoints listed below to generate the SDK"') + ' style="white-space:nowrap;">📦 Generate SDK</button>' +
+                    '<div style="display:flex;gap:8px;align-items:center;">' +
+                        forceBtnHtml +
+                        '<button class="sc-btn primary" id="docs-gen-sdk-btn"' + (sdkReady ? '' : ' disabled title="' + escapeAttr(gateTitle) + '"') + ' style="white-space:nowrap;">📦 Generate SDK</button>' +
+                    '</div>' +
                 '</div>' +
                 (sdkIssues.length
                     ? '<div style="margin-bottom:16px;font-size:12px;color:var(--text-muted);">' +
@@ -8339,8 +8408,90 @@
             // "Generate SDK" button — only wired when documentation-complete (gated above).
             var docsSdkBtn = document.getElementById('docs-gen-sdk-btn');
             if (docsSdkBtn && !docsSdkBtn.disabled) {
-                docsSdkBtn.addEventListener('click', generateSdkFromDocs);
+                docsSdkBtn.addEventListener('click', function() { generateSdkFromDocs(false); });
             }
+            var docsSdkForceBtn = document.getElementById('docs-gen-sdk-force-btn');
+            if (docsSdkForceBtn) {
+                docsSdkForceBtn.addEventListener('click', function() { generateSdkFromDocs(true); });
+            }
+        }
+
+        /**
+         * Build a "open in IDE" icon link for a FQCN, returning empty string when the FQCN
+         * isn't in docsData.classSources (synthesized DTO names, primitives, missing files).
+         *
+         * Uses the same phpstorm://open?file=... URL scheme + SVG glyph as the file-preview
+         * IDE button, so the click behavior is consistent across the app. Stays softly visible
+         * at rest (via .api-ide-btn opacity) since the API docs panel doesn't have row-hover
+         * affordance to reveal otherwise-hidden controls.
+         *
+         * @param {string} fqcn  Fully qualified class name to resolve
+         * @param {string} title Tooltip text — typically "Open <ClassName>"
+         * @returns {string} HTML for an anchor, or "" when the FQCN has no resolved source
+         */
+        function ideIconForClass(fqcn, title) {
+            if (!fqcn || !docsData || !docsData.classSources) {
+                return '';
+            }
+            var path = docsData.classSources[fqcn];
+            if (!path) {
+                return '';
+            }
+            var url = 'phpstorm://open?file=' + encodeURIComponent(path);
+            return '<a class="api-ide-btn" href="' + url + '" title="' + escapeAttr(title || 'Open in PhpStorm') + '" onclick="event.stopPropagation()">' +
+                '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>' +
+                '<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>';
+        }
+
+        /**
+         * Render the closed-option set for a bitmask or enum column.
+         *
+         * Wire shape from EndpointEnricher::optionsForType():
+         *   { kind: 'bitmask' | 'enum', values: [{ value, name?, label, description? }, ...] }
+         *
+         * Layout: one-line hint based on kind ("any combination" for bitmask, "one of" for enum),
+         * then a value/label/description table. Description column collapses (— placeholder) when
+         * no descriptions are declared, so simple enums don't waste vertical space on empty cells.
+         *
+         * @param {{kind: string, values: Array}} options
+         * @returns {string} HTML string
+         */
+        function renderOptions(options) {
+            if (!options || !options.values || options.values.length === 0) {
+                return '';
+            }
+
+            var hint = options.kind === 'bitmask'
+                ? 'Any combination of:'
+                : (options.kind === 'enum' ? 'One of:' : 'Options:');
+
+            var html = '<div class="ep-options-header" style="padding:6px 10px;font-size:11px;color:var(--text-secondary);">' +
+                escapeHtml(hint) +
+                ' <span class="ep-rule-tag" style="margin-left:6px;">' + escapeHtml(options.kind) + '</span>' +
+                '</div>';
+
+            html += '<table class="ep-field-table" style="margin:4px 8px;">' +
+                '<thead><tr><th>Value</th><th>Label</th><th>Description</th></tr></thead>' +
+                '<tbody>';
+
+            options.values.forEach(function(opt) {
+                var valueDisplay = (opt.name && opt.name !== String(opt.value))
+                    ? escapeHtml(String(opt.value)) + ' <span style="color:var(--text-muted);font-size:11px;">(' + escapeHtml(opt.name) + ')</span>'
+                    : escapeHtml(String(opt.value));
+                var description = opt.description
+                    ? escapeHtml(opt.description)
+                    : '<span style="color:var(--text-muted);">—</span>';
+                html += '<tr>' +
+                    '<td class="ep-field-type">' + valueDisplay + '</td>' +
+                    '<td class="ep-field-name">' + escapeHtml(opt.label || '') + '</td>' +
+                    '<td>' + description + '</td>' +
+                '</tr>';
+            });
+
+            html += '</tbody></table>';
+
+            return html;
         }
 
         /**
@@ -8380,24 +8531,100 @@
             var html = '';
             var indent = depth > 0 ? 'margin-left:' + (depth * 12) + 'px;' : '';
 
-            if (schema.columns && schema.columns.length > 0) {
+            // Split columns into expandable vs flat. A column is expandable when EITHER it has
+            // an inner DTO whose fields are documented (JSON / bitmask wrappers) OR it carries
+            // a closed-option set (bitmask flags, enum cases). Expandable rows become `<details>`
+            // blocks that mirror the relationship UI; flat scalars stay in the field table.
+            // Bitmask columns hit both signals \u2014 the expand body shows the wire-shape DTO AND
+            // the option set, in that order.
+            var flatColumns = [];
+            var richColumns = [];
+            (schema.columns || []).forEach(function(col) {
+                var hasExpandableInner = col.innerDtoName
+                    && docsData && docsData.schemas && docsData.schemas[col.innerDtoName]
+                    && ((docsData.schemas[col.innerDtoName].columns || []).length > 0);
+                var hasOptions = col.options && col.options.values && col.options.values.length > 0;
+                if (hasExpandableInner || hasOptions) {
+                    richColumns.push(col);
+                } else {
+                    flatColumns.push(col);
+                }
+            });
+
+            if (flatColumns.length > 0) {
                 html += '<table class="ep-field-table" style="' + indent + '">' +
                     (depth === 0 ? '<thead><tr><th>Field</th><th>Type</th><th>Info</th></tr></thead>' : '') +
                     '<tbody>';
-                schema.columns.forEach(function(col) {
+                flatColumns.forEach(function(col) {
                     var flags = '';
                     if (col.nullable) flags += '<span class="ep-rule-tag nullable">nullable</span>';
                     if (col.computed) flags += '<span class="ep-field-flag" style="background:var(--bg-tertiary);color:var(--text-muted);">computed</span>';
+                    // innerDtoName here means the DTO exists but has no documented fields \u2014 show the
+                    // tag as a static label (no expand affordance, since there's nothing to reveal).
                     if (col.innerDtoName) flags += '<span class="ep-rule-tag">&rarr; ' + escapeHtml(col.innerDtoName) + '</span>';
+
+                    // col.type may be a FQCN of a declared class (enum, rich type) or a primitive
+                    // string like "int" / "string". ideIconForClass returns "" for the latter.
+                    var typeIcon = ideIconForClass(col.type, 'Open ' + (col.type || '').split('\\').pop());
 
                     html += '<tr>' +
                         '<td class="ep-field-name">' + escapeHtml(col.name) + '</td>' +
-                        '<td class="ep-field-type">' + escapeHtml(col.type) + '</td>' +
+                        '<td class="ep-field-type">' + escapeHtml(col.type) + typeIcon + '</td>' +
                         '<td class="ep-field-flags" style="display:flex;gap:4px;flex-wrap:wrap;">' + (flags || '<span style="color:var(--text-muted);">\u2014</span>') + '</td>' +
                     '</tr>';
                 });
                 html += '</tbody></table>';
             }
+
+            // Expandable column rows. Both inner-DTO expansion and option-set expansion live
+            // inside one details body \u2014 bitmasks (which have both) get both stacked.
+            richColumns.forEach(function(col) {
+                var hasInner = col.innerDtoName
+                    && docsData && docsData.schemas && docsData.schemas[col.innerDtoName]
+                    && ((docsData.schemas[col.innerDtoName].columns || []).length > 0);
+                var hasOptions = col.options && col.options.values && col.options.values.length > 0;
+
+                // Summary-row label on the right edge. Prefer the option kind ("bitmask" /
+                // "enum") since it's the more informative signal for a documentation reader;
+                // fall back to "data" for pure inner-DTO rich types (JSON DTO, collection).
+                var kindTag;
+                if (hasOptions) {
+                    kindTag = '<span class="ep-rule-tag">' + escapeHtml(col.options.kind) + '</span>';
+                } else {
+                    kindTag = '<span class="ep-rule-tag">data</span>';
+                }
+
+                // Middle-column hint: inner DTO name when present (the wire shape), otherwise
+                // the bare type basename so enums still show something meaningful.
+                var middleHint = col.innerDtoName
+                    ? col.innerDtoName
+                    : (typeof col.type === 'string' ? col.type.split('\\').pop() : '');
+
+                var body = '';
+                if (hasInner) {
+                    body += renderResponseFields(col.innerDtoName, depth + 1, visited);
+                }
+                if (hasOptions) {
+                    body += renderOptions(col.options);
+                }
+
+                // IDE icon points at the SOURCE — col.type — not innerDtoName (the latter is a
+                // synthesized DTO name with no file behind it). For bitmask columns: jumps to
+                // the Bitmask subclass. For enum columns: jumps to the enum file.
+                var richTypeIcon = ideIconForClass(col.type, 'Open ' + (col.type || '').split('\\').pop());
+
+                html += '<details class="ep-rel-details" style="' + indent + 'margin-top:6px;">' +
+                    '<summary class="ep-rel-summary">' +
+                        '<span class="ep-field-name">' + escapeHtml(col.name) + '</span>' +
+                        '<span style="margin-left:12px;color:var(--text-secondary);font-size:11px;">' + escapeHtml(middleHint) + richTypeIcon + '</span>' +
+                        '<span style="margin-left:auto;display:flex;gap:4px;">' +
+                            (col.nullable ? '<span class="ep-rule-tag nullable">nullable</span>' : '') +
+                            kindTag +
+                        '</span>' +
+                    '</summary>' +
+                    '<div class="ep-rel-body">' + body + '</div>' +
+                '</details>';
+            });
 
             if (schema.relationships && schema.relationships.length > 0) {
                 schema.relationships.forEach(function(rel) {
@@ -8416,11 +8643,19 @@
                     }
                     var hasNested = relatedKey && docsData.schemas[relatedKey];
 
+                    // Field row: `brand[]  CatalogBrandResource  ...  collection`
+                    // Cardinality is signaled twice (the `[]` suffix on collections + the
+                    // right-aligned single/collection tag) — the redundant middle `rel.type`
+                    // label was dropped because both other signals already cover it.
+                    // IDE icon resolves rel.relatedResource (the Resource FQCN) — jumps to the
+                    // Resource file. Empty when no source is available (shouldn't happen for
+                    // valid relationships, but the helper degrades gracefully).
+                    var relIcon = ideIconForClass(rel.relatedResource, 'Open ' + relatedDisplayName);
+
                     html += '<details class="ep-rel-details" style="' + indent + 'margin-top:6px;">' +
                         '<summary class="ep-rel-summary">' +
                             '<span class="ep-field-name">' + escapeHtml(rel.name) + (rel.isCollection ? '[]' : '') + '</span>' +
-                            '<span class="ep-field-type" style="margin-left:12px;">' + escapeHtml(rel.type) + '</span>' +
-                            '<span style="margin-left:12px;color:var(--text-secondary);font-size:11px;">' + escapeHtml(relatedDisplayName) + '</span>' +
+                            '<span style="margin-left:12px;color:var(--text-secondary);font-size:11px;">' + escapeHtml(relatedDisplayName) + relIcon + '</span>' +
                             '<span style="margin-left:auto;display:flex;gap:4px;">' + info + '</span>' +
                         '</summary>' +
                         (hasNested
@@ -8577,12 +8812,16 @@
                 // FQCN — the visualizer reads what the server serves, no strip/re-append dance.
                 var schemaEntry = docsData.schemas[modelName];
                 var resourceLabel = 'Resource';
+                var resourceIcon = '';
                 if (schemaEntry.resourceClass) {
-                    resourceLabel = escapeHtml(schemaEntry.resourceClass.split('\\').pop()) + (isCollection ? '[]' : '');
+                    var basename = schemaEntry.resourceClass.split('\\').pop();
+                    resourceLabel = escapeHtml(basename) + (isCollection ? '[]' : '');
+                    resourceIcon = ideIconForClass(schemaEntry.resourceClass, 'Open ' + basename);
                 }
                 responseHtml += '<div class="ep-section">' +
                     '<div class="ep-section-title">Response Body ' +
                         '<span class="ep-section-badge fields">' + resourceLabel + '</span>' +
+                        resourceIcon +
                     '</div>' +
                     renderResponseFields(modelName, 0, new Set()) +
                 '</div>';
@@ -9465,22 +9704,32 @@
         // documentation-complete. Loads the SDK config defaults, then runs the existing
         // preview → file-diff modal → write flow (doSdkAction). Diagnostics render into the
         // #gen-sdk-diagnostics element that now lives on the docs view.
-        function generateSdkFromDocs() {
-            var btn = document.getElementById('docs-gen-sdk-btn');
+        function generateSdkFromDocs(force) {
+            var btnId = force ? 'docs-gen-sdk-force-btn' : 'docs-gen-sdk-btn';
+            var btn = document.getElementById(btnId);
+            var originalLabel = btn ? btn.textContent : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+
+            // `force` propagates through doSdkAction/doSdkWrite so both preview and write phases
+            // skip the strict failOnMissingRoutes check on the backend.
+            genSdkForceMode = !!force;
 
             fetch('/_schema-craft/api/sdk/config?api=' + encodeURIComponent(genSelectedApi))
                 .then(handleResponse)
                 .then(function(data) {
                     genSdkConfig = data;
-                    if (btn) { btn.disabled = false; btn.textContent = '📦 Generate SDK'; }
+                    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
                     doSdkAction(true);
                 })
                 .catch(function(e) {
-                    if (btn) { btn.disabled = false; btn.textContent = '📦 Generate SDK'; }
+                    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
                     showToast('Failed to load SDK config: ' + e.message, 'error');
                 });
         }
+
+        // Conversation-scoped toggle, reset at every readiness-bar render. Used by doSdkAction
+        // and doSdkWrite to thread force=1 through to the backend without changing their signatures.
+        var genSdkForceMode = false;
 
         function renderSdkDiagnostics(errors, warnings) {
             var el = document.getElementById('gen-sdk-diagnostics');
@@ -9513,6 +9762,7 @@
                 namespace: genSdkConfig.namespace || undefined,
                 client: genSdkConfig.client || undefined,
                 version: genSdkConfig.version || undefined,
+                force: genSdkForceMode ? 1 : undefined,
             };
 
             if (previewOnly) {

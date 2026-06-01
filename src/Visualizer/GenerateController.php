@@ -802,7 +802,13 @@ class GenerateController
         // and the API docs panel consume. The unified payload the visualizer renders IS the SDK
         // pipeline's internal model — no visualizer-specific carve-outs, no separate enrichment
         // path, no shape divergence between what the visualizer shows and what the SDK ships.
-        $result = (new SdkContextBuilder)->build($apiConfig, $schemaClasses);
+        //
+        // failOnMissingRoutes: false because this is the API docs *viewing* path — surface the
+        // missing-routes cases as warnings so the developer can see the documentation and address
+        // each broken controller incrementally. The SDK *generation* paths (sdkPreview/sdkGenerate,
+        // GenerateSdkCommand) keep the default strict behavior — you can't ship an SDK whose
+        // routes don't reflect reality.
+        $result = (new SdkContextBuilder)->build($apiConfig, $schemaClasses, failOnMissingRoutes: false);
 
         return new JsonResponse(
             $result->toApiDocsJson($apiConfig->name, $apiConfig->routeFile, $apiConfig->routePrefix)
@@ -1689,7 +1695,18 @@ class GenerateController
         // Delegate the whole discover -> scan -> enrich -> assign -> filter -> resolve-deps
         // pipeline to the shared SdkContextBuilder so the GUI-generated SDK is byte-for-byte
         // identical to the CLI one. Warnings/errors are passed straight through to the response.
-        $result = (new SdkContextBuilder)->build($apiConfig, $schemaClasses);
+        //
+        // `force` request param: when truthy, surface route problems as warnings instead of
+        // throwing, so the developer can generate a partial SDK (the preview-changes modal
+        // gates the actual write). Default is the strict behavior — undocumented routes /
+        // missing controllers / etc. abort the build. Used from the visualizer's "Generate
+        // anyway" override button.
+        $force = filter_var($request->input('force'), FILTER_VALIDATE_BOOLEAN);
+        $result = (new SdkContextBuilder)->build(
+            $apiConfig,
+            $schemaClasses,
+            failOnMissingRoutes: ! $force,
+        );
 
         if (empty($result->schemas)) {
             return null;

@@ -11,19 +11,18 @@ use SchemaCraft\Generator\FakerMethodMapper;
 use SchemaCraft\Generators\GeneratorColumn;
 use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Tests\Fixtures\Types\TestBitmask;
-use SchemaCraft\Types\AbstractBitmaskType;
+use SchemaCraft\Primitives\Bitmask;
 use SchemaCraft\Types\AbstractCollectionType;
 use SchemaCraft\Types\AbstractJsonDtoType;
 
 /**
  * Concrete TestBitmask with known flags for testing.
  */
-class SampleBitmask extends AbstractBitmaskType
+class SampleBitmask extends \SchemaCraft\Primitives\LargeBitmask
 {
-    protected static function flags(): array
-    {
-        return ['LOAN' => 1, 'PURCHASE' => 2, 'REFINANCE' => 4];
-    }
+    const LOAN = 1;
+    const PURCHASE = 2;
+    const REFINANCE = 4;
 }
 
 /**
@@ -104,7 +103,7 @@ class NonConformingCast implements CastsAttributes
 
 class SchemaCraftColumnTest extends TestCase
 {
-    // ─── AbstractBitmaskType: API representation ──────────────────
+    // ─── Bitmask primitive: API representation ────────────────────
 
     public function test_bitmask_to_api_representation_includes_value_and_flags(): void
     {
@@ -153,7 +152,7 @@ class SchemaCraftColumnTest extends TestCase
     public function test_bitmask_from_api_input_rejects_non_array(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessageMatches('/flags object/');
+        $this->expectExceptionMessageMatches('/array of flag names/');
 
         SampleBitmask::fromApiInput(6);
     }
@@ -161,7 +160,7 @@ class SchemaCraftColumnTest extends TestCase
     public function test_bitmask_from_api_input_rejects_unknown_flag(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessageMatches('/Unknown bitmask flag/');
+        $this->expectExceptionMessageMatches('/Unknown flag/');
 
         SampleBitmask::fromApiInput(['UNKNOWN_FLAG' => true]);
     }
@@ -182,31 +181,31 @@ class SchemaCraftColumnTest extends TestCase
         $this->assertSame($original->getValue(), $reconstructed->getValue());
     }
 
-    // ─── AbstractBitmaskType: helpers ────────────────────────────
+    // ─── Bitmask primitive: helpers ──────────────────────────────
 
     public function test_bitmask_has_flag(): void
     {
         $mask = new SampleBitmask(3); // LOAN | PURCHASE
 
-        $this->assertTrue($mask->hasFlag('LOAN'));
-        $this->assertTrue($mask->hasFlag('PURCHASE'));
-        $this->assertFalse($mask->hasFlag('REFINANCE'));
+        $this->assertTrue($mask->hasFlag(SampleBitmask::LOAN));
+        $this->assertTrue($mask->hasFlag(SampleBitmask::PURCHASE));
+        $this->assertFalse($mask->hasFlag(SampleBitmask::REFINANCE));
     }
 
-    public function test_bitmask_with_flag(): void
+    public function test_bitmask_set_flag(): void
     {
-        $mask = (new SampleBitmask(0))->withFlag('LOAN');
+        $mask = (new SampleBitmask(0))->setFlag(SampleBitmask::LOAN);
 
         $this->assertSame(1, $mask->getValue());
     }
 
-    public function test_bitmask_without_flag(): void
+    public function test_bitmask_unset_flag(): void
     {
-        $mask = (new SampleBitmask(3))->withoutFlag('LOAN'); // Remove LOAN from LOAN|PURCHASE
+        $mask = (new SampleBitmask(3))->unsetFlag(SampleBitmask::LOAN);
 
         $this->assertSame(2, $mask->getValue());
-        $this->assertFalse($mask->hasFlag('LOAN'));
-        $this->assertTrue($mask->hasFlag('PURCHASE'));
+        $this->assertFalse($mask->hasFlag(SampleBitmask::LOAN));
+        $this->assertTrue($mask->hasFlag(SampleBitmask::PURCHASE));
     }
 
     public function test_bitmask_from_raw(): void
@@ -214,9 +213,9 @@ class SchemaCraftColumnTest extends TestCase
         $mask = SampleBitmask::fromRaw(6);
 
         $this->assertSame(6, $mask->getValue());
-        $this->assertFalse($mask->hasFlag('LOAN'));
-        $this->assertTrue($mask->hasFlag('PURCHASE'));
-        $this->assertTrue($mask->hasFlag('REFINANCE'));
+        $this->assertFalse($mask->hasFlag(SampleBitmask::LOAN));
+        $this->assertTrue($mask->hasFlag(SampleBitmask::PURCHASE));
+        $this->assertTrue($mask->hasFlag(SampleBitmask::REFINANCE));
     }
 
     public function test_bitmask_to_raw(): void

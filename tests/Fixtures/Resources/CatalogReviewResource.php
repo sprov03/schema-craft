@@ -2,7 +2,6 @@
 
 namespace SchemaCraft\Tests\Fixtures\Resources;
 
-use SchemaCraft\Attributes\Resources\BelongsTo;
 use SchemaCraft\Attributes\Resources\ResourceSchema;
 use SchemaCraft\SchemaCraftResource;
 use SchemaCraft\Tests\Fixtures\Schemas\CatalogReviewSchema;
@@ -28,7 +27,7 @@ class CatalogReviewResource extends SchemaCraftResource
 
     // Trust-based: target morph Resources are expected to expose ReviewableContractResource's
     // shape. The trust gap closes when discriminated-union types land (see the
-    // discriminated-union-sdk-types task).
-    #[BelongsTo(ReviewableContractResource::class)]
+    // discriminated-union-sdk-types task). Singular Resource type — no attribute needed; the
+    // property type carries target FQCN and nullability.
     public ?ReviewableContractResource $reviewable;
 }

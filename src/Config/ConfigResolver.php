@@ -230,6 +230,17 @@ class ConfigResolver
      */
     private static function namespaceToPath(string $namespace): string
     {
+        // Consult Composer's PSR-4 map first — this lets non-App\\ namespaces (custom
+        // packages, dev-loaded fixture namespaces like SchemaCraft\\Tests\\Fixtures\\,
+        // path-repository packages mounted under packages/, etc.) resolve to their
+        // actual on-disk locations rather than guessing from base_path() + namespace.
+        // Longest-prefix-match so e.g. 'SchemaCraft\\Tests\\Fixtures\\Schemas' picks
+        // a PSR-4 entry for 'SchemaCraft\\Tests\\' before any shorter prefix.
+        $resolved = self::resolveViaComposerAutoload($namespace);
+        if ($resolved !== null) {
+            return $resolved;
+        }
+
         $path = str_replace('\\', '/', $namespace);
 
         if (str_starts_with($path, 'App/')) {
@@ -237,5 +248,45 @@ class ConfigResolver
         }
 
         return base_path($path);
+    }
+
+    private static function resolveViaComposerAutoload(string $namespace): ?string
+    {
+        $autoloadPath = base_path('vendor/autoload.php');
+        if (! file_exists($autoloadPath)) {
+            return null;
+        }
+
+        $loader = require $autoloadPath;
+        if (! is_object($loader) || ! method_exists($loader, 'getPrefixesPsr4')) {
+            return null;
+        }
+
+        // Composer's loader returns map<prefix-with-trailing-backslash, string[] of dirs>.
+        // Normalize the lookup namespace to also end with a backslash for stable matching.
+        $lookup = rtrim($namespace, '\\').'\\';
+        $prefixes = $loader->getPrefixesPsr4();
+
+        // Sort prefixes by length descending so "SchemaCraft\Tests\\" wins over "SchemaCraft\\".
+        $sortedPrefixes = array_keys($prefixes);
+        usort($sortedPrefixes, fn ($a, $b) => strlen($b) - strlen($a));
+
+        foreach ($sortedPrefixes as $prefix) {
+            if (! str_starts_with($lookup, $prefix)) {
+                continue;
+            }
+
+            $remaining = substr($lookup, strlen($prefix));
+            $relative = rtrim(str_replace('\\', '/', $remaining), '/');
+            $dirs = $prefixes[$prefix];
+            if (empty($dirs)) {
+                continue;
+            }
+            // First registered directory wins for the prefix; Composer would search them
+            // in order at class-load time, so the first is the canonical "primary" path.
+            return rtrim($dirs[0], '/').($relative === '' ? '' : '/'.$relative);
+        }
+
+        return null;
     }
 }

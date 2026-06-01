@@ -2,28 +2,19 @@
 
 namespace SchemaCraft\Tests\Fixtures\Types;
 
-use SchemaCraft\Types\AbstractBitmaskType;
+use SchemaCraft\Primitives\MediumBitmask;
 
-class TestBitmask extends AbstractBitmaskType
+class TestBitmask extends MediumBitmask
 {
-    protected static function flags(): array
-    {
-        return ['READ' => 1, 'WRITE' => 2, 'EXECUTE' => 4];
-    }
+    const READ = 1;
+    const WRITE = 2;
+    const EXECUTE = 4;
 
-    // Override the abstract base defaults so scanner tests keep their expected values.
-    public static function schemaColumnType(): string
+    protected static function flagMetadata(): array
     {
-        return 'mediumInteger';
-    }
-
-    public static function schemaColumnModifiers(): array
-    {
-        return ['unsigned' => true];
-    }
-
-    public static function schemaValidationRules(): array
-    {
-        return ['integer', 'min:0'];
+        return [
+            'WRITE' => ['label' => 'Write access'],
+            'EXECUTE' => ['label' => 'Execute', 'description' => 'Run scripts in this scope'],
+        ];
     }
 }

@@ -30,7 +30,7 @@ class SdkContextBuilder
      *
      * @param  class-string[]  $schemaClasses  Already discovered + filtered to the API's configured schemas
      */
-    public function build(ApiConfig $apiConfig, array $schemaClasses): SdkBuildResult
+    public function build(ApiConfig $apiConfig, array $schemaClasses, bool $failOnMissingRoutes = true): SdkBuildResult
     {
         // 1. Discover registered routes (works for generated controllers, hand-written
         //    controllers, and action-based routes alike).
@@ -161,9 +161,16 @@ class SdkContextBuilder
             $discoveredSchemaClasses[$schemaClass] = true;
         }
 
-        // 5. Fail loud when a controller file exists but registered no routes. Without routes we
-        //    have no reliable HTTP verb per action, so any SDK emitted here would call the wrong
-        //    methods — better to force the route registration to be fixed at the source.
+        // 5. Surface controllers that exist on disk but registered no routes. The CLI SDK-gen
+        //    paths (GenerateSdkCommand, GenerateController::sdkPreview/sdkGenerate) pass
+        //    failOnMissingRoutes: true so generating an SDK with stale/incomplete routing
+        //    fails loud — an SDK built from inferred verbs would call the wrong methods, so
+        //    forcing the route registration to be fixed at the source is the right gate.
+        //    The API docs path (GenerateController::apiRoutes) passes false so the visualizer
+        //    can render the documentation it CAN compute, surfacing the missing-routes case
+        //    as warnings the user can address incrementally. Same data, different presentation
+        //    layer's tolerance — aligned with project_sdk_documentation_policy where warnings
+        //    drive the visualizer's gating UX rather than killing the build.
         if ($apiConfig->controllerNamespace !== '') {
             $fs = new Filesystem;
             $actionScanner = new ControllerActionScanner;
@@ -180,11 +187,21 @@ class SdkContextBuilder
                     continue;
                 }
 
-                throw SdkGenerationException::missingRoutes(
-                    $schemaClass,
-                    $controllerPath,
-                    $actionScanner->scanFile($controllerPath),
-                );
+                if ($failOnMissingRoutes) {
+                    throw SdkGenerationException::missingRoutes(
+                        $schemaClass,
+                        $controllerPath,
+                        $actionScanner->scanFile($controllerPath),
+                    );
+                }
+
+                $actions = $actionScanner->scanFile($controllerPath);
+                $sdkWarnings[] = [
+                    'route' => class_basename($schemaClass),
+                    'message' => 'Controller at '.$controllerPath.' exists but no routes are registered for this schema. '
+                        .'Discovered actions: '.(empty($actions) ? '(none)' : implode(', ', $actions)).'. '
+                        .'Register the controller actions or remove the controller to clear this warning.',
+                ];
             }
         }
 

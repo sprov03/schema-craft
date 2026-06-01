@@ -581,7 +581,9 @@ class SdkDataGenerator
             }
         }
 
-        // Relationships (non-BelongsTo) — always nullable (whenLoaded)
+        // Relationships (non-BelongsTo) — emitted as nullable. Resources now lazy-load on
+        // access, so the field is always present in the response, but the related row itself
+        // can still be null (e.g. orphaned FK). DTO shape narrowing is a follow-up.
         foreach ($table->relationships as $rel) {
             if ($rel->type === 'belongsTo' || isset($hiddenSet[$rel->name])) {
                 continue;
@@ -881,7 +883,7 @@ class SdkDataGenerator
             if (is_subclass_of($column->castType, CastsAttributes::class)) {
                 throw new RuntimeException(
                     "Cast class [{$column->castType}] must implement SchemaCraftColumn. "
-                    .'Extend AbstractBitmaskType, AbstractJsonDtoType, or AbstractCollectionType, '
+                    .'Extend Bitmask (SchemaCraft\\Primitives), AbstractJsonDtoType, or AbstractCollectionType, '
                     .'or implement SchemaCraftColumn directly. No fallback is provided.'
                 );
             }

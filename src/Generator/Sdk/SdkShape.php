@@ -10,7 +10,7 @@ namespace SchemaCraft\Generator\Sdk;
  *   - scalar     — a plain PHP scalar (int/string/bool/float/array). No DTO.
  *   - object     — a single nested object backed by a DataSchema subclass
  *                  (AbstractJsonDtoType) OR by an explicit synthesized field list
- *                  (AbstractBitmaskType, which has no DataSchema of its own).
+ *                  (Bitmask primitive, which has no DataSchema of its own).
  *   - collection — a JSON array whose items are a DataSchema subclass
  *                  (AbstractCollectionType).
  *

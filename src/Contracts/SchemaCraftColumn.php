@@ -19,10 +19,10 @@ namespace SchemaCraft\Contracts;
  * this interface, SchemaCraft will throw a RuntimeException at generation time
  * rather than silently using a generic placeholder. Implement or fail.
  *
- * First-party abstract base classes are provided in SchemaCraft\Types\:
- *   - AbstractBitmaskType
- *   - AbstractJsonDtoType
- *   - AbstractCollectionType
+ * First-party base classes:
+ *   - SchemaCraft\Primitives\Bitmask  — first-class bitmask primitive (closed enumeration)
+ *   - SchemaCraft\Types\AbstractJsonDtoType   — structured JSON object types
+ *   - SchemaCraft\Types\AbstractCollectionType — structured JSON array-of-object types
  *
  * Extend one of those rather than implementing this interface directly.
  */
