@@ -2,14 +2,14 @@
 
 namespace SchemaCraft\Tests\Fixtures\Types;
 
-use SchemaCraft\DataSchema;
+use SchemaCraft\Primitives\JsonColumn;
 
 /**
- * Typed object shape for Catalog's `attributes_json` column. The DataSchema IS the column's
- * shape declaration — no wrapper class. The schema scanner detects properties typed as a
- * DataSchema subclass and wires the DataSchema-as-column-type pattern automatically.
+ * Typed JSON column for Catalog's `attributes_json` column. Extends the JsonColumn
+ * primitive — class identity declares "this is a DB JSON column," the typed properties
+ * declare the shape, the primitive provides the cast + generator dispatch surface.
  */
-class CatalogAttributes extends DataSchema
+class CatalogAttributes extends JsonColumn
 {
     public ?string $color;
 

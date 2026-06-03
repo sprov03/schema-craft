@@ -2,14 +2,13 @@
 
 namespace SchemaCraft\Tests\Fixtures\Types;
 
-use SchemaCraft\DataSchema;
+use SchemaCraft\Primitives\JsonColumn;
 
 /**
- * Typed object shape for an address column. A bare DataSchema — the schema scanner
- * detects DataSchema-typed properties and wires the DataSchema-as-column-type pattern automatically.
- * No SchemaCraftColumn / CastsAttributes boilerplate on the shape class itself.
+ * Typed JSON column for an address column. Extends the JsonColumn primitive so the
+ * class identity signals "this is a DB JSON column" at every import site.
  */
-class TestAddressDto extends DataSchema
+class TestAddressDto extends JsonColumn
 {
     public string $street;
 

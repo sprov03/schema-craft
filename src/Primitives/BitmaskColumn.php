@@ -23,7 +23,7 @@ use SchemaCraft\Scanner\ColumnDefinition;
  * size-tier subclass (TinyBitmask / MediumBitmask / LargeBitmask) that pins those for the
  * appropriate DB column size, then declare flags as PHP constants:
  *
- *   class MissionBitmask extends LargeBitmask
+ *   class MissionBitmask extends LargeBitmaskColumn
  *   {
  *       const LOAN      = 1;
  *       const PURCHASE  = 2;
@@ -51,7 +51,7 @@ use SchemaCraft\Scanner\ColumnDefinition;
  * API representation: { value: 6, flags: { LOAN: true, PURCHASE: true, REFINANCE: false } }
  * API input: flags object only — { LOAN: true, PURCHASE: false }
  */
-abstract class Bitmask implements CastsAttributes, JsonSerializable, SchemaCraftColumn
+abstract class BitmaskColumn implements CastsAttributes, JsonSerializable, SchemaCraftColumn
 {
     public function __construct(protected int $value = 0) {}
 
@@ -102,6 +102,18 @@ abstract class Bitmask implements CastsAttributes, JsonSerializable, SchemaCraft
         throw new InvalidArgumentException(
             'Value must be int, null, or '.static::class.' instance.'
         );
+    }
+
+    // ─── Castable ────────────────────────────────────────────────
+    // SchemaCraftColumn now includes Castable; satisfy it without restructuring the cast
+    // pipeline. Bitmask implements CastsAttributes directly (the get/set above), so
+    // castUsing() returns an instance of the bitmask itself — Laravel uses that as the
+    // CastsAttributes handler and dispatches to its get/set. No anonymous-class indirection
+    // needed (unlike CollectionColumn, where the Collection::get signature collides).
+
+    public static function castUsing(array $arguments): \Illuminate\Contracts\Database\Eloquent\CastsAttributes
+    {
+        return new static;
     }
 
     // ─── JsonSerializable ────────────────────────────────────────

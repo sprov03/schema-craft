@@ -2,9 +2,9 @@
 
 namespace SchemaCraft\Tests\Fixtures\Types;
 
-use SchemaCraft\Primitives\MediumBitmask;
+use SchemaCraft\Primitives\MediumBitmaskColumn;
 
-class TestBitmask extends MediumBitmask
+class TestBitmask extends MediumBitmaskColumn
 {
     const READ = 1;
     const WRITE = 2;

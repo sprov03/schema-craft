@@ -7,7 +7,7 @@ use SchemaCraft\DataSchema;
 /**
  * Typed item shape for a `price_history` JSON-array column. The DataSchema IS the item
  * shape declaration; the column property is typed as Collection + #[CollectionOf(TestPricePoint::class)],
- * and the schema scanner wires the Collection primitive (SchemaCraft\Primitives\Collection) automatically.
+ * and the schema scanner wires the Collection primitive (SchemaCraft\Primitives\CollectionColumn) automatically.
  */
 class TestPricePoint extends DataSchema
 {

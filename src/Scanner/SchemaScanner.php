@@ -407,18 +407,36 @@ class SchemaScanner
     private function inferColumnType(string $typeName, ReflectionNamedType $type, ReflectionProperty $property): array
     {
         // Bare Illuminate Collection on a Schema property is not supported — users must
-        // extend SchemaCraft\Primitives\Collection (a recognized framework primitive) and
+        // extend SchemaCraft\Primitives\CollectionColumn (a recognized framework primitive) and
         // declare the item type via class-level #[CollectionOf]. The SchemaCraftType branch
         // below handles the primitive subclass uniformly; this guard surfaces the misuse
         // explicitly rather than silently treating Collection as an untyped column.
         if (! $type->isBuiltin()
             && is_a($typeName, \Illuminate\Support\Collection::class, true)
-            && ! is_subclass_of($typeName, \SchemaCraft\Primitives\Collection::class)
+            && ! is_subclass_of($typeName, \SchemaCraft\Primitives\CollectionColumn::class)
         ) {
             throw new RuntimeException(
                 "Property [{$property->getName()}] on schema [{$this->schemaClass}] is typed as a Collection "
-                .'but does not extend SchemaCraft\\Primitives\\Collection. Schema columns must use a Collection '
+                .'but does not extend SchemaCraft\\Primitives\\CollectionColumn. Schema columns must use a CollectionColumn '
                 .'primitive subclass that declares its item type via class-level #[CollectionOf(ItemSchema::class)].'
+            );
+        }
+
+        // Bare DataSchema on a Schema property is not supported — DataSchema is the pure
+        // shape primitive (no column behavior). Schema columns of object shape must extend
+        // SchemaCraft\Primitives\JsonColumn (which extends DataSchema and adds the cast +
+        // generator-dispatch surface). DataSchema-typed properties remain valid in Resources,
+        // Actions, and nested-DataSchema contexts — those are non-column uses where the cast
+        // surface isn't required.
+        if (! $type->isBuiltin()
+            && is_subclass_of($typeName, DataSchema::class)
+            && ! is_subclass_of($typeName, \SchemaCraft\Primitives\JsonColumn::class)
+        ) {
+            throw new RuntimeException(
+                "Property [{$property->getName()}] on schema [{$this->schemaClass}] is typed as a bare DataSchema "
+                ."({$typeName}). Schema columns of object shape must extend SchemaCraft\\Primitives\\JsonColumn "
+                .'so the framework can wire the Eloquent cast. Bare DataSchemas are valid as nested item types, '
+                .'Action payloads, or Resource properties — but not as Schema column types directly.'
             );
         }
 
@@ -462,7 +480,7 @@ class SchemaScanner
             // comes from getBitFlags() at SDK gen time, no column-level field needed.
             if (is_subclass_of($typeName, DataSchema::class)) {
                 $result['dataSchemaClass'] = $typeName;
-            } elseif (is_subclass_of($typeName, \SchemaCraft\Primitives\Collection::class)) {
+            } elseif (is_subclass_of($typeName, \SchemaCraft\Primitives\CollectionColumn::class)) {
                 $result['collectionItemClass'] = $typeName::itemClass();
             }
 

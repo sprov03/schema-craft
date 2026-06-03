@@ -3,38 +3,47 @@
 namespace SchemaCraft;
 
 use Carbon\Carbon;
-use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Database\Eloquent\Model;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionProperty;
 use SchemaCraft\Contracts\CastsDataSchemaProperty;
-use SchemaCraft\Contracts\SchemaCraftColumn;
 use SchemaCraft\Exceptions\DataSchemaHydrationException;
-use SchemaCraft\Generators\GeneratorColumn;
-use SchemaCraft\Scanner\ColumnDefinition;
 
 /**
- * Base class for defining typed data structures.
+ * Pure shape primitive — typed data structure, no column behavior.
  *
- * Extend this class to define the shape of structured data using typed
- * properties — mirroring how Schema defines table columns.
+ * Extend this class to define the shape of structured data: typed properties, the
+ * fromArray/toArray round-trip, the nested-rules walker for validation. The class
+ * does NOT serve as a Schema column type on its own — for that, use a JsonColumn
+ * primitive (`SchemaCraft\Primitives\JsonColumn`) that extends DataSchema and adds
+ * the Castable + SchemaCraftColumn surface.
  *
- * A DataSchema *is* a column type. The class is simultaneously:
- *   - the shape declaration (typed properties — what fields, what types)
- *   - the Eloquent cast (implements CastsAttributes — hydrates from JSON, serializes back)
- *   - the schema-craft column type (implements SchemaCraftColumn — answers the generator
- *     dispatch for migration / faker / Filament / validation / SDK)
+ * Where DataSchemas are used:
+ *   - As items inside a CollectionColumn (`#[CollectionOf(MyItem::class)]`)
+ *   - As nested typed properties inside other DataSchemas or JsonColumns
+ *   - In Action payloads (request shape, response shape)
+ *   - In Resource properties where the shape is not a DB column
+ *   - In templates and anywhere else a typed data structure is needed
  *
- * Symmetric with how Bitmask works: the class identity carries the cast, the schema
- * declaration, and the generator surface in one place. No wrapper layer.
+ * The class implements CastsDataSchemaProperty so it can be a typed property INSIDE
+ * another DataSchema — the framework's nested-hydration path calls fromRaw/toRaw
+ * to load/dehydrate the nested value. That's shape-internal, not column-related.
  *
- * DataSchema classes can be used in Actions (nested relationship data), as JSON column
- * types on Schemas (`public AddressShape $address`), in templates, or anywhere a typed
- * data structure is needed.
+ * For column reads, the JsonColumn primitive's castUsing() delegates to this class's
+ * resolveFromColumnValue() helper so the smart "non-nullable property + null DB value
+ * → hydrate with defaults" behavior is implemented in one place and reused.
  */
-abstract class DataSchema implements \JsonSerializable, CastsAttributes, SchemaCraftColumn
+abstract class DataSchema implements \JsonSerializable, CastsDataSchemaProperty
 {
+    /**
+     * Cached schema-property-nullability per (model class, key). Used by
+     * resolveFromColumnValue() so the reflection happens once per pair, not per cast read.
+     *
+     * @var array<string, bool>
+     */
+    private static array $nullabilityCache = [];
+
     /**
      * Optional link to the related model's Schema class.
      * When set, enables automatic validation rule derivation and column type resolution.
@@ -358,65 +367,10 @@ abstract class DataSchema implements \JsonSerializable, CastsAttributes, SchemaC
         return $this->toArray();
     }
 
-    // ─── CastsAttributes (Eloquent) ─────────────────────────────
-    // The cast IS the class — Laravel's $casts entry can name a DataSchema FQCN
-    // directly and Eloquent will instantiate + dispatch get/set here. Bridge from
-    // the JSON column value into a typed DataSchema instance and back.
-    //
-    // Note: stateless dispatcher. Laravel creates one instance of the cast and calls
-    // get/set on it; the instance never holds the hydrated data — it returns a fresh
-    // typed instance from `static::fromArray()` each time.
-
-    public function get(Model $model, string $key, mixed $value, array $attributes): ?DataSchema
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        $data = is_string($value) ? json_decode($value, true) : $value;
-
-        return static::fromArray(is_array($data) ? $data : []);
-    }
-
-    public function set(Model $model, string $key, mixed $value, array $attributes): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        if ($value instanceof self) {
-            return json_encode($value->toArray());
-        }
-
-        if (is_array($value)) {
-            return json_encode($value);
-        }
-
-        return (string) $value;
-    }
-
-    // ─── SchemaCraftType ─────────────────────────────────────────
-    // Every DataSchema column stores as a JSON column. Schema-level attributes
-    // (#[Length], #[Decimal], etc.) don't apply to JSON columns; modifiers/rules stay flat.
-
-    public static function schemaColumnType(): string
-    {
-        return 'json';
-    }
-
-    public static function schemaColumnModifiers(): array
-    {
-        return [];
-    }
-
-    public static function schemaValidationRules(): array
-    {
-        return ['array'];
-    }
-
-    // ─── CastsDataSchemaProperty ─────────────────────────────────
-    // Called when a parent DataSchema has a property typed as this DataSchema —
-    // routes through fromArray/toArray so nested shapes hydrate uniformly.
+    // ─── CastsDataSchemaProperty (nested-property hydration) ────────
+    // Called when a parent DataSchema has a property typed as this DataSchema.
+    // Routes through fromArray/toArray so nested shapes hydrate uniformly. This is
+    // shape-internal (DataSchema-inside-DataSchema), not column-related.
 
     public static function fromRaw(mixed $value): static
     {
@@ -432,51 +386,77 @@ abstract class DataSchema implements \JsonSerializable, CastsAttributes, SchemaC
         return $this->toArray();
     }
 
-    // ─── FormatsApiOutput / ParsesApiInput ───────────────────────
+    // ─── Column-read resolution (shape-aware, nullability-aware) ────
+    // Called from JsonColumn's castUsing() handler to bridge a DB JSON value into a
+    // hydrated DataSchema instance. Honors the SchemaModel property's declared
+    // nullability: non-nullable typed property + null DB value → hydrate with defaults
+    // so the model never holds a null where the type says non-null. Nullable property
+    // + null DB value → null. Non-null DB value → hydrate normally.
+    //
+    // Centralized here so the JsonColumn cast handler is a one-liner and any future
+    // smart-resolve behavior (defaults from migration, lazy hydration, etc.) lives
+    // in one place.
 
-    public function toApiRepresentation(): array
-    {
-        return $this->toArray();
-    }
-
-    public static function fromApiInput(mixed $input): static
-    {
-        if (! is_array($input)) {
-            throw new \InvalidArgumentException(static::class.' API input must be an array.');
+    final public static function resolveFromColumnValue(
+        Model $model,
+        string $key,
+        mixed $value,
+    ): ?static {
+        if ($value === null) {
+            return self::isSchemaPropertyNullable($model, $key)
+                ? null
+                : static::fromArray(null);
         }
 
-        return static::fromArray($input);
+        $data = is_string($value) ? json_decode($value, true) : $value;
+
+        return static::fromArray(is_array($data) ? $data : null);
     }
 
-    // ─── GeneratesFakerValue / GeneratesSdkType ──────────────────
-
-    public static function fakerExpression(ColumnDefinition $column): string
+    /**
+     * Read the SchemaModel's schema property declaration to determine whether the
+     * column's property is nullable. Cached per (model class, key). Returns true
+     * (treat as nullable) when nullability can't be determined — defensive default
+     * matches Laravel's "cast returned null is fine" convention.
+     */
+    private static function isSchemaPropertyNullable(Model $model, string $key): bool
     {
-        return '[]';
-    }
+        $cacheKey = $model::class.'::'.$key;
 
-    public static function sdkType(): string
-    {
-        return 'array';
-    }
+        if (isset(self::$nullabilityCache[$cacheKey])) {
+            return self::$nullabilityCache[$cacheKey];
+        }
 
-    // ─── FilamentRenderable ──────────────────────────────────────
-    // Generic defaults — projects can override per-DataSchema if they want a
-    // different Filament rendering for their specific shape.
+        $nullable = true;
 
-    public static function asFilamentField(GeneratorColumn $column): string
-    {
-        return "Forms\\Components\\KeyValue::make('{$column->name}')";
-    }
+        // Only SchemaModels carry a Schema reference; for non-SchemaModel users,
+        // there's no declared property to inspect, so the default (nullable) holds.
+        if ($model instanceof SchemaModel) {
+            try {
+                $modelRef = new \ReflectionClass($model);
+                $schemaProp = $modelRef->getProperty('schema');
+                $schemaClass = $schemaProp->getValue();
+            } catch (\ReflectionException) {
+                self::$nullabilityCache[$cacheKey] = $nullable;
 
-    public static function asFilamentColumn(GeneratorColumn $column): string
-    {
-        return "Tables\\Columns\\TextColumn::make('{$column->name}')";
-    }
+                return $nullable;
+            }
 
-    public static function asFilamentEntry(GeneratorColumn $column): string
-    {
-        return "Infolists\\Components\\TextEntry::make('{$column->name}')";
+            try {
+                $ref = new \ReflectionClass($schemaClass);
+                if ($ref->hasProperty($key)) {
+                    $prop = $ref->getProperty($key);
+                    $type = $prop->getType();
+                    $nullable = $type instanceof \ReflectionNamedType ? $type->allowsNull() : true;
+                }
+            } catch (\ReflectionException) {
+                // Fall through to default
+            }
+        }
+
+        self::$nullabilityCache[$cacheKey] = $nullable;
+
+        return $nullable;
     }
 
     /**

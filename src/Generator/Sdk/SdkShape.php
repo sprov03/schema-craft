@@ -154,7 +154,7 @@ final class SdkShape
         }
 
         // Bitmask primitive — wire shape is intrinsic, framework constructs it from getBitFlags().
-        if (is_subclass_of($type, \SchemaCraft\Primitives\Bitmask::class)) {
+        if (is_subclass_of($type, \SchemaCraft\Primitives\BitmaskColumn::class)) {
             $basename = ($pos = strrpos($type, '\\')) !== false
                 ? substr($type, $pos + 1)
                 : $type;
@@ -181,7 +181,7 @@ final class SdkShape
         // Collection primitive — the subclass declares its item DataSchema via class-level
         // #[CollectionOf], and the framework introspects the attribute via the primitive's
         // own static itemClass() method. SDK emits {ItemBasename}Data[].
-        if (is_subclass_of($type, \SchemaCraft\Primitives\Collection::class)) {
+        if (is_subclass_of($type, \SchemaCraft\Primitives\CollectionColumn::class)) {
             return self::collectionOf($type::itemClass());
         }
 

@@ -435,7 +435,7 @@ class EndpointEnricher
             return null;
         }
 
-        if (is_subclass_of($type, \SchemaCraft\Primitives\Bitmask::class)) {
+        if (is_subclass_of($type, \SchemaCraft\Primitives\BitmaskColumn::class)) {
             return [
                 'kind' => 'bitmask',
                 'values' => array_map(

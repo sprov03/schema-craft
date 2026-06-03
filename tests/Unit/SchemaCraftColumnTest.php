@@ -11,12 +11,12 @@ use SchemaCraft\Generator\FakerMethodMapper;
 use SchemaCraft\Generators\GeneratorColumn;
 use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Tests\Fixtures\Types\TestBitmask;
-use SchemaCraft\Primitives\Bitmask;
+use SchemaCraft\Primitives\BitmaskColumn;
 
 /**
  * Concrete TestBitmask with known flags for testing.
  */
-class SampleBitmask extends \SchemaCraft\Primitives\LargeBitmask
+class SampleBitmask extends \SchemaCraft\Primitives\LargeBitmaskColumn
 {
     const LOAN = 1;
     const PURCHASE = 2;
@@ -187,7 +187,7 @@ class SchemaCraftColumnTest extends TestCase
     // JSON-DTO and Collection runtime behavior used to be tested via the wrapper classes
     // (AbstractJsonDtoType / AbstractCollectionType). After the consolidation those
     // wrappers are gone — properties are typed as DataSchema subclasses or as Collection
-    // with #[CollectionOf], and the Collection primitive (SchemaCraft\Primitives\Collection) (for collections) and DataSchema-as-column-type (for object shapes)
+    // with #[CollectionOf], and the Collection primitive (SchemaCraft\Primitives\CollectionColumn) (for collections) and DataSchema-as-column-type (for object shapes)
     // handle hydration/serialization. End-to-end coverage of the same behavior now lives
     // in SdkGoldenTest (asserts on the generated DTOs round-trip the wire shape).
 

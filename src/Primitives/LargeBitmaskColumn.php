@@ -6,7 +6,7 @@ namespace SchemaCraft\Primitives;
  * Size-tier subclass: stored as UNSIGNED INT (4 bytes, 32 bits, max value 4,294,967,295).
  * Use when you have between 25 and 32 distinct flags.
  */
-abstract class LargeBitmask extends Bitmask
+abstract class LargeBitmaskColumn extends BitmaskColumn
 {
     public static function schemaColumnType(): string
     {

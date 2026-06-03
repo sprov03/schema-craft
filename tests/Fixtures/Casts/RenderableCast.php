@@ -30,7 +30,28 @@ class RenderableCast implements SchemaCraftColumn
         return ['array'];
     }
 
-    // ─── CastsDataSchemaProperty ─────────────────────────────────
+    // ─── Castable ────────────────────────────────────────────────
+    // No-op cast handler — this fixture is only exercised for generator dispatch tests
+    // (Filament rendering), not as a runtime cast. Anonymous CastsAttributes satisfies
+    // the interface requirement that SchemaCraftColumn now composes.
+
+    public static function castUsing(array $arguments): \Illuminate\Contracts\Database\Eloquent\CastsAttributes
+    {
+        return new class implements \Illuminate\Contracts\Database\Eloquent\CastsAttributes
+        {
+            public function get(\Illuminate\Database\Eloquent\Model $model, string $key, mixed $value, array $attributes): mixed
+            {
+                return $value;
+            }
+
+            public function set(\Illuminate\Database\Eloquent\Model $model, string $key, mixed $value, array $attributes): mixed
+            {
+                return $value;
+            }
+        };
+    }
+
+    // ─── CastsDataSchemaProperty (legacy methods, no longer in SchemaCraftColumn) ──
 
     public static function fromRaw(mixed $value): static
     {

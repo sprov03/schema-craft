@@ -42,7 +42,7 @@ class ColumnDefinition
         /**
          * When the column wraps a collection: the item DataSchema FQCN (sourced from the
          * property's #[CollectionOf] attribute). Carried alongside castType (which points at
-         * the Collection primitive (SchemaCraft\Primitives\Collection)) so the SDK pipeline can reflect the item shape.
+         * the Collection primitive (SchemaCraft\Primitives\CollectionColumn)) so the SDK pipeline can reflect the item shape.
          * Null for non-collection columns.
          */
         public ?string $collectionItemClass = null,

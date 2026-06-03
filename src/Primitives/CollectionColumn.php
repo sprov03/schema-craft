@@ -28,7 +28,7 @@ use SchemaCraft\Scanner\ColumnDefinition;
  * #[CollectionOf(...)] at class scope, naming the DataSchema that defines the item shape:
  *
  *   #[CollectionOf(WebhookAttemptShape::class)]
- *   class WebhookAttempts extends Collection
+ *   class WebhookAttempts extends CollectionColumn
  *   {
  *       // optional domain methods, e.g. ->failedOnes(), ->byStatus(), etc.
  *   }
@@ -62,7 +62,7 @@ use SchemaCraft\Scanner\ColumnDefinition;
  *
  * @extends IlluminateCollection<int, TItem>
  */
-abstract class Collection extends IlluminateCollection implements Castable, SchemaCraftColumn
+abstract class CollectionColumn extends IlluminateCollection implements Castable, SchemaCraftColumn
 {
     // ─── Item-type introspection ─────────────────────────────────
 

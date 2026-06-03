@@ -12,7 +12,7 @@ use Attribute;
  * that single language gap. Used at every layer that documents object shape:
  *
  *   - Schema columns: `#[CollectionOf(PricePoint::class)] public Collection $price_history`
- *     wires the framework's Collection primitive (SchemaCraft\Primitives\Collection) and lets the SDK pipeline emit
+ *     wires the framework's Collection primitive (SchemaCraft\Primitives\CollectionColumn) and lets the SDK pipeline emit
  *     a typed PricePointData[].
  *
  *   - Resource properties: `#[CollectionOf(CatalogVariantResource::class)] public Collection $variants`
