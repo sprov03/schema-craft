@@ -28,10 +28,10 @@ use SchemaCraft\Tests\Fixtures\Models\CatalogReview;
 use SchemaCraft\Tests\Fixtures\Models\CatalogShipment;
 use SchemaCraft\Tests\Fixtures\Models\CatalogSupplier;
 use SchemaCraft\Tests\Fixtures\Models\CatalogVariant;
-use SchemaCraft\Tests\Fixtures\Types\CatalogAttributesJson;
+use SchemaCraft\Tests\Fixtures\Types\CatalogAttributes;
 use SchemaCraft\Tests\Fixtures\Types\TestBitmask;
-use SchemaCraft\Tests\Fixtures\Types\TestJsonDto;
 use SchemaCraft\Tests\Fixtures\Types\TestPriceHistory;
+use SchemaCraft\Tests\Fixtures\Types\TestSpec;
 use SchemaCraft\Traits\SoftDeletesSchema;
 use SchemaCraft\Traits\TimestampsSchema;
 
@@ -71,7 +71,7 @@ class CatalogSchema extends Schema
     public float $price;                  // decimal/float
 
     #[Fillable]
-    public CatalogAttributesJson $attributes_json; // json column with a declared shape -> typed CatalogAttributesData
+    public CatalogAttributes $attributes_json; // DataSchema-typed property -> DataSchema-as-column-type pattern, SDK emits CatalogAttributesData
 
     #[Fillable]
     #[Date]
@@ -89,10 +89,10 @@ class CatalogSchema extends Schema
     public TestBitmask $permissions;      // bitmask type -> typed TestBitmaskData
 
     #[Fillable]
-    public TestJsonDto $spec;             // JSON-DTO type -> typed TestSpecData
+    public TestSpec $spec;                // DataSchema-typed property -> SDK emits TestSpecData
 
     #[Fillable]
-    public TestPriceHistory $price_history; // collection type -> typed TestPricePointData[]
+    public TestPriceHistory $price_history;  // Collection primitive subclass — SDK emits TestPricePointData[]
 
     #[Hidden]
     public array $internal_notes = [];    // #[Hidden] -> excluded everywhere

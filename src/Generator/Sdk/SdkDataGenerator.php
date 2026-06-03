@@ -127,7 +127,7 @@ class SdkDataGenerator
         // verbatim so consumers don't have to translate between conventions and a
         // future toArray() round-trips symmetrically.
         foreach ($columns as $col) {
-            $phpType = $this->resourcePhpType($col['type'], $dataClassName, $col['name']);
+            $phpType = $this->phpTypeForColumn($col, $dataClassName);
             if ($col['nullable'] ?? false) {
                 $lines[] = "    /** @var {$phpType}|null */";
             } else {
@@ -151,7 +151,7 @@ class SdkDataGenerator
         // Constructor PHPDoc + signature
         $lines[] = '    /**';
         foreach ($columns as $col) {
-            $phpType = $this->resourcePhpType($col['type'], $dataClassName, $col['name']);
+            $phpType = $this->phpTypeForColumn($col, $dataClassName);
             $nullSuffix = ($col['nullable'] ?? false) ? '|null' : '';
             $lines[] = "     * @param {$phpType}{$nullSuffix} \${$col['name']}";
         }
@@ -397,16 +397,17 @@ class SdkDataGenerator
                 continue;
             }
 
-            // Property whose cast is itself a SchemaCraftColumn -> consult its shape (recurse).
-            if ($prop['typeName'] !== null
-                && ! $prop['isBuiltin']
-                && is_subclass_of($prop['typeName'], SchemaCraftColumn::class)
-            ) {
-                $castShape = $prop['typeName']::sdkShape();
-                $collected = $this->collectInnerDtos($castShape, $collected);
-                $fields[] = ['name' => $name, 'type' => $this->shapeToPhpType($castShape), 'nullable' => $nullable];
+            // Property whose cast is one of the three recognized primitives -> framework
+            // introspects its shape (recurse). SchemaCraftColumn types outside the primitives
+            // get sdkType()'d as a flat scalar — same code path as builtins below.
+            if ($prop['typeName'] !== null && ! $prop['isBuiltin']) {
+                $castShape = SdkShape::forType($prop['typeName']);
+                if ($castShape !== null) {
+                    $collected = $this->collectInnerDtos($castShape, $collected);
+                    $fields[] = ['name' => $name, 'type' => $this->shapeToPhpType($castShape), 'nullable' => $nullable];
 
-                continue;
+                    continue;
+                }
             }
 
             // Backed enum -> its backing scalar type.
@@ -465,6 +466,23 @@ class SdkDataGenerator
      * here would let custom value objects ship as the wrong type in the SDK without
      * anyone noticing. The escape hatch is the contract, not a one-off match arm.
      */
+    /**
+     * Resolve a column's PHP type for the DTO. Two paths:
+     *   - The column already carries SDK-aware shape info from the projection (innerDtoName +
+     *     isCollection). Trust it — `{X}Data[]` for collections, `{X}Data` for singles.
+     *   - Otherwise fall back to type-string introspection via resourcePhpType().
+     *
+     * Used by both the property block and the constructor signature so the two stay in sync.
+     */
+    private function phpTypeForColumn(array $col, string $context): string
+    {
+        if (! empty($col['innerDtoName'])) {
+            return $col['innerDtoName'].(! empty($col['isCollection']) ? '[]' : '');
+        }
+
+        return $this->resourcePhpType($col['type'], $context, $col['name']);
+    }
+
     private function resourcePhpType(string $type, string $context, string $field): string
     {
         $scalar = match ($type) {
@@ -489,10 +507,25 @@ class SdkDataGenerator
                 return (new ReflectionEnum($type))->getBackingType()->getName();
             }
 
+            // DataSchema-typed property: the DataSchema IS the object shape — wrapper class
+            // not needed. SdkShape::forType handles this branch and returns SdkShape::object($type).
+            if (is_subclass_of($type, \SchemaCraft\DataSchema::class)) {
+                $shape = SdkShape::forType($type);
+
+                return $this->guardTyped($this->shapeToPhpType($shape), $context, $field);
+            }
+
             if (is_subclass_of($type, GeneratesSdkType::class)) {
-                // Consult the structured shape so rich types emit a typed nested DTO
-                // ({X}Data / {X}Data[]) instead of the flat sdkType() 'array'.
-                return $this->guardTyped($this->shapeToPhpType($type::sdkShape()), $context, $field);
+                // Bitmask primitive — framework introspection emits the synthesized wire shape.
+                // Other SchemaCraftColumn implementations (like the DataSchema-as-column-type pattern /
+                // JsonCollectionCast) fall back to the flat sdkType(); they're not used as
+                // property types directly — only as castType on column definitions.
+                $shape = SdkShape::forType($type);
+                if ($shape !== null) {
+                    return $this->guardTyped($this->shapeToPhpType($shape), $context, $field);
+                }
+
+                return $this->guardTyped($type::sdkType(), $context, $field);
             }
         }
 
@@ -867,15 +900,38 @@ class SdkDataGenerator
      */
     private function phpType(ColumnDefinition $column, string $context): string
     {
+        // Shape-carrying columns: the SchemaScanner already stashed the DataSchema FQCN on
+        // the column, so the SDK pipeline reads it directly rather than re-resolving from the
+        // cast type. {X}Data for a single object, {X}Data[] for a collection.
+        if ($column->dataSchemaClass !== null) {
+            return $this->guardTyped(
+                $this->shapeToPhpType(SdkShape::object($column->dataSchemaClass)),
+                $context,
+                $column->name
+            );
+        }
+        if ($column->collectionItemClass !== null) {
+            return $this->guardTyped(
+                $this->shapeToPhpType(SdkShape::collectionOf($column->collectionItemClass)),
+                $context,
+                $column->name
+            );
+        }
+
         if ($column->castType !== null && class_exists($column->castType)) {
             if (is_subclass_of($column->castType, \BackedEnum::class)) {
                 return (new ReflectionEnum($column->castType))->getBackingType()->getName();
             }
 
-            // Fully compliant — delegate to the structured shape so rich types
-            // emit a typed nested DTO ({X}Data / {X}Data[]) rather than 'array'.
+            // Bitmask primitive — framework introspection emits the synthesized wire shape.
+            // Other SchemaCraftColumn implementations (rare) fall back to the flat sdkType().
             if (is_subclass_of($column->castType, SchemaCraftColumn::class)) {
-                return $this->guardTyped($this->shapeToPhpType($column->castType::sdkShape()), $context, $column->name);
+                $shape = SdkShape::forType($column->castType);
+                if ($shape !== null) {
+                    return $this->guardTyped($this->shapeToPhpType($shape), $context, $column->name);
+                }
+
+                return $this->guardTyped($column->castType::sdkType(), $context, $column->name);
             }
 
             // Custom Eloquent cast without SchemaCraftColumn — throw.
@@ -883,8 +939,8 @@ class SdkDataGenerator
             if (is_subclass_of($column->castType, CastsAttributes::class)) {
                 throw new RuntimeException(
                     "Cast class [{$column->castType}] must implement SchemaCraftColumn. "
-                    .'Extend Bitmask (SchemaCraft\\Primitives), AbstractJsonDtoType, or AbstractCollectionType, '
-                    .'or implement SchemaCraftColumn directly. No fallback is provided.'
+                    .'Use a DataSchema-typed property, a Collection + #[CollectionOf] property, '
+                    .'a Bitmask subclass, or implement SchemaCraftColumn directly. No fallback is provided.'
                 );
             }
         }

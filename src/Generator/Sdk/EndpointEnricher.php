@@ -311,19 +311,23 @@ class EndpointEnricher
                     'nullable' => $p['nullable'] ?? false,
                 ];
 
-                // Rich-type columns surface their inner DTO name via the contract — same
-                // sdkShape() the SDK pipeline consults for inner-DTO discovery. The visualizer
-                // renders this so a developer can see exactly what typed shape ships before
-                // generating the SDK. If the type doesn't implement GeneratesSdkType or its
-                // shape is scalar, innerDtoName is simply absent — no fallback inference.
-                $type = $p['type'];
-                if (is_string($type)
-                    && class_exists($type)
-                    && is_subclass_of($type, \SchemaCraft\Contracts\GeneratesSdkType::class)
-                ) {
-                    $shape = $type::sdkShape();
-                    if (! $shape->isScalar() && $shape->dtoName() !== null) {
+                // Resolve the column's nested shape. Two introspection paths:
+                //   - Property carries collectionItemClass (rare, set by ResourceScanner for
+                //     bare-Collection + property-attribute cases). Direct collection shape.
+                //   - Framework introspects the property type via SdkShape::forType — recognizes
+                //     Bitmask + DataSchema + Collection primitives. Collection primitives
+                //     return a collection-kind shape, so isCollection is set from the shape.
+                if (! empty($p['collectionItemClass'])) {
+                    $shape = \SchemaCraft\Generator\Sdk\SdkShape::collectionOf($p['collectionItemClass']);
+                    $col['innerDtoName'] = $shape->dtoName();
+                    $col['isCollection'] = true;
+                } elseif (is_string($p['type'])) {
+                    $shape = \SchemaCraft\Generator\Sdk\SdkShape::forType($p['type']);
+                    if ($shape !== null && ! $shape->isScalar() && $shape->dtoName() !== null) {
                         $col['innerDtoName'] = $shape->dtoName();
+                        if ($shape->isCollection()) {
+                            $col['isCollection'] = true;
+                        }
                     }
                 }
 
@@ -332,7 +336,7 @@ class EndpointEnricher
                 // introspection surfaces (Bitmask::definitions() and BackedEnum::cases()), no
                 // opt-in interface required. Anything else (structured rich types like
                 // AbstractJsonDtoType) is documented via its inner DTO above, not options.
-                $options = $this->optionsForType($type);
+                $options = $this->optionsForType($p['type']);
                 if ($options !== null) {
                     $col['options'] = $options;
                 }

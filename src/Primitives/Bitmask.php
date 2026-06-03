@@ -191,28 +191,9 @@ abstract class Bitmask implements CastsAttributes, JsonSerializable, SchemaCraft
     {
         return 'array';
     }
-
-    /**
-     * Synthesized wire shape: {value: int, flags: {<FLAG>: bool, ...}}. The flags sub-object
-     * gets one bool field per declared flag, named {TypeBasename}FlagsData; the wrapper is
-     * {TypeBasename}Data.
-     */
-    public static function sdkShape(): SdkShape
-    {
-        $basename = class_basename(static::class);
-
-        $flagFields = [];
-        foreach (array_keys(static::getBitFlags()) as $flag) {
-            $flagFields[] = SdkShapeField::scalar($flag, 'bool');
-        }
-
-        $flagsShape = SdkShape::synthesizedObject($basename.'FlagsData', $flagFields);
-
-        return SdkShape::synthesizedObject($basename.'Data', [
-            SdkShapeField::scalar('value', 'int'),
-            SdkShapeField::nested('flags', $flagsShape),
-        ]);
-    }
+    // Wire shape is intrinsic to the primitive — {value: int, flags: {<FLAG>: bool, ...}}.
+    // The framework constructs it via SdkShape::forType() by reading getBitFlagsPublic().
+    // Implementers don't touch SdkShape; they just declare flag constants.
 
     // ─── FilamentRenderable ──────────────────────────────────────
 

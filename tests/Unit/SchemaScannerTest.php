@@ -16,7 +16,7 @@ use SchemaCraft\Tests\Fixtures\Schemas\TitleCompositeSchema;
 use SchemaCraft\Tests\Fixtures\Schemas\TitlePropertySchema;
 use SchemaCraft\Tests\Fixtures\Schemas\UserSchema;
 use SchemaCraft\Tests\Fixtures\Types\TestBitmask;
-use SchemaCraft\Tests\Fixtures\Types\TestJsonDto;
+use SchemaCraft\Tests\Fixtures\Types\TestSpec;
 
 class SchemaScannerTest extends TestCase
 {
@@ -510,8 +510,12 @@ class SchemaScannerTest extends TestCase
 
         $col = $this->findColumn($table, 'metadata');
 
+        // DataSchema-typed property: the DataSchema IS the column type. castType is the
+        // DataSchema class directly — Laravel's $casts uses it as-is, DataSchema implements
+        // CastsAttributes so the runtime hydration works without a wrapper layer.
         $this->assertSame('json', $col->columnType);
-        $this->assertSame(TestJsonDto::class, $col->castType);
+        $this->assertSame(TestSpec::class, $col->castType);
+        $this->assertSame(TestSpec::class, $col->dataSchemaClass);
         $this->assertFalse($col->unsigned);
     }
 

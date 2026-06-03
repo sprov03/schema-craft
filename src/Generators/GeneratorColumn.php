@@ -253,7 +253,7 @@ class GeneratorColumn
             if (is_subclass_of($cast, CastsAttributes::class)) {
                 throw new RuntimeException(
                     "Cast class [{$cast}] must implement SchemaCraftColumn. "
-                    .'Extend Bitmask (SchemaCraft\\Primitives), AbstractJsonDtoType, or AbstractCollectionType, '
+                    .'Use a DataSchema-typed property, a Collection + #[CollectionOf] property, or a Bitmask (SchemaCraft\\Primitives) subclass, '
                     .'or implement SchemaCraftColumn directly. No fallback is provided.'
                 );
             }
@@ -344,7 +344,7 @@ class GeneratorColumn
         if (is_subclass_of($cast, CastsAttributes::class)) {
             throw new RuntimeException(
                 "Cast class [{$cast}] must implement SchemaCraftColumn. "
-                .'Extend Bitmask (SchemaCraft\\Primitives), AbstractJsonDtoType, or AbstractCollectionType, '
+                .'Use a DataSchema-typed property, a Collection + #[CollectionOf] property, or a Bitmask (SchemaCraft\\Primitives) subclass, '
                 .'or implement SchemaCraftColumn directly. No fallback is provided.'
             );
         }

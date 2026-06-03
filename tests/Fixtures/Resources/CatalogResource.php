@@ -3,17 +3,17 @@
 namespace SchemaCraft\Tests\Fixtures\Resources;
 
 use Illuminate\Database\Eloquent\Collection;
-use SchemaCraft\Attributes\Resources\CollectionOf;
+use SchemaCraft\Attributes\CollectionOf;
 use SchemaCraft\Attributes\Resources\Computed;
 use SchemaCraft\Attributes\Resources\ResourceSchema;
 use SchemaCraft\SchemaCraftResource;
 use SchemaCraft\Tests\Fixtures\Enums\CatalogTier;
 use SchemaCraft\Tests\Fixtures\Enums\PostStatus;
 use SchemaCraft\Tests\Fixtures\Schemas\CatalogSchema;
-use SchemaCraft\Tests\Fixtures\Types\CatalogAttributesJson;
+use SchemaCraft\Tests\Fixtures\Types\CatalogAttributes;
 use SchemaCraft\Tests\Fixtures\Types\TestBitmask;
-use SchemaCraft\Tests\Fixtures\Types\TestJsonDto;
 use SchemaCraft\Tests\Fixtures\Types\TestPriceHistory;
+use SchemaCraft\Tests\Fixtures\Types\TestSpec;
 
 /**
  * Documented response resource for CatalogController. Because at least one
@@ -42,17 +42,17 @@ class CatalogResource extends SchemaCraftResource
 
     public float $price;
 
-    public CatalogAttributesJson $attributes_json; // json column shape -> typed CatalogAttributesData
+    public CatalogAttributes $attributes_json; // DataSchema-typed -> SDK emits CatalogAttributesData
 
     public PostStatus $status;       // string-backed enum -> string
 
     public CatalogTier $tier;        // int-backed enum -> int
 
-    public TestBitmask $permissions; // SchemaCraftColumn -> TestBitmaskData
+    public TestBitmask $permissions; // Bitmask primitive -> TestBitmaskData
 
-    public TestJsonDto $spec;        // SchemaCraftColumn -> TestSpecData
+    public TestSpec $spec;           // DataSchema-typed -> SDK emits TestSpecData
 
-    public TestPriceHistory $price_history; // SchemaCraftColumn -> TestPricePointData[]
+    public TestPriceHistory $price_history; // Collection primitive subclass — SDK emits TestPricePointData[]
 
     public ?CatalogBrandResource $brand;
 

@@ -33,5 +33,18 @@ class ColumnDefinition
          * generators) should skip or read-only this column when true.
          */
         public bool $generated = false,
+        /**
+         * When the column wraps a single object shape: the DataSchema FQCN. Carried alongside
+         * castType (which points at the DataSchema-as-column-type pattern) so the SDK pipeline can reflect
+         * the shape without re-parsing the cast directive string. Null for non-DTO columns.
+         */
+        public ?string $dataSchemaClass = null,
+        /**
+         * When the column wraps a collection: the item DataSchema FQCN (sourced from the
+         * property's #[CollectionOf] attribute). Carried alongside castType (which points at
+         * the Collection primitive (SchemaCraft\Primitives\Collection)) so the SDK pipeline can reflect the item shape.
+         * Null for non-collection columns.
+         */
+        public ?string $collectionItemClass = null,
     ) {}
 }

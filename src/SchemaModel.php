@@ -79,9 +79,17 @@ abstract class SchemaModel extends Model
         $tableDefinition = static::resolveSchema();
 
         foreach ($tableDefinition->columns as $col) {
-            if ($col->castType !== null && ! isset($this->casts[$col->name])) {
-                $this->casts[$col->name] = $col->castType;
+            if ($col->castType === null || isset($this->casts[$col->name])) {
+                continue;
             }
+
+            // All recognized column types now carry their cast logic via class identity —
+            // Laravel's $casts entry is just the bare class name. DataSchema subclasses
+            // implement CastsAttributes directly; Bitmask subclasses too; Collection primitive
+            // subclasses implement Castable (forced by the Collection::get vs CastsAttributes::get
+            // signature collision) but the cast handler reads the subclass's own #[CollectionOf]
+            // via reflection at castUsing time — still no boot-time directive parameterization.
+            $this->casts[$col->name] = $col->castType;
         }
 
         foreach ($tableDefinition->columns as $col) {

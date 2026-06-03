@@ -29,7 +29,7 @@ class SdkGenerationException extends RuntimeException
             ."bool, float, array), DateTimeInterface subclasses (Carbon, DateTime, ...), "
             ."BackedEnum subclasses, or classes implementing "
             ."SchemaCraft\\Contracts\\GeneratesSdkType (typically via SchemaCraftColumn — extend "
-            ."Bitmask (SchemaCraft\\Primitives), AbstractJsonDtoType, or AbstractCollectionType). Add the "
+            ."DataSchema, Bitmask (SchemaCraft\\Primitives), or implement SchemaCraftColumn directly). Add the "
             ."contract to [{$type}] or change the resource property type. Silent fallbacks "
             ."here would ship the wrong type in the SDK without anyone noticing."
         );
@@ -50,7 +50,7 @@ class SdkGenerationException extends RuntimeException
             "Field [{$context}::\${$field}] resolves to `{$type}`, which can't be documented down "
             ."to its properties. The SDK requires every field to be typed to the bottom, so an "
             ."untyped `array`/`mixed` cannot ship. Model it as a typed shape — extend "
-            ."AbstractJsonDtoType (a typed object) or AbstractCollectionType (a typed list), or "
+            ."a DataSchema-typed property (typed object) or a Collection + #[CollectionOf] property (typed list), or "
             ."give the column a cast type that does. There is no opt-out: an untyped field hides "
             ."its real shape from SDK consumers."
         );

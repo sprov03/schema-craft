@@ -367,20 +367,23 @@ class SdkContextBuilder
         $innerDtos = [];
 
         foreach ($allSchemas as $context) {
-            // Schema-backed contexts: walk table columns for cast-driven rich types.
+            // Schema-backed contexts: walk table columns for shape-carrying columns. The Schema
+            // scanner already stashes the DataSchema FQCN on `dataSchemaClass` (single-object
+            // columns) or `collectionItemClass` (collection columns) — read it directly rather
+            // than re-resolving from the cast type. Bitmask columns still flow through
+            // SdkShape::forType using the cast class identity. Scalar columns produce no shape.
             if ($context->table !== null) {
                 foreach ($context->table->columns as $column) {
-                    $castType = $column->castType;
-
-                    if ($castType === null
-                        || ! class_exists($castType)
-                        || ! is_subclass_of($castType, SchemaCraftColumn::class)
-                    ) {
-                        continue;
-                    }
-
-                    $shape = $castType::sdkShape();
-                    if ($shape->isScalar()) {
+                    if ($column->dataSchemaClass !== null) {
+                        $shape = \SchemaCraft\Generator\Sdk\SdkShape::object($column->dataSchemaClass);
+                    } elseif ($column->collectionItemClass !== null) {
+                        $shape = \SchemaCraft\Generator\Sdk\SdkShape::collectionOf($column->collectionItemClass);
+                    } elseif (is_string($column->castType)) {
+                        $shape = \SchemaCraft\Generator\Sdk\SdkShape::forType($column->castType);
+                        if ($shape === null || $shape->isScalar()) {
+                            continue;
+                        }
+                    } else {
                         continue;
                     }
 
@@ -391,22 +394,17 @@ class SdkContextBuilder
                 continue;
             }
 
-            // Schema-less Resources: rich-type discovery from declared property types.
-            // Same contract (SchemaCraftColumn::sdkShape) — types describe themselves whether
-            // declared on a schema column or a Resource property.
+            // Schema-less Resources: same introspection on the declared property types. Single
+            // helper (SdkShape::forType) — no separate "schema vs resource property" branching.
             if ($context->resourceFields !== null) {
                 foreach ($context->resourceFields['columns'] as $col) {
                     $type = $col['type'] ?? null;
-
-                    if ($type === null
-                        || ! class_exists($type)
-                        || ! is_subclass_of($type, SchemaCraftColumn::class)
-                    ) {
+                    if (! is_string($type)) {
                         continue;
                     }
 
-                    $shape = $type::sdkShape();
-                    if ($shape->isScalar()) {
+                    $shape = \SchemaCraft\Generator\Sdk\SdkShape::forType($type);
+                    if ($shape === null || $shape->isScalar()) {
                         continue;
                     }
 

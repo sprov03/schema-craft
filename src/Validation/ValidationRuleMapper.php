@@ -84,6 +84,35 @@ class ValidationRuleMapper
             $rules[] = 'required';
         }
 
+        // DataSchema-typed columns: the DataSchema documents the shape, so the column gets
+        // an `array` validation rule plus dot-notation nested rules derived by walking the
+        // DataSchema's typed properties. Same shape declaration the SDK pipeline reflects.
+        if ($column->dataSchemaClass !== null) {
+            $rules[] = 'array';
+            $this->pendingNestedRules = $column->dataSchemaClass::validationRules();
+
+            $rulesAttr = $this->getRulesAttribute($column);
+            if ($rulesAttr !== null) {
+                $rules = array_merge($rules, $rulesAttr->rules);
+            }
+
+            return $rules;
+        }
+
+        // Collection-of-DataSchema columns: column is an array; each item validates via the
+        // item DataSchema's nested rules under the wildcard prefix. (E.g. price_history.*.amount.)
+        if ($column->collectionItemClass !== null) {
+            $rules[] = 'array';
+            $this->pendingNestedRules = $column->collectionItemClass::validationRules('*');
+
+            $rulesAttr = $this->getRulesAttribute($column);
+            if ($rulesAttr !== null) {
+                $rules = array_merge($rules, $rulesAttr->rules);
+            }
+
+            return $rules;
+        }
+
         // SchemaCraftType provides its own validation rules
         if ($column->castType !== null && is_a($column->castType, SchemaCraftType::class, true)) {
             $typeRules = $column->castType::schemaValidationRules();

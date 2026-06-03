@@ -389,16 +389,9 @@ class SchemaValidationRulesTest extends TestCase
         $this->assertArrayHasKey('shippingAddress.zip', $rules);
     }
 
-    public function test_non_data_schema_craft_type_has_no_nested_rules(): void
-    {
-        // TestJsonDto implements SchemaCraftType but doesn't extend DataSchema
-        // so it should NOT generate nested rules
-        $rules = CustomTypeSchema::createRules(['metadata'])->toArray();
-
-        $this->assertContains('array', $rules['metadata']);
-        // No nested keys
-        $keys = array_keys($rules);
-        $nestedKeys = array_filter($keys, fn ($k) => str_starts_with($k, 'metadata.'));
-        $this->assertEmpty($nestedKeys);
-    }
+    // The "SchemaCraftType column that isn't a DataSchema" scenario no longer exists after
+    // the JSON-DTO / Collection wrapper consolidation: JSON-DTO columns are declared by
+    // typing a property as a DataSchema directly, and the framework wires the generic
+    // the DataSchema-as-column-type pattern walks the DataSchema for nested rules. There's no path to declare a
+    // typed-object JSON column without exposing its properties — that's the rule.
 }

@@ -3,11 +3,16 @@
 namespace SchemaCraft;
 
 use Carbon\Carbon;
+use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
+use Illuminate\Database\Eloquent\Model;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionProperty;
 use SchemaCraft\Contracts\CastsDataSchemaProperty;
+use SchemaCraft\Contracts\SchemaCraftColumn;
 use SchemaCraft\Exceptions\DataSchemaHydrationException;
+use SchemaCraft\Generators\GeneratorColumn;
+use SchemaCraft\Scanner\ColumnDefinition;
 
 /**
  * Base class for defining typed data structures.
@@ -15,12 +20,20 @@ use SchemaCraft\Exceptions\DataSchemaHydrationException;
  * Extend this class to define the shape of structured data using typed
  * properties — mirroring how Schema defines table columns.
  *
- * DataSchema classes are purely structural: they define fields, types,
- * and nullability. They can be used in Actions (nested relationship data),
- * JSON columns (DTO shapes), templates, or anywhere a typed data structure
- * is needed.
+ * A DataSchema *is* a column type. The class is simultaneously:
+ *   - the shape declaration (typed properties — what fields, what types)
+ *   - the Eloquent cast (implements CastsAttributes — hydrates from JSON, serializes back)
+ *   - the schema-craft column type (implements SchemaCraftColumn — answers the generator
+ *     dispatch for migration / faker / Filament / validation / SDK)
+ *
+ * Symmetric with how Bitmask works: the class identity carries the cast, the schema
+ * declaration, and the generator surface in one place. No wrapper layer.
+ *
+ * DataSchema classes can be used in Actions (nested relationship data), as JSON column
+ * types on Schemas (`public AddressShape $address`), in templates, or anywhere a typed
+ * data structure is needed.
  */
-abstract class DataSchema implements \JsonSerializable
+abstract class DataSchema implements \JsonSerializable, CastsAttributes, SchemaCraftColumn
 {
     /**
      * Optional link to the related model's Schema class.
@@ -343,6 +356,127 @@ abstract class DataSchema implements \JsonSerializable
     public function jsonSerialize(): array
     {
         return $this->toArray();
+    }
+
+    // ─── CastsAttributes (Eloquent) ─────────────────────────────
+    // The cast IS the class — Laravel's $casts entry can name a DataSchema FQCN
+    // directly and Eloquent will instantiate + dispatch get/set here. Bridge from
+    // the JSON column value into a typed DataSchema instance and back.
+    //
+    // Note: stateless dispatcher. Laravel creates one instance of the cast and calls
+    // get/set on it; the instance never holds the hydrated data — it returns a fresh
+    // typed instance from `static::fromArray()` each time.
+
+    public function get(Model $model, string $key, mixed $value, array $attributes): ?DataSchema
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $data = is_string($value) ? json_decode($value, true) : $value;
+
+        return static::fromArray(is_array($data) ? $data : []);
+    }
+
+    public function set(Model $model, string $key, mixed $value, array $attributes): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if ($value instanceof self) {
+            return json_encode($value->toArray());
+        }
+
+        if (is_array($value)) {
+            return json_encode($value);
+        }
+
+        return (string) $value;
+    }
+
+    // ─── SchemaCraftType ─────────────────────────────────────────
+    // Every DataSchema column stores as a JSON column. Schema-level attributes
+    // (#[Length], #[Decimal], etc.) don't apply to JSON columns; modifiers/rules stay flat.
+
+    public static function schemaColumnType(): string
+    {
+        return 'json';
+    }
+
+    public static function schemaColumnModifiers(): array
+    {
+        return [];
+    }
+
+    public static function schemaValidationRules(): array
+    {
+        return ['array'];
+    }
+
+    // ─── CastsDataSchemaProperty ─────────────────────────────────
+    // Called when a parent DataSchema has a property typed as this DataSchema —
+    // routes through fromArray/toArray so nested shapes hydrate uniformly.
+
+    public static function fromRaw(mixed $value): static
+    {
+        if (is_string($value)) {
+            $value = json_decode($value, true);
+        }
+
+        return static::fromArray(is_array($value) ? $value : []);
+    }
+
+    public function toRaw(): array
+    {
+        return $this->toArray();
+    }
+
+    // ─── FormatsApiOutput / ParsesApiInput ───────────────────────
+
+    public function toApiRepresentation(): array
+    {
+        return $this->toArray();
+    }
+
+    public static function fromApiInput(mixed $input): static
+    {
+        if (! is_array($input)) {
+            throw new \InvalidArgumentException(static::class.' API input must be an array.');
+        }
+
+        return static::fromArray($input);
+    }
+
+    // ─── GeneratesFakerValue / GeneratesSdkType ──────────────────
+
+    public static function fakerExpression(ColumnDefinition $column): string
+    {
+        return '[]';
+    }
+
+    public static function sdkType(): string
+    {
+        return 'array';
+    }
+
+    // ─── FilamentRenderable ──────────────────────────────────────
+    // Generic defaults — projects can override per-DataSchema if they want a
+    // different Filament rendering for their specific shape.
+
+    public static function asFilamentField(GeneratorColumn $column): string
+    {
+        return "Forms\\Components\\KeyValue::make('{$column->name}')";
+    }
+
+    public static function asFilamentColumn(GeneratorColumn $column): string
+    {
+        return "Tables\\Columns\\TextColumn::make('{$column->name}')";
+    }
+
+    public static function asFilamentEntry(GeneratorColumn $column): string
+    {
+        return "Infolists\\Components\\TextEntry::make('{$column->name}')";
     }
 
     /**

@@ -94,7 +94,7 @@ class ResourceGenerator
             // can't carry on a Collection-typed property. Singular relationships need no
             // attribute — the property type itself carries the target FQCN and nullability.
             if (in_array($rel->type, self::COLLECTION_RELATIONSHIPS)) {
-                $imports[] = 'SchemaCraft\Attributes\Resources\CollectionOf';
+                $imports[] = 'SchemaCraft\Attributes\CollectionOf';
             }
 
             $relatedResourceName = $overrides[$rel->name] ?? (class_basename($rel->relatedModel).'Resource');

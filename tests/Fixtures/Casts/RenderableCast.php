@@ -74,13 +74,6 @@ class RenderableCast implements SchemaCraftColumn
         return 'array';
     }
 
-    // Opaque cast used only to exercise Filament dispatch — no object shape,
-    // so the SDK shape is just a scalar `array`.
-    public static function sdkShape(): \SchemaCraft\Generator\Sdk\SdkShape
-    {
-        return \SchemaCraft\Generator\Sdk\SdkShape::scalar('array');
-    }
-
     // ─── FilamentRenderable ──────────────────────────────────────
 
     public static function asFilamentColumn(GeneratorColumn $column): string

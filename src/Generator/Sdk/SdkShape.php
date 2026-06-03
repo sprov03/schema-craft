@@ -132,4 +132,59 @@ final class SdkShape
 
         return $basename.'Data';
     }
+
+    /**
+     * Resolve a column type to its SDK shape by direct introspection — the only entry point
+     * the framework's SDK pipeline uses. Replaces the older `$type::sdkShape()` contract that
+     * required every rich-type implementer to learn the SdkShape value-object API.
+     *
+     * Three recognized primitives — anything else returns null and the framework treats it as
+     * a scalar (via sdkType()) or throws via the "unsupported resource type" path:
+     *   - Bitmask subclass     → synthesized {value: int, flags: {<FLAG>: bool, ...}}
+     *   - AbstractJsonDtoType  → object backed by dtoClass()
+     *   - AbstractCollectionType → collection of itemClass()
+     *
+     * If a fourth primitive is ever added, it gets a branch here — not a contract method on
+     * every implementer.
+     */
+    public static function forType(string $type): ?self
+    {
+        if (! class_exists($type)) {
+            return null;
+        }
+
+        // Bitmask primitive — wire shape is intrinsic, framework constructs it from getBitFlags().
+        if (is_subclass_of($type, \SchemaCraft\Primitives\Bitmask::class)) {
+            $basename = ($pos = strrpos($type, '\\')) !== false
+                ? substr($type, $pos + 1)
+                : $type;
+
+            $flagFields = [];
+            foreach (array_keys($type::getBitFlagsPublic()) as $flag) {
+                $flagFields[] = SdkShapeField::scalar($flag, 'bool');
+            }
+
+            $flagsShape = self::synthesizedObject($basename.'FlagsData', $flagFields);
+
+            return self::synthesizedObject($basename.'Data', [
+                SdkShapeField::scalar('value', 'int'),
+                SdkShapeField::nested('flags', $flagsShape),
+            ]);
+        }
+
+        // DataSchema primitive — the class itself IS the object shape. Used when a property
+        // is typed directly as a DataSchema subclass (no wrapper).
+        if (is_subclass_of($type, \SchemaCraft\DataSchema::class)) {
+            return self::object($type);
+        }
+
+        // Collection primitive — the subclass declares its item DataSchema via class-level
+        // #[CollectionOf], and the framework introspects the attribute via the primitive's
+        // own static itemClass() method. SDK emits {ItemBasename}Data[].
+        if (is_subclass_of($type, \SchemaCraft\Primitives\Collection::class)) {
+            return self::collectionOf($type::itemClass());
+        }
+
+        return null;
+    }
 }

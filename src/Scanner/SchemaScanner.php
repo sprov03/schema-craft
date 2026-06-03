@@ -16,6 +16,7 @@ use RuntimeException;
 use SchemaCraft\Attributes\AutoIncrement;
 use SchemaCraft\Attributes\BigInt;
 use SchemaCraft\Attributes\Cast;
+use SchemaCraft\DataSchema;
 use SchemaCraft\Attributes\ColumnType;
 use SchemaCraft\Attributes\Date;
 use SchemaCraft\Attributes\Decimal;
@@ -305,7 +306,7 @@ class SchemaScanner
             $default = $default->value;
         }
 
-        $inferred = $this->inferColumnType($typeName, $type);
+        $inferred = $this->inferColumnType($typeName, $type, $property);
 
         $columnType = $inferred['columnType'];
         $castType = $inferred['castType'];
@@ -313,6 +314,8 @@ class SchemaScanner
         $length = $inferred['length'] ?? null;
         $precision = $inferred['precision'] ?? null;
         $scale = $inferred['scale'] ?? null;
+        $dataSchemaClass = $inferred['dataSchemaClass'] ?? null;
+        $collectionItemClass = $inferred['collectionItemClass'] ?? null;
         $unique = false;
         $index = false;
         $primary = false;
@@ -393,14 +396,32 @@ class SchemaScanner
             expressionDefault: $expressionDefault,
             phpType: $typeName,
             generated: $generated,
+            dataSchemaClass: $dataSchemaClass,
+            collectionItemClass: $collectionItemClass,
         );
     }
 
     /**
-     * @return array{columnType: string, castType: string|null}
+     * @return array{columnType: string, castType: string|null, dataSchemaClass?: string, collectionItemClass?: string}
      */
-    private function inferColumnType(string $typeName, ReflectionNamedType $type): array
+    private function inferColumnType(string $typeName, ReflectionNamedType $type, ReflectionProperty $property): array
     {
+        // Bare Illuminate Collection on a Schema property is not supported — users must
+        // extend SchemaCraft\Primitives\Collection (a recognized framework primitive) and
+        // declare the item type via class-level #[CollectionOf]. The SchemaCraftType branch
+        // below handles the primitive subclass uniformly; this guard surfaces the misuse
+        // explicitly rather than silently treating Collection as an untyped column.
+        if (! $type->isBuiltin()
+            && is_a($typeName, \Illuminate\Support\Collection::class, true)
+            && ! is_subclass_of($typeName, \SchemaCraft\Primitives\Collection::class)
+        ) {
+            throw new RuntimeException(
+                "Property [{$property->getName()}] on schema [{$this->schemaClass}] is typed as a Collection "
+                .'but does not extend SchemaCraft\\Primitives\\Collection. Schema columns must use a Collection '
+                .'primitive subclass that declares its item type via class-level #[CollectionOf(ItemSchema::class)].'
+            );
+        }
+
         if ($type->isBuiltin()) {
             return match ($typeName) {
                 'string' => ['columnType' => 'string', 'castType' => 'string'],
@@ -433,6 +454,17 @@ class SchemaScanner
                 'columnType' => $typeName::schemaColumnType(),
                 'castType' => $typeName,
             ];
+
+            // Primitive-aware shape introspection. DataSchema and Collection are the two
+            // recognized "container" primitives; both populate a sibling field on the column
+            // so the SDK pipeline can emit typed inner DTOs without re-introspecting the
+            // castType class. Bitmask doesn't carry a separate shape class — its flag set
+            // comes from getBitFlags() at SDK gen time, no column-level field needed.
+            if (is_subclass_of($typeName, DataSchema::class)) {
+                $result['dataSchemaClass'] = $typeName;
+            } elseif (is_subclass_of($typeName, \SchemaCraft\Primitives\Collection::class)) {
+                $result['collectionItemClass'] = $typeName::itemClass();
+            }
 
             $modifiers = $typeName::schemaColumnModifiers();
             if (! empty($modifiers['unsigned'])) {

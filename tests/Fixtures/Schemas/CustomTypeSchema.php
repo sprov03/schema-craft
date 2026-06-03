@@ -8,7 +8,7 @@ use SchemaCraft\Attributes\Primary;
 use SchemaCraft\Schema;
 use SchemaCraft\Tests\Fixtures\Types\TestAddressDto;
 use SchemaCraft\Tests\Fixtures\Types\TestBitmask;
-use SchemaCraft\Tests\Fixtures\Types\TestJsonDto;
+use SchemaCraft\Tests\Fixtures\Types\TestSpec;
 
 class CustomTypeSchema extends Schema
 {
@@ -25,7 +25,7 @@ class CustomTypeSchema extends Schema
 
     public ?TestBitmask $flags;
 
-    public TestJsonDto $metadata;
+    public TestSpec $metadata;
 
     public TestAddressDto $address;
 

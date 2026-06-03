@@ -5,7 +5,7 @@ namespace SchemaCraft\Scanner;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionProperty;
-use SchemaCraft\Attributes\Resources\CollectionOf;
+use SchemaCraft\Attributes\CollectionOf;
 use SchemaCraft\Attributes\Resources\Computed;
 use SchemaCraft\Attributes\Resources\ResourceSchema;
 use SchemaCraft\SchemaCraftResource;
@@ -107,17 +107,36 @@ class ResourceScanner
                 continue;
             }
 
-            // Collection relationship: #[CollectionOf(X::class)] supplies the item type that PHP's
-            // type system can't carry on a collection property. The Resource layer doesn't care
-            // which DB-side mechanic produces the collection (hasMany vs belongsToMany vs morphMany
-            // vs hasManyThrough — all collapse to "collection of X" at this layer).
+            // Collection-typed property + #[CollectionOf(X::class)]. The same attribute serves
+            // two distinct roles depending on what X is:
+            //   - X is a SchemaCraftResource → relationship (one-to-many style, item is another Resource)
+            //   - X is a DataSchema          → column with collection-of-shape (JSON-array column of typed items)
+            // We discriminate by the item class. Both end up as columns in the response shape;
+            // the relationship-vs-column distinction matters for the SDK dep walker (which only
+            // recurses into Resource-typed targets) and for how the inner DTO is emitted.
             if ($collectionAttrs = $property->getAttributes(CollectionOf::class)) {
-                $relationships[] = [
+                $itemClass = $collectionAttrs[0]->newInstance()->resource;
+
+                if (class_exists($itemClass) && is_subclass_of($itemClass, SchemaCraftResource::class)) {
+                    $relationships[] = [
+                        'name' => $propName,
+                        'type' => 'collection',
+                        'resource' => $itemClass,
+                        'isCollection' => true,
+                        'nullable' => false,
+                    ];
+
+                    continue;
+                }
+
+                // DataSchema item: a typed JSON-array column on the Resource. Carry the item
+                // class on the property descriptor so the SDK pipeline emits a typed
+                // {Item}Data[] field rather than a bare array.
+                $properties[] = [
                     'name' => $propName,
-                    'type' => 'collection',
-                    'resource' => $collectionAttrs[0]->newInstance()->resource,
-                    'isCollection' => true,
-                    'nullable' => false,
+                    'type' => $type,
+                    'nullable' => $nullable,
+                    'collectionItemClass' => $itemClass,
                 ];
 
                 continue;

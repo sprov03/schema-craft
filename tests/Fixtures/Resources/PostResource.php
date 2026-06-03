@@ -4,7 +4,7 @@ namespace SchemaCraft\Tests\Fixtures\Resources;
 
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
-use SchemaCraft\Attributes\Resources\CollectionOf;
+use SchemaCraft\Attributes\CollectionOf;
 use SchemaCraft\Attributes\Resources\ResourceSchema;
 use SchemaCraft\SchemaCraftResource;
 use SchemaCraft\Tests\Fixtures\Enums\PostStatus;

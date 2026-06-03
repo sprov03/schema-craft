@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionProperty;
-use SchemaCraft\Attributes\Resources\CollectionOf;
+use SchemaCraft\Attributes\CollectionOf;
 use SchemaCraft\Attributes\Resources\Computed;
 
 /**

@@ -12,8 +12,6 @@ use SchemaCraft\Generators\GeneratorColumn;
 use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Tests\Fixtures\Types\TestBitmask;
 use SchemaCraft\Primitives\Bitmask;
-use SchemaCraft\Types\AbstractCollectionType;
-use SchemaCraft\Types\AbstractJsonDtoType;
 
 /**
  * Concrete TestBitmask with known flags for testing.
@@ -23,65 +21,6 @@ class SampleBitmask extends \SchemaCraft\Primitives\LargeBitmask
     const LOAN = 1;
     const PURCHASE = 2;
     const REFINANCE = 4;
-}
-
-/**
- * Object shape backing SampleJsonDto.
- */
-class SampleSpec extends \SchemaCraft\DataSchema
-{
-    public ?string $key = null;
-}
-
-/**
- * Concrete TestJsonDto for testing.
- *
- * Declares dtoClass() to satisfy the DataSchema-backed contract, but keeps its
- * free-form array round-trip (the legacy behaviour these tests assert) by
- * overriding fromArray()/toArray() — the base treats those as defaults, not final.
- */
-class SampleJsonDto extends AbstractJsonDtoType
-{
-    private array $data;
-
-    public function __construct(array $data = [])
-    {
-        $this->data = $data;
-    }
-
-    protected static function dtoClass(): string
-    {
-        return SampleSpec::class;
-    }
-
-    public static function fromArray(array $data): static
-    {
-        return new static($data);
-    }
-
-    public function toArray(): array
-    {
-        return $this->data;
-    }
-}
-
-/**
- * Item shape for SampleCollection tests.
- */
-class SampleItem extends \SchemaCraft\DataSchema
-{
-    public int $id;
-}
-
-/**
- * Concrete TestCollectionType for testing.
- */
-class SampleCollection extends AbstractCollectionType
-{
-    protected static function itemClass(): string
-    {
-        return SampleItem::class;
-    }
 }
 
 /**
@@ -245,92 +184,12 @@ class SchemaCraftColumnTest extends TestCase
         $this->assertStringContainsString('7', $expr); // sum of all flags
     }
 
-    // ─── AbstractJsonDtoType ─────────────────────────────────────
-
-    public function test_json_dto_from_api_input_returns_instance(): void
-    {
-        $dto = SampleJsonDto::fromApiInput(['key' => 'value']);
-
-        $this->assertInstanceOf(SampleJsonDto::class, $dto);
-        $this->assertSame(['key' => 'value'], $dto->toArray());
-    }
-
-    public function test_json_dto_from_api_input_rejects_non_array(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-
-        SampleJsonDto::fromApiInput('not-an-array');
-    }
-
-    public function test_json_dto_to_api_representation_matches_to_array(): void
-    {
-        $dto = SampleJsonDto::fromArray(['a' => 1, 'b' => 2]);
-
-        $this->assertSame($dto->toArray(), $dto->toApiRepresentation());
-    }
-
-    public function test_json_dto_schema_column_type_is_json(): void
-    {
-        $this->assertSame('json', SampleJsonDto::schemaColumnType());
-    }
-
-    public function test_json_dto_sdk_type_is_array(): void
-    {
-        $this->assertSame('array', SampleJsonDto::sdkType());
-    }
-
-    // ─── AbstractCollectionType ───────────────────────────────────
-
-    public function test_collection_from_api_input(): void
-    {
-        $col = SampleCollection::fromApiInput([['id' => 1], ['id' => 2]]);
-
-        $this->assertSame(2, $col->count());
-    }
-
-    public function test_collection_from_api_input_rejects_non_array(): void
-    {
-        $this->expectException(InvalidArgumentException::class);
-
-        SampleCollection::fromApiInput('bad');
-    }
-
-    public function test_collection_to_api_representation(): void
-    {
-        $col = SampleCollection::fromApiInput([['id' => 1]]);
-
-        $this->assertSame([['id' => 1]], $col->toApiRepresentation());
-    }
-
-    public function test_collection_items_are_typed_instances(): void
-    {
-        $col = SampleCollection::fromApiInput([['id' => 1], ['id' => 2]]);
-
-        $this->assertInstanceOf(SampleItem::class, $col->first());
-        $this->assertSame(1, $col->first()->id);
-    }
-
-    public function test_collection_supports_push_and_collection_api(): void
-    {
-        $col = SampleCollection::fromApiInput([['id' => 1]]);
-        $col->push(SampleItem::fromArray(['id' => 2]));
-
-        $this->assertSame(2, $col->count());
-        $this->assertSame(2, $col->last()->id);
-    }
-
-    public function test_collection_from_raw_hydrates_typed_items(): void
-    {
-        $col = SampleCollection::fromRaw(json_encode([['id' => 5]]));
-
-        $this->assertInstanceOf(SampleItem::class, $col->first());
-        $this->assertSame(5, $col->first()->id);
-    }
-
-    public function test_collection_sdk_type_is_array(): void
-    {
-        $this->assertSame('array', SampleCollection::sdkType());
-    }
+    // JSON-DTO and Collection runtime behavior used to be tested via the wrapper classes
+    // (AbstractJsonDtoType / AbstractCollectionType). After the consolidation those
+    // wrappers are gone — properties are typed as DataSchema subclasses or as Collection
+    // with #[CollectionOf], and the Collection primitive (SchemaCraft\Primitives\Collection) (for collections) and DataSchema-as-column-type (for object shapes)
+    // handle hydration/serialization. End-to-end coverage of the same behavior now lives
+    // in SdkGoldenTest (asserts on the generated DTOs round-trip the wire shape).
 
     // ─── Enforcement: GeneratorColumn ────────────────────────────
 
