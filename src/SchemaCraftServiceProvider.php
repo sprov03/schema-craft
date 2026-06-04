@@ -18,6 +18,7 @@ use SchemaCraft\Generators\GeneratorRegistry;
 use SchemaCraft\Generators\GeneratorRunner;
 use SchemaCraft\Generators\InputTypeRegistry;
 use SchemaCraft\Generators\InputTypes\BooleanInputType;
+use SchemaCraft\Generators\InputTypes\ApiRegistrationInputType;
 use SchemaCraft\Generators\InputTypes\FilamentPlacementsInputType;
 use SchemaCraft\Generators\InputTypes\MultiSelectInputType;
 use SchemaCraft\Generators\InputTypes\NestedFieldSelectorInputType;
@@ -75,6 +76,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
             $registry->register('schemaColumns', SchemaColumnsInputType::class);
             $registry->register('selectResourceDirectory', SelectResourceDirectoryInputType::class);
             $registry->register('filamentPlacements', FilamentPlacementsInputType::class);
+            $registry->register('apiRegistration', ApiRegistrationInputType::class);
             $registry->register('fieldPicker', SchemaFieldPickerInputType::class);
             $registry->register('schemaColumnCombobox', SchemaColumnComboboxInputType::class);
             $registry->register('nestedFieldSelector', NestedFieldSelectorInputType::class);

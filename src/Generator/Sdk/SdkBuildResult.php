@@ -2,6 +2,8 @@
 
 namespace SchemaCraft\Generator\Sdk;
 
+use SchemaCraft\Generators\GeneratorSchemaContext;
+
 /**
  * Result of SdkContextBuilder::build().
  *
@@ -121,6 +123,11 @@ class SdkBuildResult
             'modelName' => $modelName,
             'resourceClass' => $ctx->resourceClass,
             'schemaClass' => $ctx->table?->schemaClass,
+            // Entity = schema tied to a model. The payload still carries EVERY schema (they're
+            // referenced as nested response shapes elsewhere); this flag just lets the UI scope
+            // top-level selection (e.g. the docs "+ Add" buttons) to real entities. Canonical test.
+            'isEntity' => $ctx->table?->schemaClass !== null
+                && GeneratorSchemaContext::isEntity($ctx->table->schemaClass),
             'isDependencyOnly' => $ctx->isDependencyOnly,
             'tableName' => $ctx->table?->tableName,
             'columns' => $this->projectColumns($ctx),

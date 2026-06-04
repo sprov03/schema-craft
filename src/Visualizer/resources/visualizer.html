@@ -8114,7 +8114,7 @@
         // ── API Docs View ───────────────────────────────
         var docsData = null;
 
-        function showDocsView() {
+        function showDocsView(onRendered) {
             var content = document.getElementById('gen-content');
             content.innerHTML = '<div class="gen-empty-state">Loading API docs...</div>';
 
@@ -8123,10 +8123,24 @@
                 .then(function(data) {
                     docsData = data;
                     renderDocsView();
+                    if (typeof onRendered === 'function') { onRendered(); }
                 })
                 .catch(function(e) {
                     content.innerHTML = '<div class="gen-empty-state">Failed to load: ' + escapeHtml(e.message) + '</div>';
                 });
+        }
+
+        // Re-pull the API docs in the background after an action is added — re-renders the docs
+        // content (not a page reload, so the tab/scroll survive) and restores the search filter
+        // the user had typed, since renderDocsView() rebuilds the search box fresh.
+        function docsRefreshPreservingSearch() {
+            var searchEl = document.getElementById('docs-search');
+            var query = searchEl ? searchEl.value : '';
+            showDocsView(function() {
+                if (!query) { return; }
+                var s = document.getElementById('docs-search');
+                if (s) { s.value = query; s.dispatchEvent(new Event('input')); }
+            });
         }
 
         function renderDocsView() {
@@ -8207,6 +8221,9 @@
                             '<span class="gen-import-group-toggle open">&#9654;</span>' +
                             '<span class="gen-import-group-name">' + escapeHtml(modelKey) + '</span>' +
                             '<span class="gen-import-group-count">' + endpoints.length + ' endpoint' + (endpoints.length !== 1 ? 's' : '') + '</span>' +
+                            // Only entities (schemas tied to a model) can have actions generated; a
+                            // data-shape group (no model) shows no "+ Add". isEntity comes from the payload.
+                            (schema.isEntity ? '<button class="sc-btn sm docs-group-add" data-add-schema="' + escapeAttr(schema.schemaClass || '') + '" style="margin-left:auto;" title="Add an action to ' + escapeAttr(modelKey) + '">+ Add</button>' : '') +
                         '</div>' +
                         '<div class="gen-import-group-body open" data-docs-body="' + gIdx + '">' +
                             endpointsHtml +
@@ -8349,7 +8366,10 @@
 
             content.innerHTML =
                 '<div class="gen-import">' +
-                    '<div class="gen-import-title">API Documentation</div>' +
+                    '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">' +
+                        '<div class="gen-import-title">API Documentation</div>' +
+                        '<button class="sc-btn primary" id="docs-add-action" style="white-space:nowrap;">+ Add Action</button>' +
+                    '</div>' +
                     '<div class="gen-import-subtitle">' + totalEndpoints + ' registered endpoint' + (totalEndpoints !== 1 ? 's' : '') + ' across ' +
                         groupCount + ' group' + (groupCount !== 1 ? 's' : '') + ' in the <strong>' + escapeHtml(data.apiName) + '</strong> API.' +
                         (data.routeFile ? ' Route file: <code>' + escapeHtml(data.routeFile) + '</code>' : '') + '</div>' +
@@ -8369,6 +8389,23 @@
                     var toggle = header.querySelector('.gen-import-group-toggle');
                     body.classList.toggle('open');
                     toggle.classList.toggle('open');
+                });
+            });
+
+            // "Add Action" (top) — open the generator modal with no schema preselected.
+            var addActionBtn = document.getElementById('docs-add-action');
+            if (addActionBtn) {
+                addActionBtn.addEventListener('click', function() {
+                    genLaunchActionModal(null, docsRefreshPreservingSearch);
+                });
+            }
+
+            // Per-group "+ Add" — open the modal with this group's schema preselected. stopPropagation
+            // so the click doesn't also toggle the group's expand/collapse.
+            content.querySelectorAll('.docs-group-add').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    genLaunchActionModal(btn.dataset.addSchema || null, docsRefreshPreservingSearch);
                 });
             });
 
@@ -9095,7 +9132,12 @@
                     e.stopPropagation();
                     var idx = parseInt(btn.dataset.newResourceSchema, 10);
                     var group = resourcesData.groups[idx];
-                    openCreateResourceOverlay(group, idx, data);
+                    // Consume the created resource the endpoint returns: splice it into the
+                    // in-memory list and re-render locally instead of a full re-fetch.
+                    openCreateResourceOverlay(group, idx, data, function(resource, schema) {
+                        spliceResourceIntoData(resourcesData, schema, resource);
+                        renderResourcesView();
+                    });
                 });
             });
         }
@@ -9205,7 +9247,13 @@
         }
 
         // ── Create Resource Overlay ──────────────────────
-        function openCreateResourceOverlay(group, gIdx, data) {
+        // onCreated(resource, schema) — optional. Called with the resource the create endpoint
+        // returns so the caller can link it in place (parent relationship picker / resource list)
+        // without a re-fetch. When omitted we fall back to a full re-render.
+        // apiOverride — optional API name to create the resource under; defaults to the API the
+        // Resources view is showing (genSelectedApi). The generator's apiRegistration widget passes
+        // a specific API so the resource lands in that API's namespace, not the currently-viewed one.
+        function openCreateResourceOverlay(group, gIdx, data, onCreated, apiOverride) {
             var overlay = document.createElement('div');
             overlay.className = 'act-overlay-backdrop';
             overlay.innerHTML =
@@ -9241,6 +9289,10 @@
 
             document.body.appendChild(overlay);
 
+            // Scope child-resource "+ New" handlers to THIS overlay (not a global page query) so a
+            // child create updates only its parent, and rebuilt relationship rows get fresh handlers.
+            attachChildResourceHandlers(overlay, group, data, apiOverride);
+
             overlay.querySelector('#res-overlay-close').addEventListener('click', function() { overlay.remove(); });
             overlay.querySelector('#res-overlay-cancel').addEventListener('click', function() { overlay.remove(); });
 
@@ -9270,7 +9322,7 @@
                 });
 
                 var payload = {
-                    api: genSelectedApi,
+                    api: apiOverride || genSelectedApi,
                     schema: group.schema,
                     resourceName: name,
                     columns: columns,
@@ -9308,7 +9360,11 @@
                             if (writeResp.success) {
                                 showToast(writeResp.message, 'success');
                                 overlay.remove();
-                                showResourcesView();
+                                if (typeof onCreated === 'function') {
+                                    onCreated(writeResp.resource, writeResp.schema);
+                                } else {
+                                    showResourcesView();
+                                }
                             } else {
                                 showToast(writeResp.message || 'Failed to create resource.', 'error');
                             }
@@ -9364,14 +9420,16 @@
                     if (relatedGroup) {
                         resourceControl +=
                             ' <button type="button" class="sc-btn" style="padding:2px 8px;font-size:11px;" ' +
-                            'data-create-child-schema="' + escapeAttr(relatedSchema) + '">' +
+                            'data-create-child-schema="' + escapeAttr(relatedSchema) + '" ' +
+                            'data-rel="' + escapeAttr(rel.name) + '">' +
                             '+ New' +
                             '</button>';
                     }
                 } else if (relatedGroup) {
                     resourceControl =
                         '<button type="button" class="sc-btn" style="padding:2px 8px;font-size:11px;" ' +
-                        'data-create-child-schema="' + escapeAttr(relatedSchema) + '">' +
+                        'data-create-child-schema="' + escapeAttr(relatedSchema) + '" ' +
+                        'data-rel="' + escapeAttr(rel.name) + '">' +
                         '+ Create Resource' +
                         '</button>';
                 }
@@ -9391,24 +9449,51 @@
                 html = '<span style="font-size:12px;color:var(--text-muted);">No relationships found.</span>';
             }
 
-            // Attach child creation handlers after insertion — done via event delegation below
-            setTimeout(function() {
-                document.querySelectorAll('[data-create-child-schema]').forEach(function(btn) {
-                    btn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        var childSchema = btn.dataset.createChildSchema;
-                        var childModel = btn.dataset.createChildModel;
-                        var childGroup = data.groups
-                            ? data.groups.find(function(g) { return g.schema === childSchema; })
-                            : null;
-                        if (childGroup) {
-                            openCreateResourceOverlay(childGroup, data.groups.indexOf(childGroup), data);
-                        }
-                    });
-                });
-            }, 50);
-
             return html;
+        }
+
+        // Splice a created/updated resource into an in-memory group's resources[] (replace by class
+        // identity, else append) so pickers reading that group see it immediately.
+        function spliceResourceIntoData(data, schema, resource) {
+            if (!data || !data.groups || !resource || !schema) { return; }
+            var group = data.groups.find(function(g) { return g.schema === schema; });
+            if (!group) { return; }
+            group.resources = group.resources || [];
+            var i = group.resources.findIndex(function(r) { return r.class === resource.class; });
+            if (i >= 0) { group.resources[i] = resource; } else { group.resources.push(resource); }
+        }
+
+        // Wire the "+ New" / "+ Create Resource" buttons in one overlay's relationship rows. Scoped
+        // to `overlay` (not document) so nested overlays don't cross-bind. On create we splice the
+        // returned resource into `data`, rebuild this overlay's relationship section against the
+        // fresh data, and auto-select+check the new resource on the relationship it came from —
+        // which is what fixes the old "close & reopen to see the new child" stale-snapshot.
+        function attachChildResourceHandlers(overlay, group, data, apiOverride) {
+            overlay.querySelectorAll('[data-create-child-schema]').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var childSchema = btn.dataset.createChildSchema;
+                    var relName = btn.dataset.rel;
+                    var childGroup = data.groups
+                        ? data.groups.find(function(g) { return g.schema === childSchema; })
+                        : null;
+                    if (!childGroup) { return; }
+                    openCreateResourceOverlay(childGroup, data.groups.indexOf(childGroup), data, function(resource, schema) {
+                        spliceResourceIntoData(data, schema, resource);
+                        var rels = overlay.querySelector('#res-overlay-rels');
+                        if (rels) {
+                            rels.innerHTML = buildResOverlayRelationships(group, data);
+                            attachChildResourceHandlers(overlay, group, data, apiOverride);
+                            if (resource) {
+                                var sel = overlay.querySelector('.res-ov-rel-resource[data-rel="' + relName + '"]');
+                                if (sel) { sel.value = resource.name; }
+                                var cb = overlay.querySelector('.res-ov-rel-cb[data-rel="' + relName + '"]');
+                                if (cb) { cb.checked = true; }
+                            }
+                        }
+                    }, apiOverride);
+                });
+            });
         }
 
         // ── Import Actions View ────────────────────────
@@ -12583,6 +12668,14 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
             done: false,
         };
 
+        // Wizard host: the element the wizard renders into. Defaults to the Generators-tab panel,
+        // but the API Docs "Add Action" buttons re-point it at a modal so the SAME wizard runs
+        // there (no second generator implementation). Reset on modal close.
+        var genHostId = 'genr-content';
+        var genModalOverlay = null;      // the modal element while running in a modal, else null
+        var genModalOnComplete = null;   // callback fired after a successful run inside the modal
+        var genModalSeed = null;         // schema FQCN seeded into the modal (for Restart)
+
         function initGeneratorsTab() {
             if (generatorsInitialized) return;
             generatorsInitialized = true;
@@ -12816,13 +12909,26 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
         }
 
         function showGenrDocs() {
-            var content = document.getElementById('genr-content');
+            var content = document.getElementById(genHostId);
             if (!content) { return; }
             content.innerHTML = '<div id="genr-docs-panel" class="genr-docs-panel"><div class="genr-docs-loading">Loading documentation…</div></div>';
             loadGenrDocs();
         }
 
         function genDeselect() {
+            // In modal mode "Restart" restarts the same wizard in-place (re-applying the seed),
+            // rather than navigating back to the Generators-tab docs panel (which isn't present).
+            if (genModalOverlay) {
+                genWizard = {
+                    generatorClass: genWizard.generatorClass,
+                    generatorName: genWizard.generatorName,
+                    accumulated: genModalSeed ? { schema: genModalSeed } : {},
+                    completedSteps: [], currentStep: null, done: false,
+                };
+                genCallNextStep();
+                return;
+            }
+
             genWizard = { generatorClass: null, generatorName: '', accumulated: {}, completedSteps: [], currentStep: null, done: false };
             document.querySelectorAll('#genr-list .gen-stack-item').forEach(function(item) {
                 item.classList.remove('active');
@@ -12830,6 +12936,74 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
             showGenrDocs();
             var s = document.getElementById('genr-search');
             if (s) { s.focus(); }
+        }
+
+        // Tear down the wizard modal and restore the default (Generators-tab) host.
+        function genCloseModal() {
+            if (genModalOverlay) { genModalOverlay.remove(); }
+            genModalOverlay = null;
+            genModalOnComplete = null;
+            genModalSeed = null;
+            genHostId = 'genr-content';
+            genWizard = { generatorClass: null, generatorName: '', accumulated: {}, completedSteps: [], currentStep: null, done: false };
+        }
+
+        // Launch the Action generator inside a modal — the same wizard engine, hosted here instead
+        // of the Generators tab. seedSchema (FQCN, optional) pre-selects the schema (per-group "+ Add");
+        // omit it to start at the generator's schema picker (top "Add Action"). onComplete fires after
+        // a successful run so the docs can refresh in place.
+        function genLaunchActionModal(seedSchema, onComplete) {
+            function open(def) {
+                var overlay = document.createElement('div');
+                overlay.className = 'act-overlay-backdrop';
+                overlay.innerHTML =
+                    '<div class="act-overlay-panel" style="max-width:720px;width:100%;height:80vh;max-height:80vh;display:flex;flex-direction:column;">' +
+                        '<div class="act-overlay-header">' +
+                            '<span class="act-overlay-title">Add API Action</span>' +
+                            '<button class="act-overlay-close" id="genr-modal-close">&times;</button>' +
+                        '</div>' +
+                        // Single scroll container: the body. The host is a plain div (NOT .gen-content,
+                        // which adds its own overflow and would clip the schema dropdown against a short box).
+                        '<div class="act-overlay-body" style="padding:0;">' +
+                            '<div id="genr-modal-content"></div>' +
+                        '</div>' +
+                    '</div>';
+                document.body.appendChild(overlay);
+                overlay.querySelector('#genr-modal-close').addEventListener('click', function() { genCloseModal(); });
+
+                genModalOverlay = overlay;
+                genModalOnComplete = onComplete || null;
+                genModalSeed = seedSchema || null;
+                genHostId = 'genr-modal-content';
+
+                genWizard = {
+                    generatorClass: def.class,
+                    generatorName: def.name,
+                    accumulated: seedSchema ? { schema: seedSchema } : {},
+                    completedSteps: [], currentStep: null, done: false,
+                };
+                genCallNextStep();
+            }
+
+            function findActionDef() {
+                return (generatorsConfig && generatorsConfig.generators || []).find(function(g) {
+                    return /\\ActionGenerator$/.test(g.class) || g.name === 'Action';
+                });
+            }
+
+            var def = findActionDef();
+            if (def) { open(def); return; }
+
+            // Generators config not loaded yet (user hasn't visited the Generators tab) — fetch it.
+            fetch('/_schema-craft/api/generators/config')
+                .then(handleResponse)
+                .then(function(data) {
+                    generatorsConfig = data;
+                    var d = findActionDef();
+                    if (!d) { showToast('Action generator not found.', 'error'); return; }
+                    open(d);
+                })
+                .catch(function(e) { showToast('Could not load generators: ' + e.message, 'error'); });
         }
 
         function genSelectGenerator(generatorClass) {
@@ -12849,7 +13023,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
         // ── Wizard engine ──────────────────────────────────────────────────────
 
         function genCallNextStep() {
-            var content = document.getElementById('genr-content');
+            var content = document.getElementById(genHostId);
             content.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-size:13px;">Loading…</div>';
 
             fetch('/_schema-craft/api/generators/next-step', {
@@ -12877,7 +13051,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
         }
 
         function genRenderStep(step, newComputed) {
-            var content = document.getElementById('genr-content');
+            var content = document.getElementById(genHostId);
 
             var summaryHtml = genBuildSummaryHtml();
             var computedRowsHtml = genBuildComputedRowsHtml(newComputed);
@@ -13126,7 +13300,47 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 return genBuildNestedFieldSelectorHtml(step);
             }
 
+            if (step.renderAs === 'apiRegistration') {
+                return genBuildApiRegistrationHtml(step);
+            }
+
             return '<input id="genr-step-field" type="text" class="sc-input" value="' + escapeAttr(def || '') + '">';
+        }
+
+        // ── API registration widget (renderAs: 'apiRegistration') ───────────────
+        //
+        // One row per configured API: a checkbox to register the action there, plus a resource
+        // picker scoped to that API's resources. "+ New" reuses the create-resource overlay (in
+        // apiOverride mode) to build a resource inline and drop it straight into this row's select.
+        // Collects to { apiName => resourceFqcn } — exactly what ApiRegistration::writesFor() eats.
+        function genBuildApiRegistrationHtml(step) {
+            var apis = step.apis || [];
+            if (!apis.length) {
+                return '<div id="genr-step-field" style="font-size:12px;color:var(--text-muted);">No APIs configured.</div>';
+            }
+
+            var html = '<div id="genr-step-field" class="genr-apireg">';
+            apis.forEach(function(api) {
+                var options = '<option value="">— Select resource —</option>';
+                (api.resources || []).forEach(function(r) {
+                    options += '<option value="' + escapeAttr(r.class) + '">' + escapeHtml(r.name) + '</option>';
+                });
+
+                html +=
+                    '<div class="genr-apireg-row" data-api="' + escapeAttr(api.name) + '" style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;">' +
+                        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;">' +
+                            '<input type="checkbox" class="genr-api-cb" data-api="' + escapeAttr(api.name) + '">' +
+                            '<span style="font-weight:600;font-size:13px;">' + escapeHtml(api.label) + '</span>' +
+                            '<span style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">' + escapeHtml(api.routeFile || '') + '</span>' +
+                        '</label>' +
+                        '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;">' +
+                            '<select class="sc-input genr-api-resource" data-api="' + escapeAttr(api.name) + '" style="flex:1;min-width:0;" disabled>' + options + '</select>' +
+                            '<button type="button" class="sc-btn genr-api-new" data-api="' + escapeAttr(api.name) + '" data-schema="' + escapeAttr(api.schema || '') + '" disabled>+ New</button>' +
+                        '</div>' +
+                    '</div>';
+            });
+            html += '</div>';
+            return html;
         }
 
         // ── Nested field selector ──────────────────────────────────────────────
@@ -13325,6 +13539,45 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
         function genBindStepEvents(step, container) {
             // Filterable selects
             genInitFilterSelect(container);
+
+            // API registration widget: toggle each row's resource picker with its checkbox, and
+            // wire "+ New" to the create-resource overlay scoped to that row's API.
+            if (step.renderAs === 'apiRegistration') {
+                container.querySelectorAll('.genr-apireg-row').forEach(function(row) {
+                    var cb = row.querySelector('.genr-api-cb');
+                    var sel = row.querySelector('.genr-api-resource');
+                    var newBtn = row.querySelector('.genr-api-new');
+
+                    cb.addEventListener('change', function() {
+                        sel.disabled = !cb.checked;
+                        newBtn.disabled = !cb.checked;
+                    });
+
+                    newBtn.addEventListener('click', function() {
+                        var api = newBtn.dataset.api;
+                        var schema = newBtn.dataset.schema;
+                        if (!schema) { showToast('Select a schema earlier in the wizard first.', 'warning'); return; }
+
+                        // Fetch the API's schema groups so the overlay has columns/relationships +
+                        // related-resource options for this schema, then create under this API.
+                        fetch('/_schema-craft/api/available-actions?api=' + encodeURIComponent(api), { headers: { 'Accept': 'application/json' } })
+                            .then(handleResponse)
+                            .then(function(data) {
+                                var group = (data.groups || []).find(function(g) { return g.schema === schema; });
+                                if (!group) { showToast('Schema not found in API ' + api + '.', 'error'); return; }
+                                openCreateResourceOverlay(group, data.groups.indexOf(group), data, function(resource) {
+                                    if (!resource) { return; }
+                                    var opt = document.createElement('option');
+                                    opt.value = resource.class;
+                                    opt.textContent = resource.name;
+                                    sel.appendChild(opt);
+                                    sel.value = resource.class;
+                                }, api);
+                            })
+                            .catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                    });
+                });
+            }
 
             // Schema selector with column/relationship selection: fetch and render checkboxes
             // after the user picks a schema from the dropdown.
@@ -13749,6 +14002,18 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                 return { columns: nfsCols, relationships: nfsRels };
             }
 
+            if (step.renderAs === 'apiRegistration') {
+                // { apiName => resourceFqcn } for checked rows that picked a resource.
+                var apiMap = {};
+                container.querySelectorAll('.genr-apireg-row').forEach(function(row) {
+                    var cb = row.querySelector('.genr-api-cb');
+                    if (!cb || !cb.checked) { return; }
+                    var sel = row.querySelector('.genr-api-resource');
+                    if (sel && sel.value) { apiMap[row.dataset.api] = sel.value; }
+                });
+                return apiMap;
+            }
+
             // Fallback: text
             var fallback = container.querySelector('#genr-step-field');
             return fallback ? fallback.value : '';
@@ -13757,6 +14022,10 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
         function genDisplayValue(step, value) {
             if (value === null || value === undefined) { return '—'; }
             if (typeof value === 'boolean') { return value ? 'Yes' : 'No'; }
+            if (step.renderAs === 'apiRegistration' && value && typeof value === 'object') {
+                var apiCount = Object.keys(value).length;
+                return apiCount ? apiCount + ' API' + (apiCount !== 1 ? 's' : '') : '(none)';
+            }
             if (Array.isArray(value)) {
                 if (!value.length) { return '(none)'; }
                 return value.length + ' item' + (value.length !== 1 ? 's' : '');
@@ -13956,6 +14225,14 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     var msg = data.message || 'Files generated.';
                     if (skipFiles.length > 0) { msg += ' ' + skipFiles.length + ' skipped.'; }
                     showToast(msg, 'success');
+
+                    // Modal launch (API Docs "Add Action"): close the modal and let the caller
+                    // refresh in place (e.g. re-pull the docs) now that the endpoint exists.
+                    if (genModalOverlay) {
+                        var done = genModalOnComplete;
+                        genCloseModal();
+                        if (done) { done(); }
+                    }
                 })
                 .catch(function(e) { showToast('Generation error: ' + e.message, 'error'); });
         }

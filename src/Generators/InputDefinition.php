@@ -59,6 +59,9 @@ class InputDefinition
         public readonly ?string $requiresInstanceKey = null,
         /** Arbitrary extra config for custom input types. */
         public readonly array $extra = [],
+        /** For schemaSelector — when true, only offer schemas whose model class exists (excludes
+         *  response-only/transient schemas that can't back a model action). */
+        public readonly bool $modelBackedOnly = false,
     ) {}
 
     /**

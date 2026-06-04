@@ -12,6 +12,7 @@ use SchemaCraft\Config\ConfigResolver;
 use SchemaCraft\Config\ConnectionConfig;
 use SchemaCraft\Generator\Api\ApiCodeGenerator;
 use SchemaCraft\Generator\Api\ApiFileWriter;
+use SchemaCraft\Generator\Api\ApiRegistration;
 use SchemaCraft\Generator\Api\GeneratedFile;
 use SchemaCraft\Generator\Api\ResourceGenerator;
 use SchemaCraft\Generator\ControllerTestGenerator;
@@ -25,6 +26,7 @@ use SchemaCraft\Generator\Sdk\SdkContextBuilder;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
 use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Migration\SchemaDiscovery;
+use SchemaCraft\Scanner\ResourceDefinition;
 use SchemaCraft\Scanner\ResourceScanner;
 use SchemaCraft\Scanner\SchemaScanner;
 
@@ -621,16 +623,7 @@ class GenerateController
             // Build resources list for this schema
             $schemaResources = [];
             foreach ($resourcesBySchema[$schemaClass] ?? [] as $resourceDef) {
-                $schemaResources[] = [
-                    'class' => $resourceDef->class,
-                    'name' => $resourceDef->name,
-                    'isManual' => $resourceDef->isManual,
-                    'properties' => $resourceDef->properties,
-                    'relationships' => $resourceDef->relationships,
-                    'computed' => $resourceDef->computed,
-                    'fileContents' => $resourceDef->fileContents,
-                    'action' => $resourceActionMap[$resourceDef->class] ?? null,
-                ];
+                $schemaResources[] = $this->resourceToArray($resourceDef, $resourceActionMap[$resourceDef->class] ?? null);
             }
 
             // Also include manual resources that couldn't be schema-associated
@@ -736,11 +729,46 @@ class GenerateController
         $fs->ensureDirectoryExists(dirname($absolutePath));
         $fs->put($absolutePath, $content);
 
+        // Return the created resource in the same shape availableActions() emits so the UI can
+        // splice it straight into its in-memory list (and link it onto a parent relationship)
+        // without a full re-fetch — this is what kills the "close & reopen to see the new resource"
+        // stale-snapshot. Re-scanning is safe here: the FQCN was never referenced earlier this
+        // request, so class_exists() autoloads the file we just wrote rather than a cached miss.
+        $apiConfig = ConfigResolver::resolve($request->input('api'));
+        $resourceName = $request->input('resourceName');
+        $fqcn = $apiConfig->resourceNamespace.'\\'.$resourceName;
+
+        $resource = class_exists($fqcn)
+            ? $this->resourceToArray((new ResourceScanner)->scanClass($fqcn, $absolutePath))
+            : null;
+
         return new JsonResponse([
             'success' => true,
             'message' => basename($relativePath, '.php').' created.',
             'file' => $relativePath,
+            'resource' => $resource,
+            // Schema the new resource belongs to, so the caller knows which group to splice into.
+            'schema' => $this->resolveSchemaClass($request->input('schema')),
         ]);
+    }
+
+    /**
+     * Map a scanned resource into the array shape the visualizer consumes (the `resources[]`
+     * entries from availableActions()). One source so the listing and the create-resource
+     * response can't drift apart.
+     */
+    private function resourceToArray(ResourceDefinition $def, ?string $action = null): array
+    {
+        return [
+            'class' => $def->class,
+            'name' => $def->name,
+            'isManual' => $def->isManual,
+            'properties' => $def->properties,
+            'relationships' => $def->relationships,
+            'computed' => $def->computed,
+            'fileContents' => $def->fileContents,
+            'action' => $action,
+        ];
     }
 
     /**
@@ -856,7 +884,6 @@ class GenerateController
         if ($requestedResourceClass && class_exists($requestedResourceClass)) {
             // User selected an existing resource from the dropdown
             $resourceFqcn = $requestedResourceClass;
-            $resourceShortName = class_basename($resourceFqcn);
         } else {
             // Fall back: auto-generate default resource if none exists
             $resourceShortName = $modelName.'Resource';
@@ -883,29 +910,22 @@ class GenerateController
             }
         }
 
-        // Add route registrations for each Action
+        // Register each Action via the canonical writer so the Import Actions panel and a
+        // generator's inlineTemplates() produce byte-identical route-file edits (single source).
         $routeContent = $fs->get($routeFilePath);
         $addedActions = [];
-        $writer = new ApiFileWriter;
 
         foreach ($actionClasses as $actionClass) {
             if (! class_exists($actionClass) || ! is_subclass_of($actionClass, \SchemaCraft\Action::class)) {
                 continue;
             }
 
-            $shortName = class_basename($actionClass);
-
-            if (str_contains($routeContent, $shortName.'())->endpoint(')) {
+            if (ApiRegistration::isRegistered($routeContent, $actionClass)) {
                 continue;
             }
 
-            $routeContent = $writer->addImport($routeContent, $actionClass);
-            $routeContent = $writer->addImport($routeContent, $resourceFqcn);
-
-            $endpointLine = "    (new {$shortName}())->endpoint({$resourceShortName}::class);";
-            $routeContent = $this->insertIntoRouteGroup($routeContent, $endpointLine);
-
-            $addedActions[] = $shortName;
+            $routeContent = ApiRegistration::applyTo($routeContent, $actionClass, $resourceFqcn);
+            $addedActions[] = class_basename($actionClass);
         }
 
         if (! empty($addedActions)) {
@@ -986,22 +1006,6 @@ class GenerateController
             'createdFiles' => $createdFiles,
             'skipped' => $skipped,
         ]);
-    }
-
-    /**
-     * Insert a line inside the Route::group closure in a route file.
-     */
-    private function insertIntoRouteGroup(string $content, string $line): string
-    {
-        // Find the last closing }); in the file (the Route::group closure end)
-        $lastClose = strrpos($content, '});');
-
-        if ($lastClose === false) {
-            return $content;
-        }
-
-        // Insert the line before the closing });
-        return substr($content, 0, $lastClose).$line."\n".substr($content, $lastClose);
     }
 
     /**

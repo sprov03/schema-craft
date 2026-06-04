@@ -42,6 +42,16 @@ class SchemaSelectorInputType implements InputType
         $directories = ConfigResolver::schemaDirectories();
         $schemaClasses = (new SchemaDiscovery)->discover($directories);
 
+        // Action-style generators opt into modelBackedOnly so only entities (schemas tied to a
+        // model) are offered for selection — response-only / transient shapes (e.g. ActionResult)
+        // are data, not selectable entities. isEntity() is the canonical, single-source test.
+        if ($definition->modelBackedOnly) {
+            $schemaClasses = array_values(array_filter(
+                $schemaClasses,
+                fn ($schemaClass) => GeneratorSchemaContext::isEntity($schemaClass),
+            ));
+        }
+
         $schemas = array_map(fn ($schemaClass) => [
             'class' => $schemaClass,
             'modelName' => $this->resolveModelName($schemaClass),

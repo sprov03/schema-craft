@@ -36,12 +36,28 @@ class SdkResourceGenerator
         $dataClassName = $modelName.'Data';
         $pluralSlug = Str::plural(Str::kebab($modelName));
 
+        // Collect every DTO short name referenced across the file so we can emit one
+        // `use` per unique class. Without this, endpoint-specific response DTOs (e.g.
+        // a custom action that returns ActionResultData) get referenced by short name
+        // without an import — PHP resolves them in the Resource's own namespace and
+        // throws "class not found" at runtime. SdkResourceRuntimeTest caught this gap.
+        $referencedDtos = [$dataClassName];
+        foreach ($endpoints as $endpoint) {
+            if (isset($endpoint['responseModelName'])) {
+                $referencedDtos[] = $endpoint['responseModelName'].'Data';
+            }
+        }
+        $referencedDtos = array_values(array_unique($referencedDtos));
+        sort($referencedDtos);
+
         $lines = [];
         $lines[] = '<?php';
         $lines[] = '';
         $lines[] = "namespace {$resourceNamespace};";
         $lines[] = '';
-        $lines[] = "use {$dataNamespace}\\{$dataClassName};";
+        foreach ($referencedDtos as $dtoShortName) {
+            $lines[] = "use {$dataNamespace}\\{$dtoShortName};";
+        }
         $lines[] = 'use Illuminate\\Support\\Collection;';
         $lines[] = '';
         $lines[] = "class {$resourceClassName}";

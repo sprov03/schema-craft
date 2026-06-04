@@ -75,12 +75,14 @@ class Input
         string $label,
         bool $selectColumns = false,
         bool $selectRelationships = false,
+        bool $modelBackedOnly = false,
     ): InputDefinition {
         return new InputDefinition(
             label: $label,
             type: 'schemaSelector',
             selectColumns: $selectColumns,
             selectRelationships: $selectRelationships,
+            modelBackedOnly: $modelBackedOnly,
         );
     }
 
@@ -184,6 +186,25 @@ class Input
             type: 'filamentPlacements',
             schemaKey: $schemaKey,
             requiresInstanceKey: $requiresInstanceKey,
+        );
+    }
+
+    /**
+     * Register the generated action onto one or more APIs.
+     *
+     * Lists every configured API; each checked API picks the resource its endpoint returns
+     * (scoped to that API's resources, with inline create). Resolves to a { apiName => resourceFqcn }
+     * map for ApiRegistration::writesFor(). SchemaCraft-internal — see ApiRegistrationInputType.
+     *
+     * @param  string|null  $schemaKey  data() key holding the GeneratorSchemaContext used to scope
+     *                                  each API's resource list to the selected schema.
+     */
+    public static function apiRegistration(string $label, ?string $schemaKey = null): InputDefinition
+    {
+        return new InputDefinition(
+            label: $label,
+            type: 'apiRegistration',
+            schemaKey: $schemaKey,
         );
     }
 

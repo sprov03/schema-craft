@@ -198,6 +198,23 @@ class SdkDataGenerator
         $assignments = [];
         foreach ($columns as $col) {
             $key = $col['name'];
+
+            // Columns whose projection carries innerDtoName must wrap the wire data in the
+            // inner DTO's fromArray — otherwise the runtime value is a bare array and the
+            // typed property's @var annotation lies. Same treatment as relationships, just
+            // sourced from the column projection (set by EndpointEnricher for JsonColumn /
+            // CollectionColumn / BitmaskColumn fields).
+            if (! empty($col['innerDtoName'])) {
+                $dto = $col['innerDtoName'];
+                if (! empty($col['isCollection'])) {
+                    $assignments[] = "isset(\$data['{$key}']) ? array_map(function (array \$item) { return {$dto}::fromArray(\$item); }, \$data['{$key}']) : null";
+                } else {
+                    $assignments[] = "isset(\$data['{$key}']) ? {$dto}::fromArray(\$data['{$key}']) : null";
+                }
+
+                continue;
+            }
+
             $assignments[] = "isset(\$data['{$key}']) ? \$data['{$key}'] : null";
         }
         foreach ($relationships as $rel) {
@@ -280,8 +297,12 @@ class SdkDataGenerator
         }
         $lines[] = '    }';
 
-        // fromArray factory — raw passthrough per field (the wire data is already the
-        // right scalar/array shape; nested DTOs decode lazily on access if needed).
+        // fromArray factory. Inner DTOs need their nested-DTO fields wrapped in
+        // {InnerDto}::fromArray() — same correctness reason as the column-projection
+        // path: without the wrapping, a field annotated @var TestBitmaskFlagsData would
+        // arrive as a bare array at runtime. Detection is type-string-based here because
+        // the inner-DTO field shape carries the final PHPDoc type already ('XData' for
+        // a nested DTO, 'XData[]' for a collection, 'int'/'string'/etc. for a scalar).
         $lines[] = '';
         $lines[] = '    /**';
         $lines[] = '     * @param array $data';
@@ -291,9 +312,30 @@ class SdkDataGenerator
         $lines[] = '    {';
         $lines[] = '        return new self(';
 
+        $scalarTypes = ['int', 'string', 'bool', 'float', 'array', 'mixed'];
+
         foreach ($fields as $i => $f) {
             $comma = $i < count($fields) - 1 ? ',' : '';
-            $lines[] = "            isset(\$data['{$f['name']}']) ? \$data['{$f['name']}'] : null{$comma}";
+            $type = $f['type'];
+            $name = $f['name'];
+
+            // Collection of inner DTOs: "{X}Data[]"
+            if (str_ends_with($type, '[]') && str_ends_with(substr($type, 0, -2), 'Data')) {
+                $itemDto = substr($type, 0, -2);
+                $lines[] = "            isset(\$data['{$name}']) ? array_map(function (array \$item) { return {$itemDto}::fromArray(\$item); }, \$data['{$name}']) : null{$comma}";
+
+                continue;
+            }
+
+            // Singular inner DTO: "{X}Data" (and not a scalar PHP type that happens to be one word)
+            if (! in_array($type, $scalarTypes, true) && str_ends_with($type, 'Data')) {
+                $lines[] = "            isset(\$data['{$name}']) ? {$type}::fromArray(\$data['{$name}']) : null{$comma}";
+
+                continue;
+            }
+
+            // Scalar / opaque — raw passthrough.
+            $lines[] = "            isset(\$data['{$name}']) ? \$data['{$name}'] : null{$comma}";
         }
 
         $lines[] = '        );';
@@ -801,9 +843,25 @@ class SdkDataGenerator
         $managedColumns = $this->getManagedColumns($table);
         $managedSet = array_flip($managedColumns);
 
-        // Regular columns
+        // Regular columns. Shape-carrying columns (DataSchema-typed or CollectionColumn
+        // with an item DataSchema) need their wire data wrapped in the inner DTO's
+        // fromArray — same treatment the field-based path uses for innerDtoName columns,
+        // sourced from the ColumnDefinition's dataSchemaClass / collectionItemClass fields.
         foreach ($table->columns as $column) {
             if (isset($hiddenSet[$column->name]) || isset($managedSet[$column->name])) {
+                continue;
+            }
+
+            if ($column->collectionItemClass !== null) {
+                $itemDtoName = class_basename($column->collectionItemClass).'Data';
+                $assignments[] = "isset(\$data['{$column->name}']) ? array_map(function (array \$item) { return {$itemDtoName}::fromArray(\$item); }, \$data['{$column->name}']) : null";
+
+                continue;
+            }
+            if ($column->dataSchemaClass !== null) {
+                $dtoName = class_basename($column->dataSchemaClass).'Data';
+                $assignments[] = "isset(\$data['{$column->name}']) ? {$dtoName}::fromArray(\$data['{$column->name}']) : null";
+
                 continue;
             }
 

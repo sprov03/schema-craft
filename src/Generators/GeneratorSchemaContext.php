@@ -287,6 +287,32 @@ class GeneratorSchemaContext
      */
     private function resolveModelClass(string $schemaClass): string
     {
+        return self::modelClassFor($schemaClass);
+    }
+
+    /**
+     * Derive the Eloquent model FQCN a schema maps to: an explicit static `model` property if
+     * present, else {modelNamespace}\{SchemaBasename-without-Schema}. Static so callers can test
+     * whether a schema is model-backed (class_exists on the result) without building a full
+     * context — e.g. response-only schemas like a transient ActionResult have no such model.
+     * Single source for the derivation rule.
+     */
+    /**
+     * Whether a schema is an *entity* — i.e. tied to an Eloquent model. This is the canonical
+     * test for "should this surface as a top-level, selectable thing": a schema is just a data
+     * shape, an entity is a schema bound to a model. Schemas without a model (response shapes,
+     * transient DTOs) still appear nested in docs/JSON, but are not selectable entities.
+     *
+     * Model-presence is the single source for this distinction — no separate #[Entity] marker —
+     * so adding a model promotes a shape to an entity with nothing else to declare.
+     */
+    public static function isEntity(string $schemaClass): bool
+    {
+        return class_exists(self::modelClassFor($schemaClass));
+    }
+
+    public static function modelClassFor(string $schemaClass): string
+    {
         if (class_exists($schemaClass)) {
             $refl = new \ReflectionClass($schemaClass);
             if ($refl->hasProperty('model')) {
