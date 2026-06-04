@@ -37,4 +37,3 @@ use Illuminate\Contracts\Database\Eloquent\Castable;
  * Extend one of those rather than implementing this interface directly.
  */
 interface SchemaCraftColumn extends Castable, FilamentRenderable, FormatsApiOutput, GeneratesFakerValue, GeneratesSdkType, ParsesApiInput, SchemaCraftType {}
-
