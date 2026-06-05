@@ -8161,13 +8161,23 @@
             var hasAnything = endpointSchemaKeys.length > 0 || warningCount > 0 || errorCount > 0;
 
             if (!hasAnything) {
+                // Empty API (no endpoints yet): still offer "+ Add Action" so a brand-new API can be
+                // bootstrapped here — without it, the only path was the separate Import Actions tab.
                 content.innerHTML =
                     '<div class="gen-import">' +
-                        '<div class="gen-import-title">API Documentation</div>' +
-                        '<div class="gen-import-subtitle">No registered routes found for this API.' +
-                            (data.routePrefix ? ' Filtering by prefix: <code>' + escapeHtml(data.routePrefix) + '</code>.' : '') +
-                            ' <a href="#" id="docs-goto-import" style="color:var(--accent);text-decoration:underline;">Import Actions</a> to register endpoints.</div>' +
+                        '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">' +
+                            '<div class="gen-import-title">API Documentation</div>' +
+                            '<button class="sc-btn primary" id="docs-add-action" style="white-space:nowrap;">+ Add Action</button>' +
+                        '</div>' +
+                        '<div class="gen-import-subtitle">No endpoints in this API yet.' +
+                            (data.routePrefix ? ' Prefix: <code>' + escapeHtml(data.routePrefix) + '</code>.' : '') +
+                            ' Click <strong>+ Add Action</strong> to create your first one, or ' +
+                            '<a href="#" id="docs-goto-import" style="color:var(--accent);text-decoration:underline;">Import Actions</a> to register existing ones.</div>' +
                     '</div>';
+                var emptyAddBtn = document.getElementById('docs-add-action');
+                if (emptyAddBtn) {
+                    emptyAddBtn.addEventListener('click', function() { genLaunchActionModal(null, docsRefreshPreservingSearch); });
+                }
                 var gotoLink = document.getElementById('docs-goto-import');
                 if (gotoLink) {
                     gotoLink.addEventListener('click', function(e) { e.preventDefault(); switchGenView('import'); });
@@ -8202,6 +8212,12 @@
                         sourceBadge = '<span class="docs-endpoint-badge" style="background:var(--bg-tertiary);color:var(--text-muted);">Closure</span>';
                     }
 
+                    // Quick "open the action/source file in PhpStorm" jump straight from the row —
+                    // stopPropagation in the icon keeps it from also opening the detail modal.
+                    var epOpenIcon = (ep.sourceFiles && ep.sourceFiles.length)
+                        ? ideIconForPath(ep.sourceFiles[0].path, 'Open ' + (ep.sourceFiles[0].label || 'source'))
+                        : '';
+
                     endpointsHtml +=
                         '<div class="docs-endpoint-row" data-docs-ep=\'' + escapeAttr(JSON.stringify(ep)) + '\' ' +
                             'data-docs-model="' + escapeAttr(modelKey) + '">' +
@@ -8212,6 +8228,7 @@
                             (ruleCount > 0 ? '<span class="docs-endpoint-badge params">' + ruleCount + ' rule' + (ruleCount !== 1 ? 's' : '') + '</span>' : '') +
                             (relCount > 0 ? '<span class="docs-endpoint-badge rels">' + relCount + ' rel' + (relCount !== 1 ? 's' : '') + '</span>' : '') +
                             (ep.responseUndocumented ? '<span class="docs-endpoint-badge" style="background:var(--warning-dim,#3a2a00);color:var(--warning,#f0a500);">⚠ response</span>' : '') +
+                            epOpenIcon +
                         '</div>';
                 });
 
@@ -8470,7 +8487,16 @@
             if (!fqcn || !docsData || !docsData.classSources) {
                 return '';
             }
-            var path = docsData.classSources[fqcn];
+            return ideIconForPath(docsData.classSources[fqcn], title);
+        }
+
+        /**
+         * Build an "open in IDE" icon link from a raw file path (relative to the project, as the
+         * server emits them in sourceFiles[].path / classSources). Same glyph + phpstorm:// scheme
+         * as ideIconForClass — use this when you already hold a path rather than a class FQCN
+         * (endpoint source files, action/request files). Returns "" for an empty path.
+         */
+        function ideIconForPath(path, title) {
             if (!path) {
                 return '';
             }
@@ -8891,13 +8917,13 @@
             metaRows += '<tr><td class="ep-field-name">Source</td><td style="font-size:12px;color:var(--text-secondary);">' + escapeHtml(ep.source) + '</td></tr>';
 
             if (ep.actionClass) {
-                metaRows += '<tr><td class="ep-field-name">Action Class</td><td style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);word-break:break-all;">' + escapeHtml(ep.actionClass) + '</td></tr>';
+                metaRows += '<tr><td class="ep-field-name">Action Class</td><td style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);word-break:break-all;">' + escapeHtml(ep.actionClass) + ideIconForClass(ep.actionClass, 'Open ' + ep.actionClass.split('\\').pop()) + '</td></tr>';
             }
             if (ep.serviceMethod) {
                 metaRows += '<tr><td class="ep-field-name">Service Method</td><td style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);">' + escapeHtml(ep.serviceMethod) + '</td></tr>';
             }
             if (ep.formRequest) {
-                metaRows += '<tr><td class="ep-field-name">Form Request</td><td style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);word-break:break-all;">' + escapeHtml(ep.formRequest) + '</td></tr>';
+                metaRows += '<tr><td class="ep-field-name">Form Request</td><td style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);word-break:break-all;">' + escapeHtml(ep.formRequest) + ideIconForClass(ep.formRequest, 'Open ' + ep.formRequest.split('\\').pop()) + '</td></tr>';
             }
             metaRows += '<tr><td class="ep-field-name">Route Path</td><td style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);">' + escapeHtml(ep.path) + '</td></tr>';
             metaRows += '<tr><td class="ep-field-name">Type</td><td style="font-size:12px;color:var(--text-secondary);">' + escapeHtml(ep.type) + '</td></tr>';
@@ -8915,6 +8941,7 @@
                             '<div class="ep-section-title" style="display:flex;align-items:center;gap:8px;">' +
                                 '<span>' + escapeHtml(file.label) + '</span>' +
                                 '<span class="ep-section-badge meta" style="font-family:var(--font-mono);font-size:10px;font-weight:400;">' + escapeHtml(file.path) + '</span>' +
+                                ideIconForPath(file.path, 'Open ' + file.label) +
                             '</div>' +
                             '<pre style="margin:0;padding:12px;background:var(--bg-tertiary);border-radius:4px;overflow-x:auto;font-size:11px;font-family:var(--font-mono);white-space:pre;color:var(--text-primary);max-height:400px;overflow-y:auto;">' + escapeHtml(file.content) + '</pre>' +
                         '</div>';
