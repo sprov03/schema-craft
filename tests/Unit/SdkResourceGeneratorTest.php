@@ -37,6 +37,16 @@ class SdkResourceGeneratorTest extends TestCase
         $this->assertStringContainsString('use MyApp\\Sdk\\Data\\PostData;', $output);
     }
 
+    public function test_imports_sdk_connector_from_root_namespace(): void
+    {
+        // Regression: the Resource sits in MyApp\Sdk\Resources, so a bare `SdkConnector` reference
+        // resolves to MyApp\Sdk\Resources\SdkConnector — the wrong class — and the Client (which
+        // passes the root MyApp\Sdk\SdkConnector) fails type resolution. The import fixes it.
+        $output = $this->generator->generate($this->makeSimpleTable(), 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post');
+
+        $this->assertStringContainsString('use MyApp\\Sdk\\SdkConnector;', $output);
+    }
+
     public function test_constructor_takes_sdk_connector(): void
     {
         $table = $this->makeSimpleTable();

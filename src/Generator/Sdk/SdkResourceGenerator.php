@@ -55,11 +55,18 @@ class SdkResourceGenerator
         $referencedDtos = array_values(array_unique($referencedDtos));
         sort($referencedDtos);
 
+        // SdkConnector lives at the SDK ROOT namespace (the parent of Resources/ and Data/). This
+        // Resource sits in {root}\Resources, so a bare `SdkConnector` in its constructor would
+        // resolve to {root}\Resources\SdkConnector — the wrong class — making the Client (which
+        // passes the root {root}\SdkConnector) fail type resolution. Import the real one.
+        $sdkRootNamespace = Str::beforeLast($resourceNamespace, '\\');
+
         $lines = [];
         $lines[] = '<?php';
         $lines[] = '';
         $lines[] = "namespace {$resourceNamespace};";
         $lines[] = '';
+        $lines[] = "use {$sdkRootNamespace}\\SdkConnector;";
         foreach ($referencedDtos as $dtoShortName) {
             $lines[] = "use {$dataNamespace}\\{$dtoShortName};";
         }
