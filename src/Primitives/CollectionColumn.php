@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection as IlluminateCollection;
 use ReflectionClass;
 use SchemaCraft\Attributes\CollectionOf;
+use SchemaCraft\Contracts\CastsDataSchemaProperty;
 use SchemaCraft\Contracts\SchemaCraftColumn;
 use SchemaCraft\DataSchema;
 use SchemaCraft\Generators\GeneratorColumn;
@@ -62,7 +63,12 @@ use SchemaCraft\Scanner\ColumnDefinition;
  *
  * @extends IlluminateCollection<int, TItem>
  */
-abstract class CollectionColumn extends IlluminateCollection implements Castable, SchemaCraftColumn
+// Implements CastsDataSchemaProperty so a parent DataSchema/Request can hydrate a property
+// typed as this collection: fromRaw()/toRaw() (below) were written for exactly this, but
+// without the interface declared, resolveProperties() sets isCastsProperty=false and
+// fromArray() falls through to castValue(), assigning a raw array to a CollectionColumn-typed
+// property → TypeError. Declaring it completes the original intent.
+abstract class CollectionColumn extends IlluminateCollection implements Castable, SchemaCraftColumn, CastsDataSchemaProperty
 {
     // ─── Item-type introspection ─────────────────────────────────
 

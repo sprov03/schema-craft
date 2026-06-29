@@ -280,7 +280,38 @@ class SdkContextBuilder
         //     shape is emitted once. Recurses into nested DataSchemas/casts via collectInnerDtos.
         $allSchemas = $this->registerInnerColumnDtos($allSchemas);
 
+        // 6d. Register request DTOs for endpoints that type-hint a SchemaCraft\Request. A Request
+        //     IS a DataSchema, so the same object-DTO reflection used for response shapes emits
+        //     {X}RequestData (+ its nested/collection inner DTOs) with no new generation logic.
+        $allSchemas = $this->registerRequestDtos($allSchemas);
 
+        // Referential integrity: every nested-shape pointer (a Resource referenced by a documented
+        // response shape) must resolve to an emitted schema, or the SDK would ship a typed property
+        // pointing at a DTO that doesn't exist — a silent break on the user's end. Enforced through
+        // the same fail-loud gate as missing routes: hard error by default, warning under
+        // generate-anyway ($failOnMissingRoutes=false, the visualizer/force paths). This is also the
+        // backstop for collectDepResources silently skipping a Resource that failed to scan.
+        foreach ($allSchemas as $modelName => $context) {
+            if ($context->resourceFields === null) {
+                continue;
+            }
+            foreach ($context->resourceFields['relationships'] ?? [] as $rel) {
+                $referenced = $rel['relatedResource'] ?? null;
+                if ($referenced === null) {
+                    continue;
+                }
+                if (! isset($allSchemas[SdkResourceNaming::modelNameFromResourceFqcn($referenced)])) {
+                    if ($failOnMissingRoutes) {
+                        throw SdkGenerationException::danglingNestedShape($modelName, $rel['name'], $referenced);
+                    }
+                    $sdkWarnings[] = [
+                        'route' => $modelName,
+                        'message' => "Response shape [{$modelName}] references Resource [{$referenced}] (as '"
+                            .$rel['name']."') which was not emitted — the SDK reference would dangle.",
+                    ];
+                }
+            }
+        }
 
         return new SdkBuildResult(
             schemas: $allSchemas,
@@ -415,6 +446,69 @@ class SdkContextBuilder
 
         foreach ($innerDtos as $dtoName => $definition) {
             // Already emitted as a real model DTO or already registered as inner — skip.
+            if (isset($existingDataNames[$dtoName]) || isset($allSchemas[$dtoName])) {
+                continue;
+            }
+
+            $allSchemas[$dtoName] = new SdkSchemaContext(
+                isDependencyOnly: true,
+                innerDto: $definition,
+            );
+        }
+
+        return $allSchemas;
+    }
+
+    /**
+     * Register typed request DTOs for endpoints whose handler type-hints a SchemaCraft\Request.
+     * A Request is a DataSchema, so SdkShape::object + collectInnerDtos reflects it (and its
+     * nested/collection inner shapes) into DTO definitions exactly like a response shape — no new
+     * generation logic. Keyed per-request-CLASS, not per-model: two endpoints on one model can
+     * carry different request shapes. Deduped against existing model/inner DTOs.
+     *
+     * @param  array<string, SdkSchemaContext>  $allSchemas
+     * @return array<string, SdkSchemaContext>
+     */
+    private function registerRequestDtos(array $allSchemas): array
+    {
+        $generator = new SdkDataGenerator;
+
+        $existingDataNames = [];
+        foreach (array_keys($allSchemas) as $modelName) {
+            $existingDataNames[$modelName.'Data'] = true;
+        }
+
+        $requestDtos = [];
+        foreach ($allSchemas as $context) {
+            foreach ($context->endpoints as $endpoint) {
+                // Controller Request: reflect the Request DataSchema directly into its DTO.
+                $requestClass = $endpoint['resolvedRequestClass'] ?? null;
+                if ($requestClass !== null && class_exists($requestClass)) {
+                    $shape = \SchemaCraft\Generator\Sdk\SdkShape::object($requestClass);
+                    $requestDtos = $generator->collectInnerDtos($shape, $requestDtos);
+
+                    continue;
+                }
+
+                // Action: use the pre-projected field set (params already interpreted as shapes by
+                // EndpointEnricher), and emit the nested item DTOs for its DataSchema-backed fields.
+                if (isset($endpoint['requestDtoName'], $endpoint['requestDtoFields'])) {
+                    $requestDtos[$endpoint['requestDtoName']] = [
+                        'name' => $endpoint['requestDtoName'],
+                        'fields' => $endpoint['requestDtoFields'],
+                    ];
+
+                    foreach ($endpoint['requestItemSchemaClasses'] ?? [] as $itemClass) {
+                        if (class_exists($itemClass)) {
+                            $shape = \SchemaCraft\Generator\Sdk\SdkShape::object($itemClass);
+                            $requestDtos = $generator->collectInnerDtos($shape, $requestDtos);
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach ($requestDtos as $dtoName => $definition) {
             if (isset($existingDataNames[$dtoName]) || isset($allSchemas[$dtoName])) {
                 continue;
             }

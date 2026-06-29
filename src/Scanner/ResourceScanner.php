@@ -81,25 +81,22 @@ class ResourceScanner
         $properties = [];
         $relationships = [];
 
-        foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if ($property->getDeclaringClass()->getName() !== $fqcn) {
-                continue;
-            }
+        // Detection comes from the shared TypedPropertyReflector (parameterized to
+        // SchemaCraftResource as the shape base). The columns-vs-relationships SPLIT stays here as
+        // a response-side adapter: a nested-shape whose target is a Resource is a relationship;
+        // a collection whose ITEM is a Resource is a collection relationship; everything else is
+        // a column. The bare-Collection guard and #[Computed] methods are response-only overlays.
+        foreach (TypedPropertyReflector::scan($fqcn, SchemaCraftResource::class) as $d) {
+            $propName = $d['name'];
+            $type = $d['typeName'] ?? 'mixed';
+            $nullable = $d['nullable'];
 
-            $propName = $property->getName();
-            $reflectionType = $property->getType();
-            $type = $reflectionType instanceof \ReflectionNamedType ? $reflectionType->getName() : 'mixed';
-            $nullable = $reflectionType instanceof \ReflectionNamedType ? $reflectionType->allowsNull() : true;
-
-            // Singular relationship: property type is itself a SchemaCraftResource subclass.
-            // The property type carries everything (target FQCN, cardinality, nullability) — no
-            // attribute is required. Replaces the redundant pre-cutover #[BelongsTo] / #[HasOne]
-            // attributes which encoded Laravel relationship mechanics the Resource layer ignored.
-            if ($type !== 'mixed' && class_exists($type) && is_subclass_of($type, SchemaCraftResource::class)) {
+            // Singular relationship: property typed as another SchemaCraftResource.
+            if ($d['isNestedShape']) {
                 $relationships[] = [
                     'name' => $propName,
                     'type' => 'singular',
-                    'resource' => $type,
+                    'resource' => $d['nestedShapeClass'],
                     'isCollection' => false,
                     'nullable' => $nullable,
                 ];
@@ -107,15 +104,11 @@ class ResourceScanner
                 continue;
             }
 
-            // Collection-typed property + #[CollectionOf(X::class)]. The same attribute serves
-            // two distinct roles depending on what X is:
-            //   - X is a SchemaCraftResource → relationship (one-to-many style, item is another Resource)
-            //   - X is a DataSchema          → column with collection-of-shape (JSON-array column of typed items)
-            // We discriminate by the item class. Both end up as columns in the response shape;
-            // the relationship-vs-column distinction matters for the SDK dep walker (which only
-            // recurses into Resource-typed targets) and for how the inner DTO is emitted.
-            if ($collectionAttrs = $property->getAttributes(CollectionOf::class)) {
-                $itemClass = $collectionAttrs[0]->newInstance()->resource;
+            // Collection: discriminate by item class (same rule as before).
+            //   - item is a SchemaCraftResource → collection relationship (item is another Resource)
+            //   - item is a DataSchema          → typed JSON-array column ({Item}Data[])
+            if ($d['isCollection'] && $d['collectionItemClass'] !== null) {
+                $itemClass = $d['collectionItemClass'];
 
                 if (class_exists($itemClass) && is_subclass_of($itemClass, SchemaCraftResource::class)) {
                     $relationships[] = [
@@ -125,19 +118,14 @@ class ResourceScanner
                         'isCollection' => true,
                         'nullable' => false,
                     ];
-
-                    continue;
+                } else {
+                    $properties[] = [
+                        'name' => $propName,
+                        'type' => $type,
+                        'nullable' => $nullable,
+                        'collectionItemClass' => $itemClass,
+                    ];
                 }
-
-                // DataSchema item: a typed JSON-array column on the Resource. Carry the item
-                // class on the property descriptor so the SDK pipeline emits a typed
-                // {Item}Data[] field rather than a bare array.
-                $properties[] = [
-                    'name' => $propName,
-                    'type' => $type,
-                    'nullable' => $nullable,
-                    'collectionItemClass' => $itemClass,
-                ];
 
                 continue;
             }
@@ -145,11 +133,9 @@ class ResourceScanner
             // Hard-fail on the misconfiguration case: bare Collection-typed property without
             // #[CollectionOf]. PHP reflection can't read collection item types; silently treating
             // it as a scalar would produce broken SDK output. Caught at scan time so the developer
-            // sees the cause immediately rather than chasing it through generated code.
-            //
-            // Exempt: rich-type collections that implement SchemaCraftColumn (e.g. subclasses of
-            // AbstractCollectionType — they extend Laravel's Collection but declare their shape
-            // via sdkShape(). The type contract carries the item type info instead).
+            // sees the cause immediately. Exempt: rich-type collections implementing SchemaCraftColumn
+            // (they carry their item type via the contract). This guard has no DataSchema equivalent
+            // — DataSchema deliberately allows a bare `array` — so it stays a response-side overlay.
             if ($type !== 'mixed' && class_exists($type)
                 && is_a($type, \Illuminate\Support\Collection::class, true)
                 && ! is_subclass_of($type, \SchemaCraft\Contracts\SchemaCraftColumn::class)

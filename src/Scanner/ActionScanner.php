@@ -35,6 +35,7 @@ use SchemaCraft\Attributes\Unique;
 use SchemaCraft\Attributes\Unsigned;
 use SchemaCraft\Attributes\Year;
 use SchemaCraft\DataSchema;
+use SchemaCraft\Request;
 use SchemaCraft\Schema;
 
 /**
@@ -70,8 +71,10 @@ class ActionScanner
 
         $meta = $this->readMeta($ref);
         $parameters = $this->scanParameters($ref);
-        $serviceMethod = $this->actionClass::serviceMethod();
-        $schemaClass = $this->actionClass::schema();
+        // serviceMethod() is Action-only; a plain Request has no service mapping.
+        // schema() is optional on a Request (DataSchema::schema() returns null when unset).
+        $serviceMethod = method_exists($this->actionClass, 'serviceMethod') ? $this->actionClass::serviceMethod() : '';
+        $schemaClass = $this->actionClass::schema() ?? '';
 
         $name = $this->resolveName($ref);
 
@@ -118,8 +121,11 @@ class ActionScanner
                 continue;
             }
 
+            // Skip infrastructure properties declared on the base hierarchy
+            // (Action / Request / DataSchema) — only subclass-declared properties
+            // are action/request parameters.
             $declaringClass = $prop->getDeclaringClass()->getName();
-            if ($declaringClass === Action::class || $declaringClass === DataSchema::class) {
+            if ($declaringClass === Action::class || $declaringClass === Request::class || $declaringClass === DataSchema::class) {
                 continue;
             }
 
@@ -272,11 +278,8 @@ class ActionScanner
         $relatedSchemaClass = $schemaClass;
 
         if ($schemaClass !== null) {
-            // Resolve model class from schema class name (ContactSchema → Contact)
-            $modelBaseName = Str::beforeLast(class_basename($schemaClass), 'Schema');
-            $schemaNamespace = (new ReflectionClass($schemaClass))->getNamespaceName();
-            $modelNamespace = preg_replace('/\\\\Schemas(\\\\|$)/', '\\Models$1', $schemaNamespace, 1);
-            $relatedModel = $modelNamespace.'\\'.$modelBaseName;
+            // Schema→Model resolution centralized in SchemaResolver (single source).
+            $relatedModel = SchemaResolver::resolveModelClass($schemaClass);
         }
 
         // Scan the DataSchema's properties
@@ -469,11 +472,8 @@ class ActionScanner
             return '';
         }
 
-        $modelBaseName = Str::beforeLast(class_basename($schemaClass), 'Schema');
-        $schemaNamespace = (new ReflectionClass($schemaClass))->getNamespaceName();
-        $modelNamespace = preg_replace('/\\\\Schemas(\\\\|$)/', '\\Models$1', $schemaNamespace, 1);
-
-        return $modelNamespace.'\\'.$modelBaseName;
+        // Schema→Model resolution centralized in SchemaResolver (single source).
+        return SchemaResolver::resolveModelClass($schemaClass);
     }
 
     /**

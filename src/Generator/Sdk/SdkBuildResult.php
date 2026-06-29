@@ -79,14 +79,14 @@ class SdkBuildResult
                     $fqcns[$entry[$key]] = true;
                 }
             }
-            foreach ($entry['columns'] ?? [] as $col) {
-                if (! empty($col['type']) && is_string($col['type'])) {
-                    $fqcns[$col['type']] = true;
+            foreach ($entry['fields'] ?? [] as $f) {
+                // Scalar/enum/rich-type columns carry an FQCN in `type`; nested-shape fields
+                // carry it in `nestedShapeClass`. Both feed IDE-link source resolution.
+                if (! empty($f['type']) && is_string($f['type'])) {
+                    $fqcns[$f['type']] = true;
                 }
-            }
-            foreach ($entry['relationships'] ?? [] as $rel) {
-                if (! empty($rel['relatedResource'])) {
-                    $fqcns[$rel['relatedResource']] = true;
+                if (! empty($f['nestedShapeClass'])) {
+                    $fqcns[$f['nestedShapeClass']] = true;
                 }
             }
         }
@@ -114,7 +114,10 @@ class SdkBuildResult
             return null;
         }
 
-        return $file === false ? null : $file;
+        // base_path-relative, like sourceFiles[].path — the frontend reconstructs the absolute path
+        // for IDE-open links via window.SCHEMA_CRAFT_BASE_PATH. One convention everywhere; the
+        // backend never emits absolute paths. [[schema-craft-ide-open-links]]
+        return $file === false ? null : str_replace(base_path().'/', '', $file);
     }
 
     private function projectSchema(SdkSchemaContext $ctx, string $modelName): array
@@ -130,14 +133,43 @@ class SdkBuildResult
                 && GeneratorSchemaContext::isEntity($ctx->table->schemaClass),
             'isDependencyOnly' => $ctx->isDependencyOnly,
             'tableName' => $ctx->table?->tableName,
-            'columns' => $this->projectColumns($ctx),
-            'relationships' => $this->projectRelationships($ctx),
+            // One unified `fields` list (matches the request side's vocabulary). A nested shape
+            // (formerly a "relationship") is a field with isNestedShape + nestedShapeClass — the
+            // FQCN pointer the consumers follow into this same schemas map (dedup + cycle-safety +
+            // IDE links preserved). The SDK code-gen path still reads the internal columns/relationships
+            // split off resourceFields, so generation is untouched; only the documented shape unifies.
+            'fields' => $this->projectFields($ctx),
             'endpoints' => $ctx->endpoints,
             'customActions' => array_map(
                 fn (SdkCustomAction $a) => ['name' => $a->name, 'httpMethod' => $a->httpMethod],
                 $ctx->customActions
             ),
         ];
+    }
+
+    /**
+     * Merge the column + relationship buckets into one documented `fields` list. Scalar/rich
+     * columns pass through; a relationship becomes a nested-shape field carrying the Resource
+     * FQCN as nestedShapeClass (the pointer consumers resolve in the shared schemas map).
+     * Nested shapes are nullable to match the SDK, which emits relationship props as `?XData`.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function projectFields(SdkSchemaContext $ctx): array
+    {
+        $fields = $this->projectColumns($ctx);
+
+        foreach ($this->projectRelationships($ctx) as $rel) {
+            $fields[] = [
+                'name' => $rel['name'],
+                'nullable' => true,
+                'isNestedShape' => true,
+                'nestedShapeClass' => $rel['relatedResource'],
+                'isCollection' => $rel['isCollection'],
+            ];
+        }
+
+        return $fields;
     }
 
     private function projectColumns(SdkSchemaContext $ctx): array

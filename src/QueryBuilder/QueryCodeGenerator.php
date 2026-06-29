@@ -12,6 +12,12 @@ use Illuminate\Support\Str;
  */
 class QueryCodeGenerator
 {
+    /** Base table of the query being generated — used to qualify the parent column in relatedColumn. */
+    private ?string $baseTable = null;
+
+    /** Base model class — used to resolve relation keys for aggregate subqueries. */
+    private ?string $baseModel = null;
+
     /**
      * Generate a scope method for the model.
      */
@@ -290,6 +296,8 @@ class QueryCodeGenerator
      */
     public function buildEloquentQuery(QueryDefinition $query, string $context = 'scope'): string
     {
+        $this->baseTable = $query->baseTable;
+        $this->baseModel = $query->baseModel;
         $lines = [];
         $indent = '            ';
 
@@ -340,7 +348,11 @@ class QueryCodeGenerator
      */
     private function buildGroupLines(ConditionNode $group, string $indent, string $context): array
     {
-        $groupMethod = $group->boolean === 'or' ? 'orWhere' : 'where';
+        $isOr = $group->boolean === 'or';
+        // negate → "Match NONE of" = whereNot over the children. Mirrors ConditionNodeApplier::applyGroup.
+        $groupMethod = $group->negate
+            ? ($isOr ? 'orWhereNot' : 'whereNot')
+            : ($isOr ? 'orWhere' : 'where');
         $innerIndent = $indent.'    ';
 
         $innerLines = [];
@@ -460,8 +472,44 @@ class QueryCodeGenerator
         return match ($condition->valueType) {
             'dynamic' => $this->buildParameterizedConditionLine($condition, $indent, $context),
             'reference' => $this->buildReferenceConditionLine($condition, $indent),
+            'relatedColumn' => $this->buildRelatedColumnConditionLine($condition, $indent),
+            'aggregate' => $this->buildAggregateConditionLine($condition, $indent),
             default => $this->buildHardcodedConditionLine($condition, $indent),
         };
+    }
+
+    /**
+     * aggregate → a correlated scalar subquery comparing this column to AGG(col) over a to-many relation.
+     * Resolves the relation's keys from the base model (same source the runtime applier uses), so the
+     * emitted subquery is byte-identical. (Top-level only — a nested aggregate would resolve the relation
+     * on the inner model; documented codegen gap, the applier handles nesting via getModel().)
+     */
+    private function buildAggregateConditionLine(ConditionNode $condition, string $indent): string
+    {
+        $model = new ($this->baseModel)();
+        $relation = $model->{$condition->referenceRelationship}();
+        $relatedTable = $relation->getRelated()->getTable();
+        $foreignKey = $relation->getQualifiedForeignKeyName();
+        $parentKey = $relation->getQualifiedParentKeyName();
+        $aggExpr = $condition->aggregateExpression();
+        $method = $condition->boolean === 'or' ? 'orWhere' : 'where';
+
+        return "{$indent}->{$method}('{$condition->column}', '{$condition->operator}', function (\$sub) { \$sub->from('{$relatedTable}')->selectRaw('{$aggExpr}')->whereColumn('{$foreignKey}', '=', '{$parentKey}'); })";
+    }
+
+    /**
+     * relatedColumn → a correlated whereHas comparing this column (qualified with the base table) to a
+     * column on a to-one related model. Mirrors ConditionNodeApplier's relatedColumn branch. The parent
+     * column is qualified with the base table so it isn't shadowed inside the closure. (Top-level only:
+     * a relatedColumn nested inside another whereHas would need the inner table — a documented codegen
+     * gap; the runtime applier handles nesting correctly via getModel()->getTable().)
+     */
+    private function buildRelatedColumnConditionLine(ConditionNode $condition, string $indent): string
+    {
+        $method = $condition->boolean === 'or' ? 'orWhereHas' : 'whereHas';
+        $parentColumn = "{$this->baseTable}.{$condition->column}";
+
+        return "{$indent}->{$method}('{$condition->referenceRelationship}', fn (\$q) => \$q->whereColumn('{$parentColumn}', '{$condition->operator}', '{$condition->referenceColumn}'))";
     }
 
     /**
@@ -484,6 +532,9 @@ class QueryCodeGenerator
         return match ($condition->operator) {
             'is_null' => "{$indent}->{$method}Null('{$condition->column}')",
             'is_not_null' => "{$indent}->{$method}NotNull('{$condition->column}')",
+            // is_empty / is_not_empty = empty-STRING checks ('' is not NULL); mirror the runtime applier.
+            'is_empty' => "{$indent}->{$method}('{$condition->column}', '=', '')",
+            'is_not_empty' => "{$indent}->{$method}('{$condition->column}', '!=', '')",
             'in' => "{$indent}->{$method}In('{$condition->column}', ".$this->phpValue($condition->value).')',
             'not_in' => "{$indent}->{$method}NotIn('{$condition->column}', ".$this->phpValue($condition->value).')',
             'between' => "{$indent}->{$method}Between('{$condition->column}', ".$this->phpValue($condition->value).')',
@@ -510,6 +561,9 @@ class QueryCodeGenerator
         return match ($condition->operator) {
             'is_null' => "{$indent}->when({$checkVar}, fn (\$q) => \$q->{$innerMethod}Null('{$condition->column}'))",
             'is_not_null' => "{$indent}->when({$checkVar}, fn (\$q) => \$q->{$innerMethod}NotNull('{$condition->column}'))",
+            // empty-string checks (toggle-applied like the null checks); no bound value.
+            'is_empty' => "{$indent}->when({$checkVar}, fn (\$q) => \$q->{$innerMethod}('{$condition->column}', '=', ''))",
+            'is_not_empty' => "{$indent}->when({$checkVar}, fn (\$q) => \$q->{$innerMethod}('{$condition->column}', '!=', ''))",
             'in' => "{$indent}->when({$checkVar} !== null, fn (\$q) => \$q->{$innerMethod}In('{$condition->column}', {$checkVar}))",
             'not_in' => "{$indent}->when({$checkVar} !== null, fn (\$q) => \$q->{$innerMethod}NotIn('{$condition->column}', {$checkVar}))",
             'between' => "{$indent}->when({$checkVar} !== null, fn (\$q) => \$q->{$innerMethod}Between('{$condition->column}', {$checkVar}))",
@@ -608,7 +662,7 @@ class QueryCodeGenerator
                 'between' => 'sometimes|array|size:2',
                 'like', '=', '!=' => 'sometimes|string',
                 '>', '<', '>=', '<=' => 'sometimes|numeric',
-                'is_null', 'is_not_null' => 'sometimes|boolean',
+                'is_null', 'is_not_null', 'is_empty', 'is_not_empty' => 'sometimes|boolean',
                 default => 'sometimes|string',
             };
 
@@ -633,7 +687,10 @@ class QueryCodeGenerator
             return $value ? 'true' : 'false';
         }
 
-        if (is_numeric($value)) {
+        // Only ACTUAL ints/floats render unquoted. is_numeric() was too loose — it's true for
+        // numeric STRINGS like '120', so the generated code bound an int while the runtime applier
+        // binds the original string: a divergence QueryBuilderParityTest catches. Preserve the type.
+        if (is_int($value) || is_float($value)) {
             return (string) $value;
         }
 
@@ -641,7 +698,9 @@ class QueryCodeGenerator
             return 'null';
         }
 
-        return "'{$value}'";
+        // var_export escapes the string literal (quotes, backslashes) so the generated code is valid
+        // PHP. The raw "'{$value}'" produced a syntax error for values like O'Brien.
+        return var_export($value, true);
     }
 
     /**

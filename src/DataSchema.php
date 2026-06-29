@@ -69,6 +69,8 @@ abstract class DataSchema implements \JsonSerializable, CastsDataSchemaProperty
      *     isCastsProperty: bool,
      *     isBackedEnum: bool,
      *     isDatetime: bool,
+     *     isCollectionColumn: bool,
+     *     collectionItemClass: class-string<DataSchema>|null,
      * }>>
      */
     private static array $propertyCache = [];
@@ -102,6 +104,8 @@ abstract class DataSchema implements \JsonSerializable, CastsDataSchemaProperty
      *     isCastsProperty: bool,
      *     isBackedEnum: bool,
      *     isDatetime: bool,
+     *     isCollectionColumn: bool,
+     *     collectionItemClass: class-string<DataSchema>|null,
      * }>
      */
     public static function fieldDescriptors(): array
@@ -123,6 +127,8 @@ abstract class DataSchema implements \JsonSerializable, CastsDataSchemaProperty
      *     isCastsProperty: bool,
      *     isBackedEnum: bool,
      *     isDatetime: bool,
+     *     isCollectionColumn: bool,
+     *     collectionItemClass: class-string<DataSchema>|null,
      * }>
      */
     private static function resolveProperties(): array
@@ -133,39 +139,30 @@ abstract class DataSchema implements \JsonSerializable, CastsDataSchemaProperty
             return self::$propertyCache[$class];
         }
 
-        $ref = new ReflectionClass($class);
+        // Detection now lives in the shared TypedPropertyReflector (one source of truth, also
+        // used by the response-side ResourceScanner). We map its unified descriptor back to
+        // DataSchema's established key names so every existing consumer (validationRules,
+        // fromArray, fieldDescriptors, SdkDataGenerator) is untouched. isCastsProperty stays
+        // computed here — it's a DataSchema-specific contract (CastsDataSchemaProperty), not a
+        // shape concept the reflector knows about.
         $properties = [];
-
-        foreach ($ref->getProperties(ReflectionProperty::IS_PUBLIC) as $prop) {
-            if ($prop->isStatic()) {
-                continue;
-            }
-
-            $declaringClass = $prop->getDeclaringClass()->getName();
-            if ($declaringClass === self::class) {
-                continue;
-            }
-
-            $type = $prop->getType();
-            $typeName = $type instanceof ReflectionNamedType ? $type->getName() : null;
-            $isBuiltin = $type instanceof ReflectionNamedType && $type->isBuiltin();
-            $nullable = $type instanceof ReflectionNamedType ? $type->allowsNull() : true;
-            $isDataSchema = $typeName !== null && ! $isBuiltin && is_subclass_of($typeName, self::class, true);
-            $isCastsProperty = $typeName !== null && ! $isBuiltin && is_a($typeName, CastsDataSchemaProperty::class, true);
-            $isBackedEnum = $typeName !== null && ! $isBuiltin && is_subclass_of($typeName, \BackedEnum::class, true);
-            $isDatetime = $typeName !== null && ! $isBuiltin && is_a($typeName, \DateTimeInterface::class, true);
+        foreach (\SchemaCraft\Scanner\TypedPropertyReflector::scan($class, self::class) as $d) {
+            $typeName = $d['typeName'];
 
             $properties[] = [
-                'name' => $prop->getName(),
+                'name' => $d['name'],
                 'typeName' => $typeName,
-                'isBuiltin' => $isBuiltin,
-                'nullable' => $nullable,
-                'hasDefault' => $prop->hasDefaultValue(),
-                'default' => $prop->hasDefaultValue() ? $prop->getDefaultValue() : null,
-                'isDataSchema' => $isDataSchema,
-                'isCastsProperty' => $isCastsProperty,
-                'isBackedEnum' => $isBackedEnum,
-                'isDatetime' => $isDatetime,
+                'isBuiltin' => $d['isBuiltin'],
+                'nullable' => $d['nullable'],
+                'hasDefault' => $d['hasDefault'],
+                'default' => $d['default'],
+                'isDataSchema' => $d['isNestedShape'],
+                'isCastsProperty' => $typeName !== null && ! $d['isBuiltin']
+                    && is_a($typeName, CastsDataSchemaProperty::class, true),
+                'isBackedEnum' => $d['isBackedEnum'],
+                'isDatetime' => $d['isDatetime'],
+                'isCollectionColumn' => $d['isCollection'],
+                'collectionItemClass' => $d['collectionItemClass'],
             ];
         }
 
@@ -201,6 +198,19 @@ abstract class DataSchema implements \JsonSerializable, CastsDataSchemaProperty
                 // Recurse into the nested DataSchema
                 $nestedRules = $prop['typeName']::validationRules($fullKey);
                 $rules = array_merge($rules, $nestedRules);
+
+                continue;
+            }
+
+            // Typed collection of shapes: validate the container as an array, then cascade the
+            // item shape's own rules under the `.*` wildcard. Mirrors the nested-object branch
+            // above; the only difference is the `.*` prefix. Same pattern ValidationRuleMapper
+            // already uses at the Schema layer — kept in one place to avoid a third copy.
+            if ($prop['isCollectionColumn'] && $prop['collectionItemClass'] !== null) {
+                $fieldRules[] = 'array';
+                $rules[$fullKey] = $fieldRules;
+
+                $rules = array_merge($rules, $prop['collectionItemClass']::validationRules("{$fullKey}.*"));
 
                 continue;
             }

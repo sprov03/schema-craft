@@ -40,7 +40,9 @@ use SchemaCraft\Validation\ValidationRuleMapper;
  * This class is analogous to Schema: it is both a scannable definition and provides
  * runtime functionality (execute, endpoint, filamentAction).
  */
-abstract class Action
+// NOTE: fully-qualified on purpose — this file imports Illuminate\Http\Request as
+// `Request` (used in endpoint() closures), which would otherwise shadow our base class.
+abstract class Action extends \SchemaCraft\Request
 {
     /** @var class-string<Schema> The schema this action operates on. */
     protected static string $schema;
@@ -252,41 +254,34 @@ abstract class Action
 
             $nested = $param->nestedRelationship;
             $prefix = $nested->name;
+            // `sometimes` is relationship-only (a relationship key may be absent on update),
+            // so it stays here — everything below is the shared shape cascade.
             $arrayRule = $nested->nullable ? 'sometimes|nullable|array' : 'sometimes|array';
 
             $rules[$prefix] = $arrayRule;
 
             $fieldPrefix = $nested->isCollection ? "{$prefix}.*" : $prefix;
 
-            foreach ($nested->fields as $field) {
-                $fieldRule = $this->nestedFieldRule($field);
-                $rules["{$fieldPrefix}.{$field->name}"] = $fieldRule;
+            if ($nested->dataSchemaClass !== null) {
+                // DataSchema-backed relationship: reuse the same item-shape walker Request uses,
+                // instead of the hand-rolled per-field loop. It recurses into sub-relationships
+                // automatically, fixing the prior one-level-only gap. nestedFieldRule() stays
+                // as the fallback for relationships not backed by a DataSchema.
+                foreach ($nested->dataSchemaClass::validationRules($fieldPrefix) as $innerKey => $innerRules) {
+                    $rules[$innerKey] = $innerRules;
+                }
+            } else {
+                foreach ($nested->fields as $field) {
+                    $rules["{$fieldPrefix}.{$field->name}"] = $this->nestedFieldRule($field);
+                }
             }
         }
 
         return $rules;
     }
 
-    private function phpTypeToColumnType(string $type): string
-    {
-        return match ($type) {
-            'int' => 'integer',
-            'float' => 'float',
-            'bool' => 'boolean',
-            default => 'string',
-        };
-    }
-
-    private function findRulesAttribute(array $attributes): ?Rules
-    {
-        foreach ($attributes as $attr) {
-            if ($attr instanceof Rules) {
-                return $attr;
-            }
-        }
-
-        return null;
-    }
+    // phpTypeToColumnType() and findRulesAttribute() now live on the Request base
+    // class (protected) and are inherited here — single source, no duplication.
 
     /**
      * Build a validation rule string for a nested field.

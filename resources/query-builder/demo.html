@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Query Builder — hook verification harness</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; color: #1f2937; background: #f9fafb; }
+    h1 { font-size: 18px; } h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; }
+    #app { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
+    .qb-condition, .qb-group-head, .qb-wherehas-head { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+    .qb-group, .qb-wherehas { border-left: 3px solid #c7d2fe; padding-left: 10px; margin: 6px 0; }
+    .qb-input, .qb-select { border: 1px solid #d1d5db; border-radius: 5px; padding: 3px 6px; font: inherit; }
+    .qb-btn { border: 1px solid #d1d5db; border-radius: 5px; padding: 3px 8px; background: #f3f4f6; cursor: pointer; font: inherit; }
+    .qb-btn:hover { background: #e5e7eb; }
+    .qb-toolbar, .qb-group-toolbar { margin-top: 6px; display: flex; gap: 6px; }
+    pre { background: #111827; color: #d1fae5; padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Query Builder — hook verification harness</h1>
+  <p>Edit the tree below. Every change emits <code>onChange(tree)</code> — the live ConditionNode JSON
+     the host (visualizer / Filament) would store. No server, no internet: the bundle is loaded locally.</p>
+
+  <h2>Builder</h2>
+  <div id="app"></div>
+
+  <h2>onChange → ConditionNode tree (what the host receives)</h2>
+  <pre id="output">—</pre>
+
+  <script src="./dist/query-builder.js"></script>
+  <script>
+    const out = document.getElementById('output');
+    const api = SchemaCraftQueryBuilder.init(document.getElementById('app'), {
+      flags: { allowGroups: true },               // flip to false to verify joins/groups can be hidden
+      initialTree: [
+        { type: 'condition', column: 'callrail_number_verification_status', operator: '=', value: 'Verified', boolean: 'and', valueType: 'hardcoded' },
+        { type: 'whereHas', relationship: 'communicationLogs', hasType: 'whereHas', boolean: 'and', children: [
+          { type: 'condition', column: 'duration_in_seconds', operator: '>=', value: '120', boolean: 'and', valueType: 'hardcoded' },
+        ] },
+      ],
+      onChange: (tree) => { out.textContent = JSON.stringify(tree, null, 2); },
+      onSave: (tree) => alert('host would SAVE: ' + JSON.stringify(tree)),
+      onPreview: (tree) => alert('host would PREVIEW SQL for: ' + JSON.stringify(tree)),
+    });
+    out.textContent = JSON.stringify(api.getTree(), null, 2);
+  </script>
+</body>
+</html>

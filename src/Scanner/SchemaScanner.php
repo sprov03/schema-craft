@@ -519,7 +519,12 @@ class SchemaScanner
         $onUpdate = $this->getAttributeInstance($property, OnUpdate::class)?->action;
         $noConstraint = $this->hasAttribute($property, NoConstraint::class);
         $belongsToManyAttr = $this->getAttributeInstance($property, BelongsToMany::class);
-        $pivotModel = $belongsToManyAttr?->using;
+        // Resolve at the door: a relation may reference a Schema for nicer
+        // schema-to-schema navigation; collapse it to the Model here so every
+        // downstream consumer keeps seeing a Model FQCN. Pass-through for Models.
+        $pivotModel = $belongsToManyAttr?->using === null
+            ? null
+            : SchemaResolver::resolveModelClass($belongsToManyAttr->using);
 
         $relType = match (true) {
             $relationAttr instanceof BelongsTo => 'belongsTo',
@@ -537,7 +542,7 @@ class SchemaScanner
 
         $relatedModel = $relationAttr instanceof MorphTo
             ? \Illuminate\Database\Eloquent\Model::class
-            : $relationAttr->model;
+            : SchemaResolver::resolveModelClass($relationAttr->model);
 
         $morphName = property_exists($relationAttr, 'morphName')
             ? $relationAttr->morphName
@@ -569,8 +574,11 @@ class SchemaScanner
         $foreignPivotKey = property_exists($relationAttr, 'foreignPivotKey') ? $relationAttr->foreignPivotKey : null;
         $relatedPivotKey = property_exists($relationAttr, 'relatedPivotKey') ? $relationAttr->relatedPivotKey : null;
 
-        // Through relationship params
-        $through = property_exists($relationAttr, 'through') ? $relationAttr->through : null;
+        // Through relationship params — the intermediate `through` class may also
+        // be declared as a Schema; resolve it to its Model at the door too.
+        $through = property_exists($relationAttr, 'through') && $relationAttr->through !== null
+            ? SchemaResolver::resolveModelClass($relationAttr->through)
+            : null;
         $firstKey = property_exists($relationAttr, 'firstKey') ? $relationAttr->firstKey : null;
         $secondKey = property_exists($relationAttr, 'secondKey') ? $relationAttr->secondKey : null;
         $secondLocalKey = property_exists($relationAttr, 'secondLocalKey') ? $relationAttr->secondLocalKey : null;

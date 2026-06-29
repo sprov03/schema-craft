@@ -1,0 +1,16 @@
+{
+  "name": "@schema-craft/query-builder",
+  "version": "0.1.0",
+  "description": "Shared, embeddable query/filter builder UI for the schema-craft visualizer and host apps (Filament). Emits ConditionNode trees — the same contract the PHP runtime applier and code generator are parity-tested against.",
+  "type": "module",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test",
+    "build": "esbuild src/index.js --bundle --format=iife --global-name=SchemaCraftQueryBuilder --outfile=dist/query-builder.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5",
+    "jsdom": "^29.1.1"
+  }
+}

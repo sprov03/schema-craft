@@ -150,4 +150,20 @@ class ActionBaseTest extends TestCase
         $this->assertSame([], $mapped['comments']);
         $this->assertSame([], $mapped['tags']);
     }
+
+    // ─── Nested Relationship: rules() cascade via shared walker (Step 4) ──
+
+    public function test_nested_relationship_rules_cascade_item_shape_via_shared_walker(): void
+    {
+        $rules = (new UpdatePostWithDataSchemaAction)->rules();
+
+        // The container keeps its relationship-only `sometimes|array` rule.
+        $this->assertSame('sometimes|array', $rules['comments']);
+
+        // Item fields cascade under `.*` from the item DataSchema's own walker — the same
+        // DataSchema::validationRules() path Request uses, not the hand-rolled per-field loop.
+        $this->assertArrayHasKey('comments.*.body', $rules);
+        $this->assertContains('required', $rules['comments.*.body']);
+        $this->assertContains('string', $rules['comments.*.body']);
+    }
 }

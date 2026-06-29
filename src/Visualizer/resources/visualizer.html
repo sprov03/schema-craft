@@ -8199,7 +8199,6 @@
                     var primaryMethod = methods[0].toLowerCase();
                     var methodLabel = methods.join(' | ');
                     var label = ep.label || ep.action || '';
-                    var relCount = ep.relationships ? ep.relationships.length : 0;
                     var ruleCount = ep.rules ? Object.keys(ep.rules).length : 0;
 
                     // Source badge
@@ -8226,7 +8225,6 @@
                             '<span class="docs-endpoint-label">' + escapeHtml(label) + '</span>' +
                             sourceBadge +
                             (ruleCount > 0 ? '<span class="docs-endpoint-badge params">' + ruleCount + ' rule' + (ruleCount !== 1 ? 's' : '') + '</span>' : '') +
-                            (relCount > 0 ? '<span class="docs-endpoint-badge rels">' + relCount + ' rel' + (relCount !== 1 ? 's' : '') + '</span>' : '') +
                             (ep.responseUndocumented ? '<span class="docs-endpoint-badge" style="background:var(--warning-dim,#3a2a00);color:var(--warning,#f0a500);">⚠ response</span>' : '') +
                             epOpenIcon +
                         '</div>';
@@ -8491,16 +8489,20 @@
         }
 
         /**
-         * Build an "open in IDE" icon link from a raw file path (relative to the project, as the
-         * server emits them in sourceFiles[].path / classSources). Same glyph + phpstorm:// scheme
-         * as ideIconForClass — use this when you already hold a path rather than a class FQCN
-         * (endpoint source files, action/request files). Returns "" for an empty path.
+         * Build an "open in IDE" icon link from a base_path-RELATIVE file path (the form the server
+         * emits in sourceFiles[].path and classSources). The absolute path is reconstructed here on
+         * the frontend via window.SCHEMA_CRAFT_BASE_PATH — the ONE canonical way to make an openable
+         * path (mirrors the file-preview modal). phpstorm://open needs an absolute path; doing the
+         * join client-side keeps links machine-correct without the backend ever emitting absolutes.
+         * The single construction point — ideIconForClass resolves a FQCN to a relative path, then
+         * delegates here. See memory: schema-craft-ide-open-links. Returns "" for an empty path.
          */
         function ideIconForPath(path, title) {
             if (!path) {
                 return '';
             }
-            var url = 'phpstorm://open?file=' + encodeURIComponent(path);
+            var absPath = (window.SCHEMA_CRAFT_BASE_PATH || '') + '/' + path;
+            var url = 'phpstorm://open?file=' + encodeURIComponent(absPath);
             return '<a class="api-ide-btn" href="' + url + '" title="' + escapeAttr(title || 'Open in PhpStorm') + '" onclick="event.stopPropagation()">' +
                 '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
                 '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>' +
@@ -8600,12 +8602,18 @@
             // blocks that mirror the relationship UI; flat scalars stay in the field table.
             // Bitmask columns hit both signals \u2014 the expand body shows the wire-shape DTO AND
             // the option set, in that order.
+            // One unified `fields` list now. Nested-shape fields (former relationships) render via
+            // the FQCN pointer (nestedShapeClass) into the shared schemas map, same as before; the
+            // rest are scalar/rich columns split into flat vs expandable.
+            var allFields = schema.fields || [];
+            var nestedFields = allFields.filter(function(f) { return f.isNestedShape; });
+
             var flatColumns = [];
             var richColumns = [];
-            (schema.columns || []).forEach(function(col) {
+            allFields.filter(function(f) { return !f.isNestedShape; }).forEach(function(col) {
                 var hasExpandableInner = col.innerDtoName
                     && docsData && docsData.schemas && docsData.schemas[col.innerDtoName]
-                    && ((docsData.schemas[col.innerDtoName].columns || []).length > 0);
+                    && ((docsData.schemas[col.innerDtoName].fields || []).length > 0);
                 var hasOptions = col.options && col.options.values && col.options.values.length > 0;
                 if (hasExpandableInner || hasOptions) {
                     richColumns.push(col);
@@ -8644,7 +8652,7 @@
             richColumns.forEach(function(col) {
                 var hasInner = col.innerDtoName
                     && docsData && docsData.schemas && docsData.schemas[col.innerDtoName]
-                    && ((docsData.schemas[col.innerDtoName].columns || []).length > 0);
+                    && ((docsData.schemas[col.innerDtoName].fields || []).length > 0);
                 var hasOptions = col.options && col.options.values && col.options.values.length > 0;
 
                 // Summary-row label on the right edge. Prefer the option kind ("bitmask" /
@@ -8689,8 +8697,8 @@
                 '</details>';
             });
 
-            if (schema.relationships && schema.relationships.length > 0) {
-                schema.relationships.forEach(function(rel) {
+            if (nestedFields.length > 0) {
+                nestedFields.forEach(function(rel) {
                     var info = rel.isCollection ? '<span class="ep-rule-tag">collection</span>' : '<span class="ep-rule-tag">single</span>';
 
                     // Resolve the related Resource's display name + lookup key from the FQCN.
@@ -8700,8 +8708,8 @@
                     // server-side by SdkResourceNaming \u2014 there is no per-consumer dance.
                     var relatedDisplayName = '';
                     var relatedKey = null;
-                    if (rel.relatedResource) {
-                        relatedDisplayName = rel.relatedResource.split('\\').pop();
+                    if (rel.nestedShapeClass) {
+                        relatedDisplayName = rel.nestedShapeClass.split('\\').pop();
                         relatedKey = relatedDisplayName.replace(/Resource$/, '');
                     }
                     var hasNested = relatedKey && docsData.schemas[relatedKey];
@@ -8713,7 +8721,7 @@
                     // IDE icon resolves rel.relatedResource (the Resource FQCN) — jumps to the
                     // Resource file. Empty when no source is available (shouldn't happen for
                     // valid relationships, but the helper degrades gracefully).
-                    var relIcon = ideIconForClass(rel.relatedResource, 'Open ' + relatedDisplayName);
+                    var relIcon = ideIconForClass(rel.nestedShapeClass, 'Open ' + relatedDisplayName);
 
                     html += '<details class="ep-rel-details" style="' + indent + 'margin-top:6px;">' +
                         '<summary class="ep-rel-summary">' +
@@ -8843,24 +8851,6 @@
                 requestHtml = '<div class="ep-section"><div class="ep-no-body">No request body or validation rules detected.</div></div>';
             }
 
-            // Build relationships section
-            var relsHtml = '';
-            if (ep.relationships && ep.relationships.length > 0) {
-                relsHtml = '<div class="ep-section">' +
-                    '<div class="ep-section-title">Eager-Loaded Relationships <span class="ep-section-badge relations">' + ep.relationships.length + '</span></div>' +
-                    '<table class="ep-field-table"><thead><tr><th>Relationship</th><th>Type</th><th>Related Model</th></tr></thead><tbody>';
-
-                ep.relationships.forEach(function(rel) {
-                    relsHtml += '<tr>' +
-                        '<td class="ep-field-name">' + escapeHtml(rel.name) + (rel.isCollection ? '[]' : '') + '</td>' +
-                        '<td class="ep-field-type">' + escapeHtml(rel.type) + '</td>' +
-                        '<td>' + escapeHtml(rel.relatedModel) + '</td>' +
-                    '</tr>';
-                });
-
-                relsHtml += '</tbody></table></div>';
-            }
-
             // Build response section
             var responseHtml = '';
 
@@ -8870,7 +8860,7 @@
                     '<div style="font-size:12px;color:var(--text-secondary);"><code>204 No Content</code> \u2014 Empty response on success.</div>' +
                 '</div>';
             } else if (modelName && docsData && docsData.schemas && docsData.schemas[modelName]
-                && ((docsData.schemas[modelName].columns || []).length > 0 || (docsData.schemas[modelName].relationships || []).length > 0)) {
+                && (docsData.schemas[modelName].fields || []).length > 0) {
                 // Look up the response schema's display label from its canonical resourceClass
                 // FQCN — the visualizer reads what the server serves, no strip/re-append dance.
                 var schemaEntry = docsData.schemas[modelName];
@@ -8955,7 +8945,7 @@
 
             function renderTabContent(tab) {
                 if (tab === 'request') return requestHtml;
-                if (tab === 'response') return responseHtml + relsHtml;
+                if (tab === 'response') return responseHtml;
                 if (tab === 'details') return metaHtml;
                 if (tab === 'code') return codeHtml;
                 return '';

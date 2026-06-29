@@ -34,7 +34,6 @@ class EndpointEnricher
     public function enrich(array $endpoint): array
     {
         $parameters = [];
-        $relationships = [];
 
         // Action endpoints: extract typed parameters and nested relationship info from the action class
         if ($endpoint['source'] === 'action' && $endpoint['actionClass'] !== null && class_exists($endpoint['actionClass'])) {
@@ -60,15 +59,20 @@ class EndpointEnricher
                     'isMorphType' => $p->isMorphType,
                 ], $definition->parameters);
 
-                foreach ($definition->nestedParameters() as $nested) {
-                    $nr = $nested->nestedRelationship;
-                    if ($nr) {
-                        $relationships[] = [
-                            'name' => $nr->name,
-                            'type' => $nr->relationshipType,
-                            'relatedModel' => class_basename($nr->relatedModel),
-                            'isCollection' => $nr->isCollection,
-                        ];
+                // Typed request DTO for body-bearing actions: project the action's params into a
+                // DTO field set — the SHAPE view of the contract. belongsTo → its FK id (int);
+                // hasMany → {Item}Data[]; nested DataSchema/Collection → {X}Data / {Item}Data[].
+                // No "relationship" concept survives into the contract; it's all data shapes.
+                // Skipped for GET (no body). An Action can't go through the Request reflection path
+                // (SdkShape::object) because its model/relationship props would trip guardTyped —
+                // the scanned ActionParameter carries the shape interpretation raw reflection lacks.
+                $method = strtolower((string) ($endpoint['method'] ?? ''));
+                if (in_array($method, ['post', 'put', 'patch'], true)) {
+                    [$requestDtoFields, $requestItemClasses] = $this->projectActionRequestDto($definition);
+                    if ($requestDtoFields !== []) {
+                        $endpoint['requestDtoName'] = class_basename($endpoint['actionClass']).'Data';
+                        $endpoint['requestDtoFields'] = $requestDtoFields;
+                        $endpoint['requestItemSchemaClasses'] = $requestItemClasses;
                     }
                 }
             } catch (\Throwable) {
@@ -112,8 +116,34 @@ class EndpointEnricher
             unset($endpoint['responseResource']);
         }
 
+        // Request side, symmetric to the response block: a type-hinted SchemaCraft\Request
+        // documents its own typed input (structure + rules at every level) via its own walk.
+        if (! empty($endpoint['requestResource'])) {
+            $requestClass = $endpoint['requestResource']['requestClass'] ?? null;
+
+            if ($requestClass !== null && class_exists($requestClass)) {
+                $fields = $this->buildRequestFieldsFromRequest($requestClass);
+
+                if ($fields !== null) {
+                    $endpoint['resolvedRequestClass'] = $requestClass;
+                    $endpoint['requestModelName'] = str_replace('Request', '', class_basename($requestClass));
+                    $endpoint['requestFields'] = $fields['fields'];
+                    // DTO name off the class basename, NOT requestModelName: the latter strips
+                    // "Request", so a request "CreateCatalog" would collide with a schema model's
+                    // CreateCatalogData. Basename keeps it CreateCatalogRequestData — collision-proof.
+                    $endpoint['requestDtoName'] = class_basename($requestClass).'Data';
+                }
+            }
+
+            unset($endpoint['requestResource']);
+        }
+
         $endpoint['parameters'] = $parameters;
-        $endpoint['relationships'] = $relationships;
+        // Request-side "relationships" intentionally NOT emitted: it duplicated what `parameters`
+        // (filtered by isNestedRelationship) already documents, fed only a cosmetic badge + a
+        // mislabeled table, and the Eloquent relationship type is meaningless to an API consumer.
+        // The request contract is data shapes only. (Response-side relationships live on the
+        // Resource/schema — a separate, load-bearing concept — and are untouched.)
         $endpoint['sourceFiles'] = $this->resolveSourceFiles($endpoint);
 
         unset($endpoint['controllerClass']);
@@ -168,6 +198,10 @@ class EndpointEnricher
 
     /**
      * Read a class file via reflection and return a labelled source entry.
+     *
+     * `path` is base_path-relative: the frontend reconstructs the absolute path for IDE-open links
+     * via window.SCHEMA_CRAFT_BASE_PATH (see ideIconForPath). The backend never emits absolute
+     * paths — keeps links machine-correct without per-machine backend work. [[schema-craft-ide-open-links]]
      *
      * @return array{label: string, path: string, content: string}|null
      */
@@ -289,6 +323,152 @@ class EndpointEnricher
      * @param  string[]  $visited  Resource classes already scanned (prevents infinite recursion at scan time)
      * @return array{columns: array, relationships: array}|null
      */
+    /**
+     * Document a Request's typed input structure + validation rules at every level.
+     *
+     * The mirror of buildResponseFieldsFromResource(): where a Resource is walked via
+     * ResourceScanner, a Request walks ITSELF — it is a DataSchema, so its structure
+     * comes from DataSchema::fieldDescriptors() (recursing into nested shapes) and its
+     * rules from Request::rules() (which already emits nested, dot-notation rules). No
+     * schema is consulted; the request stands on its own primitives.
+     *
+     * @return array{fields: array<int, array<string, mixed>>}|null
+     */
+    public function buildRequestFieldsFromRequest(string $requestClass): ?array
+    {
+        if (! is_subclass_of($requestClass, \SchemaCraft\Request::class)) {
+            return null;
+        }
+
+        try {
+            $rules = (new $requestClass)->rules();
+
+            return ['fields' => $this->walkRequestFields($requestClass, '', $rules)];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Recursively turn a DataSchema's typed properties into documented fields, attaching
+     * the matching rule set (by dot-path) at each level.
+     *
+     * @param  class-string<\SchemaCraft\DataSchema>  $dataSchemaClass
+     * @param  array<string, mixed>  $rules
+     * @return array<int, array<string, mixed>>
+     */
+    private function walkRequestFields(string $dataSchemaClass, string $prefix, array $rules): array
+    {
+        $fields = [];
+
+        foreach ($dataSchemaClass::fieldDescriptors() as $descriptor) {
+            $path = $prefix === '' ? $descriptor['name'] : $prefix.'.'.$descriptor['name'];
+
+            $field = [
+                'name' => $descriptor['name'],
+                'type' => $descriptor['isBuiltin']
+                    ? ($descriptor['typeName'] ?? 'mixed')
+                    : class_basename($descriptor['typeName'] ?? 'mixed'),
+                'nullable' => $descriptor['nullable'],
+                'rules' => $rules[$path] ?? [],
+            ];
+
+            // Nested shape (DataSchema/JsonColumn property): recurse so the inner
+            // structure + its per-field rules are documented as this field's children.
+            if ($descriptor['isDataSchema']) {
+                $field['children'] = $this->walkRequestFields($descriptor['typeName'], $path, $rules);
+            }
+
+            // Collection of shapes (CollectionColumn property): recurse into the item type
+            // under the `.*` path so each item field + its rules document as children — the
+            // `.*` prefix matches the rule keys the validation cascade emits.
+            if ($descriptor['isCollectionColumn'] && $descriptor['collectionItemClass'] !== null) {
+                $field['isCollection'] = true;
+                $field['children'] = $this->walkRequestFields($descriptor['collectionItemClass'], $path.'.*', $rules);
+            }
+
+            $fields[] = $field;
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Project an action's typed params into a request-DTO field set (the SHAPE view of its
+     * contract) plus the nested DataSchema classes whose own DTOs must also be emitted.
+     * Types are final PHPDoc strings ('int', '{X}Data', '{Item}Data[]') consumed verbatim by
+     * SdkDataGenerator::generateFromInnerDto.
+     *
+     * @return array{0: array<int, array{name: string, type: string, nullable: bool}>, 1: array<int, string>}
+     */
+    private function projectActionRequestDto(\SchemaCraft\Scanner\ActionDefinition $definition): array
+    {
+        $fields = [];
+        $itemClasses = [];
+
+        foreach ($definition->parameters as $p) {
+            // hasMany / nested relationship → the related item shape, as a collection or single.
+            if ($p->isNestedRelationship && $p->nestedRelationship !== null) {
+                $nr = $p->nestedRelationship;
+                if ($nr->dataSchemaClass === null) {
+                    continue;
+                }
+                $itemDto = class_basename($nr->dataSchemaClass).'Data';
+                $fields[] = [
+                    'name' => $nr->name,
+                    'type' => $nr->isCollection ? $itemDto.'[]' : $itemDto,
+                    'nullable' => $nr->nullable,
+                ];
+                $itemClasses[] = $nr->dataSchemaClass;
+
+                continue;
+            }
+
+            // belongsTo → its FK id: the contract sends an int, never a model object.
+            if ($p->isModel) {
+                $fields[] = [
+                    'name' => $p->foreignKeyColumn ?? (Str::snake($p->name).'_id'),
+                    'type' => 'int',
+                    'nullable' => $p->nullable,
+                ];
+
+                continue;
+            }
+
+            $name = $p->columnName ?? $p->name;
+            $type = $p->type;
+
+            if (class_exists($type) && is_subclass_of($type, \SchemaCraft\Primitives\CollectionColumn::class)) {
+                $item = $type::itemClass();
+                $fields[] = ['name' => $name, 'type' => class_basename($item).'Data[]', 'nullable' => $p->nullable];
+                $itemClasses[] = $item;
+            } elseif (class_exists($type) && is_subclass_of($type, \SchemaCraft\DataSchema::class)) {
+                $fields[] = ['name' => $name, 'type' => class_basename($type).'Data', 'nullable' => $p->nullable];
+                $itemClasses[] = $type;
+            } elseif (class_exists($type) && is_subclass_of($type, \BackedEnum::class)) {
+                $fields[] = [
+                    'name' => $name,
+                    'type' => (new \ReflectionEnum($type))->getBackingType()?->getName() ?? 'string',
+                    'nullable' => $p->nullable,
+                ];
+            } else {
+                $fields[] = [
+                    'name' => $name,
+                    'type' => match ($type) {
+                        'int' => 'int',
+                        'float' => 'float',
+                        'bool' => 'bool',
+                        'string' => 'string',
+                        default => 'mixed',
+                    },
+                    'nullable' => $p->nullable,
+                ];
+            }
+        }
+
+        return [$fields, array_values(array_unique($itemClasses))];
+    }
+
     public function buildResponseFieldsFromResource(string $resourceClass, array $visited = []): ?array
     {
         if (in_array($resourceClass, $visited, true)) {
@@ -370,7 +550,6 @@ class EndpointEnricher
                     'type' => $r['type'],
                     'relatedResource' => $r['resource'],
                     'isCollection' => $r['isCollection'],
-                    'conditional' => true,
                 ];
             }, $definition->relationships);
 

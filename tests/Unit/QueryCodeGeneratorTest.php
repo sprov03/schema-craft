@@ -683,7 +683,7 @@ class QueryCodeGeneratorTest extends TestCase
         $scope = $this->generator->generateScope($query);
 
         $this->assertStringContainsString("->whereHas('comments', function (\$q) {", $scope);
-        $this->assertStringContainsString("\$q->where('comments.approved', '=', 1)", $scope);
+        $this->assertStringContainsString("\$q->where('comments.approved', '=', '1')", $scope);
         $this->assertStringContainsString('})', $scope);
     }
 
@@ -707,7 +707,7 @@ class QueryCodeGeneratorTest extends TestCase
         $scope = $this->generator->generateScope($query);
 
         $this->assertStringContainsString("->whereHas('comments', function (\$q) {", $scope);
-        $this->assertStringContainsString("\$q->where('comments.approved', '=', 1)", $scope);
+        $this->assertStringContainsString("\$q->where('comments.approved', '=', '1')", $scope);
         $this->assertStringContainsString("}, '>=', 3)", $scope);
     }
 
@@ -750,7 +750,7 @@ class QueryCodeGeneratorTest extends TestCase
         $scope = $this->generator->generateScope($query);
 
         $this->assertStringContainsString("->whereDoesntHave('comments', function (\$q) {", $scope);
-        $this->assertStringContainsString("\$q->where('comments.spam', '=', 1)", $scope);
+        $this->assertStringContainsString("\$q->where('comments.spam', '=', '1')", $scope);
     }
 
     public function test_generates_scope_with_where_has_dynamic_condition(): void

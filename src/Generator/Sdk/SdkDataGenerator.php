@@ -104,7 +104,7 @@ class SdkDataGenerator
      * and SDK generator call buildResponseFieldsFromResource() once and share the result,
      * so the DTO always matches exactly what the API docs display.
      *
-     * @param  array{columns: array<int, array{name: string, type: string, nullable: bool, computed?: bool, innerDtoName?: string}>, relationships: array<int, array{name: string, type: string, relatedResource: string, isCollection: bool, conditional: bool}>}  $fields
+     * @param  array{columns: array<int, array{name: string, type: string, nullable: bool, computed?: bool, innerDtoName?: string}>, relationships: array<int, array{name: string, type: string, relatedResource: string, isCollection: bool}>}  $fields
      */
     public function generateFromFields(
         array $fields,
@@ -340,6 +340,41 @@ class SdkDataGenerator
 
         $lines[] = '        );';
         $lines[] = '    }';
+
+        // toArray() — the wire representation, symmetric to fromArray(). A request DTO is posted
+        // as $request->toArray(), so nested DTO fields must serialize back to plain arrays (mirror
+        // of the fromArray() type handling above). Harmless for response DTOs, which simply gain a
+        // round-trip method.
+        $lines[] = '';
+        $lines[] = '    /**';
+        $lines[] = '     * @return array';
+        $lines[] = '     */';
+        $lines[] = '    public function toArray()';
+        $lines[] = '    {';
+        $lines[] = '        return [';
+
+        foreach ($fields as $f) {
+            $type = $f['type'];
+            $name = $f['name'];
+
+            if (str_ends_with($type, '[]') && str_ends_with(substr($type, 0, -2), 'Data')) {
+                $lines[] = "            '{$name}' => \$this->{$name} === null ? null : array_map(function (\$item) { return \$item->toArray(); }, \$this->{$name}),";
+
+                continue;
+            }
+
+            if (! in_array($type, $scalarTypes, true) && str_ends_with($type, 'Data')) {
+                $lines[] = "            '{$name}' => \$this->{$name} === null ? null : \$this->{$name}->toArray(),";
+
+                continue;
+            }
+
+            $lines[] = "            '{$name}' => \$this->{$name},";
+        }
+
+        $lines[] = '        ];';
+        $lines[] = '    }';
+
         $lines[] = '}';
         $lines[] = '';
 

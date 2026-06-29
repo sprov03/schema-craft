@@ -119,75 +119,67 @@ class ApiRoutesShapeTest extends TestCase
             $this->assertArrayHasKey('schemaClass', $entry, "schema [{$modelKey}] missing schemaClass");
             $this->assertArrayHasKey('isDependencyOnly', $entry, "schema [{$modelKey}] missing isDependencyOnly");
             $this->assertArrayHasKey('tableName', $entry, "schema [{$modelKey}] missing tableName");
-            $this->assertArrayHasKey('columns', $entry, "schema [{$modelKey}] missing columns");
-            $this->assertArrayHasKey('relationships', $entry, "schema [{$modelKey}] missing relationships");
+            $this->assertArrayHasKey('fields', $entry, "schema [{$modelKey}] missing fields");
+            $this->assertArrayNotHasKey('columns', $entry, "schema [{$modelKey}] still carries the old columns bucket");
+            $this->assertArrayNotHasKey('relationships', $entry, "schema [{$modelKey}] still carries the old relationships bucket");
             $this->assertArrayHasKey('endpoints', $entry, "schema [{$modelKey}] missing endpoints");
             $this->assertArrayHasKey('customActions', $entry, "schema [{$modelKey}] missing customActions");
         }
     }
 
-    public function test_columns_only_carry_contract_delivered_fields(): void
+    public function test_fields_only_carry_contract_delivered_keys(): void
     {
         $payload = $this->payload();
         $catalog = $payload['schemas']['Catalog'];
 
-        $allowedColumnKeys = ['name', 'type', 'nullable', 'computed', 'innerDtoName', 'options', 'isCollection'];
-        $forbiddenColumnKeys = ['primary', 'autoIncrement', 'unique', 'unsigned', 'cast', 'managed', 'length', 'default'];
+        // Columns + nested-shape fields share one `fields` list now. Allowed keys are the union
+        // of the column contract and the nested-shape contract; dead schema-level metadata stays out.
+        $allowedKeys = ['name', 'type', 'nullable', 'computed', 'innerDtoName', 'options', 'isCollection', 'isNestedShape', 'nestedShapeClass'];
+        $forbiddenKeys = ['primary', 'autoIncrement', 'unique', 'unsigned', 'cast', 'managed', 'length', 'default', 'relatedModel', 'relatedFields'];
 
-        foreach ($catalog['columns'] as $col) {
-            $this->assertArrayHasKey('name', $col);
-            $this->assertArrayHasKey('type', $col);
-            $this->assertArrayHasKey('nullable', $col);
+        foreach ($catalog['fields'] as $f) {
+            $this->assertArrayHasKey('name', $f);
 
-            foreach (array_keys($col) as $key) {
+            foreach (array_keys($f) as $key) {
                 $this->assertContains(
                     $key,
-                    $allowedColumnKeys,
-                    "Column [{$col['name']}] carries unexpected key [{$key}] — the contract only delivers "
-                    .implode(', ', $allowedColumnKeys).'. Dead schema-level badges were removed in the visualizer/SDK alignment.',
+                    $allowedKeys,
+                    "Field [{$f['name']}] carries unexpected key [{$key}] — the contract only delivers ".implode(', ', $allowedKeys).'.',
                 );
                 $this->assertNotContains(
                     $key,
-                    $forbiddenColumnKeys,
-                    "Column [{$col['name']}] re-introduces dead badge field [{$key}] — those were schema-level metadata the Resource layer doesn't expose.",
+                    $forbiddenKeys,
+                    "Field [{$f['name']}] re-introduces dead key [{$key}].",
                 );
             }
         }
     }
 
-    public function test_relationships_use_related_resource_fqcn_not_related_model_or_related_fields(): void
+    public function test_nested_shape_fields_carry_the_resource_fqcn_pointer(): void
     {
         $payload = $this->payload();
         $catalog = $payload['schemas']['Catalog'];
 
-        $this->assertNotEmpty($catalog['relationships'], 'Catalog should declare relationships');
+        // Former "relationships" are now nested-shape fields inside the one `fields` list.
+        $nested = array_values(array_filter($catalog['fields'], fn ($f) => ! empty($f['isNestedShape'])));
+        $this->assertNotEmpty($nested, 'Catalog should declare nested-shape fields (former relationships)');
 
-        foreach ($catalog['relationships'] as $rel) {
-            $this->assertArrayHasKey('name', $rel);
-            $this->assertArrayHasKey('type', $rel);
-            $this->assertArrayHasKey('relatedResource', $rel, "relationship [{$rel['name']}] missing relatedResource (FQCN)");
-            $this->assertArrayHasKey('isCollection', $rel);
+        foreach ($nested as $f) {
+            $this->assertArrayHasKey('name', $f);
+            $this->assertArrayHasKey('nestedShapeClass', $f, "nested field [{$f['name']}] missing nestedShapeClass (FQCN pointer)");
+            $this->assertArrayHasKey('isCollection', $f);
 
-            // The full FQCN, not a stripped bare name. If something starts emitting only the
-            // basename or a model name, that's the strip/re-append dance creeping back.
+            // The full FQCN, not a stripped bare name — consumers resolve it in the shared schemas map.
             $this->assertStringContainsString(
                 '\\',
-                $rel['relatedResource'],
-                "relationship [{$rel['name']}].relatedResource should be a FQCN, not [{$rel['relatedResource']}]",
+                $f['nestedShapeClass'],
+                "nested field [{$f['name']}].nestedShapeClass should be a FQCN, not [{$f['nestedShapeClass']}]",
             );
 
-            // The pre-alignment fields are GONE — both were visualizer-specific carve-outs
-            // that codified divergence between the visualizer and the SDK pipeline.
-            $this->assertArrayNotHasKey(
-                'relatedModel',
-                $rel,
-                "relationship [{$rel['name']}] re-introduced the stripped relatedModel field. See SdkResourceNaming for the canonical transform.",
-            );
-            $this->assertArrayNotHasKey(
-                'relatedFields',
-                $rel,
-                "relationship [{$rel['name']}] re-introduced the inline relatedFields nesting. Consumers walk the flat schemas map instead.",
-            );
+            // The old keys are GONE — one fields list, one pointer key (nestedShapeClass).
+            $this->assertArrayNotHasKey('relatedResource', $f, "nested field [{$f['name']}] still uses the old relatedResource key");
+            $this->assertArrayNotHasKey('relatedModel', $f);
+            $this->assertArrayNotHasKey('relatedFields', $f);
         }
     }
 

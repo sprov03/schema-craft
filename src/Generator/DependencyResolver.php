@@ -4,6 +4,7 @@ namespace SchemaCraft\Generator;
 
 use Illuminate\Support\Str;
 use ReflectionClass;
+use SchemaCraft\Scanner\SchemaResolver;
 use SchemaCraft\Scanner\SchemaScanner;
 use SchemaCraft\Scanner\TableDefinition;
 use SchemaCraft\Schema;
@@ -55,11 +56,9 @@ class DependencyResolver
         $resolved = [];
         $visited = [];
 
-        // Mark the root model as visited so we don't re-process it
-        $rootModelFqcn = $this->deriveModelFqcn($rootTable->schemaClass);
-        if ($rootModelFqcn !== null) {
-            $visited[$rootModelFqcn] = true;
-        }
+        // Mark the root model as visited so we don't re-process it.
+        // Schema→Model resolution is centralized in SchemaResolver (single source).
+        $visited[SchemaResolver::resolveModelClass($rootTable->schemaClass)] = true;
 
         $this->walkDependencies($rootTable, $resolved, $visited);
 
@@ -142,32 +141,6 @@ class DependencyResolver
             // Recurse into this dependency's relationships
             $this->walkDependencies($depTable, $resolved, $visited);
         }
-    }
-
-    /**
-     * Derive the model FQCN from a schema class name.
-     *
-     * e.g., App\Schemas\PostSchema → App\Models\Post
-     *       SchemaCraft\Tests\Fixtures\Schemas\PostSchema → SchemaCraft\Tests\Fixtures\Models\Post
-     */
-    private function deriveModelFqcn(string $schemaClass): ?string
-    {
-        $namespace = Str::beforeLast($schemaClass, '\\');
-        $className = class_basename($schemaClass);
-        $modelName = Str::beforeLast($className, 'Schema');
-
-        if ($modelName === $className) {
-            return null;
-        }
-
-        // Replace last 'Schemas' namespace segment with 'Models'
-        $modelNamespace = preg_replace('/\\\\Schemas$/', '\\Models', $namespace);
-
-        if ($modelNamespace === $namespace) {
-            return null;
-        }
-
-        return $modelNamespace.'\\'.$modelName;
     }
 
     /**

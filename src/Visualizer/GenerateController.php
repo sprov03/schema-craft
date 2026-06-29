@@ -24,6 +24,7 @@ use SchemaCraft\Generator\ModelTestGenerator;
 use SchemaCraft\Generator\Sdk\RuntimeRouteScanner;
 use SchemaCraft\Generator\Sdk\SdkContextBuilder;
 use SchemaCraft\Generator\Sdk\SdkGenerator;
+use SchemaCraft\Generator\Sdk\SdkModelExporter;
 use SchemaCraft\Generator\StubResolver;
 use SchemaCraft\Migration\SchemaDiscovery;
 use SchemaCraft\Scanner\ResourceDefinition;
@@ -1724,17 +1725,27 @@ class GenerateController
         $stubsPath = StubResolver::basePath();
         $generator = new SdkGenerator;
 
+        $sdkFiles = $generator->generate(
+            schemas: $result->schemas,
+            packageName: $sdkName,
+            namespace: $sdkNamespace,
+            clientClassName: $sdkClient,
+            stubsPath: $stubsPath,
+            version: $sdkVersion,
+        );
+
+        // Append read-only Eloquent models to the SAME package so the exported SDK ships the API
+        // client AND models together. Model selection is CONNECTION-driven ($schemaClasses — every
+        // discovered schema), NOT the route-filtered $result->schemas the API client uses: a model
+        // exports because it exists, not because it has a documented endpoint. Shared with the CLI
+        // via SdkModelExporter (no drift). modelNamespace is the source root stripped to preserve
+        // each model's relative sub-namespace under the SDK base.
+        $modelExport = (new SdkModelExporter)->export($schemaClasses, $sdkNamespace, $apiConfig->modelNamespace);
+
         return [
-            'files' => $generator->generate(
-                schemas: $result->schemas,
-                packageName: $sdkName,
-                namespace: $sdkNamespace,
-                clientClassName: $sdkClient,
-                stubsPath: $stubsPath,
-                version: $sdkVersion,
-            ),
+            'files' => array_merge($sdkFiles, $modelExport['files']),
             'errors' => $result->errors,
-            'warnings' => $result->warnings,
+            'warnings' => array_merge($result->warnings, $modelExport['warnings']),
         ];
     }
 

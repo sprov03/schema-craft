@@ -4,6 +4,7 @@ namespace SchemaCraft;
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use SchemaCraft\Console\ExportModelsCommand;
 use SchemaCraft\Console\GenerateApiCommand;
 use SchemaCraft\Console\GenerateFilamentCommand;
 use SchemaCraft\Console\GenerateSdkCommand;
@@ -95,6 +96,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->commands([
+                ExportModelsCommand::class,
                 GenerateApiCommand::class,
                 GenerateFilamentCommand::class,
                 GenerateSdkCommand::class,

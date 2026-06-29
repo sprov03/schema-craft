@@ -46,6 +46,11 @@ class SdkResourceGenerator
             if (isset($endpoint['responseModelName'])) {
                 $referencedDtos[] = $endpoint['responseModelName'].'Data';
             }
+            // A typed-request endpoint references its {X}RequestData param type — import it too,
+            // same reason as response DTOs (unqualified short name would not resolve at runtime).
+            if (isset($endpoint['requestDtoName'])) {
+                $referencedDtos[] = $endpoint['requestDtoName'];
+            }
         }
         $referencedDtos = array_values(array_unique($referencedDtos));
         sort($referencedDtos);
@@ -152,6 +157,50 @@ class SdkResourceGenerator
         $isGet = $httpMethod === 'get';
         $bodyParams = $this->resolveBodyParamsFromAction($httpMethod, $parameters);
         $connectorPath = $this->buildConnectorPath($path);
+
+        // Typed request fast-path: a POST/PUT/PATCH endpoint whose handler type-hints a
+        // SchemaCraft\Request (or an Action) takes a single typed {X}RequestData $request and posts
+        // its own wire form ($request->toArray()) — one source of truth for the request shape,
+        // replacing the flat per-field body params. (GET never carries a request DTO.)
+        $requestDtoName = $endpoint['requestDtoName'] ?? null;
+        if ($requestDtoName !== null && in_array($httpMethod, ['post', 'put', 'patch'], true)) {
+            $allParams = [];
+            foreach ($pathParams as $pathParam) {
+                $allParams[] = "\${$pathParam}";
+            }
+            $allParams[] = "{$requestDtoName} \$request";
+            $paramList = $this->formatParamList($allParams);
+
+            $lines = ['    /**'];
+            foreach ($pathParams as $pathParam) {
+                $lines[] = "     * @param int|string \${$pathParam}";
+            }
+            $lines[] = "     * @param {$requestDtoName} \$request";
+            if ($hasResponse) {
+                $lines[] = "     * @return {$endpointDataClass}";
+            } elseif ($hasManualResponse) {
+                $lines[] = '     * @return array';
+            } else {
+                $lines[] = '     * @return void';
+            }
+            $lines[] = '     */';
+            $lines[] = "    public function {$methodName}({$paramList})";
+            $lines[] = '    {';
+            if ($hasResponse) {
+                $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, \$request->toArray());";
+                $lines[] = '';
+                $lines[] = "        return {$endpointDataClass}::fromArray(\$response['data']);";
+            } elseif ($hasManualResponse) {
+                $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, \$request->toArray());";
+                $lines[] = '';
+                $lines[] = "        return \$response['data'];";
+            } else {
+                $lines[] = "        \$this->connector->{$httpMethod}({$connectorPath}, \$request->toArray());";
+            }
+            $lines[] = '    }';
+
+            return $lines;
+        }
 
         $allParams = [];
         foreach ($pathParams as $pathParam) {

@@ -162,6 +162,7 @@ class RuntimeRouteScanner
         $actionParameters = null;
         $responseResource = null;
         $responseUndocumented = false;
+        $requestResource = null;
 
         // Check for action endpoint (route defaults)
         $schemaCraftAction = $route->defaults['_schema_craft_action'] ?? null;
@@ -230,6 +231,16 @@ class RuntimeRouteScanner
                 $rules = $this->extractRules($formRequest);
             }
 
+            // A type-hinted SchemaCraft\Request param IS the request declaration — it is
+            // injected + self-validating, so the param itself documents the input (no
+            // #[ApiRequest] attribute needed, mirroring how the response falls back to a
+            // type hint). Its rules() doubles as the docs rule set.
+            $schemaCraftRequest = $this->extractSchemaCraftRequest($controllerClass, $controllerMethod);
+            if ($schemaCraftRequest !== null) {
+                $requestResource = ['requestClass' => $schemaCraftRequest];
+                $rules = $rules ?? $this->extractRules($schemaCraftRequest);
+            }
+
             $result = $this->extractResponseAttribute($controllerClass, $controllerMethod, $path);
 
             if ($result !== null) {
@@ -256,6 +267,7 @@ class RuntimeRouteScanner
             'actionParameters' => $actionParameters,
             'responseResource' => $responseResource,
             'responseUndocumented' => $responseUndocumented,
+            'requestResource' => $requestResource,
         ];
     }
 
@@ -326,6 +338,39 @@ class RuntimeRouteScanner
                 $typeName = $type->getName();
 
                 if (class_exists($typeName) && is_subclass_of($typeName, FormRequest::class)) {
+                    return $typeName;
+                }
+            }
+        } catch (\Throwable) {
+            // Reflection failed
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract a SchemaCraft\Request class from a controller method's parameters.
+     *
+     * These are container-injected + self-validating (ValidatesWhenResolved) and
+     * document their own typed input — the request-side mirror of #[ApiResponse].
+     *
+     * @return class-string<\SchemaCraft\Request>|null
+     */
+    private function extractSchemaCraftRequest(string $controllerClass, string $method): ?string
+    {
+        try {
+            $ref = new ReflectionMethod($controllerClass, $method);
+
+            foreach ($ref->getParameters() as $param) {
+                $type = $param->getType();
+
+                if (! $type instanceof ReflectionNamedType || $type->isBuiltin()) {
+                    continue;
+                }
+
+                $typeName = $type->getName();
+
+                if (class_exists($typeName) && is_subclass_of($typeName, \SchemaCraft\Request::class)) {
                     return $typeName;
                 }
             }

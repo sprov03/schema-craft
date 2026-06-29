@@ -31,12 +31,20 @@ class ConditionNode
         public mixed $value = null,
         public string $valueType = 'hardcoded',
         public ?string $referenceColumn = null,
+        // Correlated value-sources: valueType 'relatedColumn' compares this column to $referenceColumn on
+        // a to-one related model reached via $referenceRelationship (a correlated whereHas comparison).
+        // valueType 'aggregate' compares it to $aggregateFunction($referenceColumn) over a to-many
+        // $referenceRelationship (a correlated aggregate subquery; count uses count(*)).
+        public ?string $referenceRelationship = null,
+        public ?string $aggregateFunction = null,
         // WhereHas-specific
         public ?string $relationship = null,
         public ?string $sourceModel = null,
         public string $hasType = 'has',
         public ?string $countOperator = null,
         public ?int $countValue = null,
+        // Group-specific: negate the whole group → "Match NONE of" (whereNot over the children).
+        public bool $negate = false,
     ) {}
 
     /**
@@ -65,11 +73,14 @@ class ConditionNode
                 value: $data['value'] ?? null,
                 valueType: $data['valueType'] ?? (($data['parameter'] ?? false) ? 'dynamic' : 'hardcoded'),
                 referenceColumn: $data['referenceColumn'] ?? null,
+                referenceRelationship: $data['referenceRelationship'] ?? null,
+                aggregateFunction: $data['aggregateFunction'] ?? null,
                 relationship: $data['relationship'] ?? null,
                 sourceModel: $data['sourceModel'] ?? null,
                 hasType: $data['hasType'] ?? 'has',
                 countOperator: $data['countOperator'] ?? null,
                 countValue: isset($data['countValue']) ? (int) $data['countValue'] : null,
+                negate: (bool) ($data['negate'] ?? false),
             );
         }
 
@@ -106,15 +117,29 @@ class ConditionNode
                 $data['referenceColumn'] = $this->referenceColumn;
             }
 
+            if ($this->referenceRelationship !== null) {
+                $data['referenceRelationship'] = $this->referenceRelationship;
+            }
+
+            if ($this->aggregateFunction !== null) {
+                $data['aggregateFunction'] = $this->aggregateFunction;
+            }
+
             return $data;
         }
 
         if ($this->type === 'group') {
-            return [
+            $group = [
                 'type' => 'group',
                 'boolean' => $this->boolean,
                 'children' => array_map(fn (self $n) => $n->toArray(), $this->children),
             ];
+
+            if ($this->negate) {
+                $group['negate'] = true;
+            }
+
+            return $group;
         }
 
         // whereHas
@@ -201,6 +226,17 @@ class ConditionNode
     public function isNegated(): bool
     {
         return $this->hasType === 'doesntHave';
+    }
+
+    /**
+     * SQL aggregate expression for the 'aggregate' value-source — count uses count(*), the rest wrap the
+     * referenced column. Shared by the runtime applier and the code generator so they can't diverge.
+     */
+    public function aggregateExpression(): string
+    {
+        $fn = strtolower((string) $this->aggregateFunction);
+
+        return $fn === 'count' ? 'count(*)' : "{$fn}({$this->referenceColumn})";
     }
 
     /**

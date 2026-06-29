@@ -22,6 +22,27 @@ class SdkGenerationException extends RuntimeException
         );
     }
 
+    /**
+     * Thrown when a response shape references a nested Resource that wasn't emitted into the SDK
+     * — the generated code would carry a reference that resolves to nothing at the consumer.
+     *
+     * Why hard-fail (gated by the generate-anyway flag): the SDK must be reliable on the user's
+     * end. A dangling nested-shape reference means a typed property pointing at a DTO that doesn't
+     * exist — broken code shipped silently. Usually the referenced Resource failed to scan or
+     * isn't reachable from a documented endpoint. Fix the Resource (or its reachability), or pass
+     * the generate-anyway flag to push through a known-broken state for inspection.
+     */
+    public static function danglingNestedShape(string $modelName, string $fieldName, string $referencedResource): self
+    {
+        return new self(
+            "Cannot generate SDK: response shape [{$modelName}] references Resource "
+            ."[{$referencedResource}] (as field '{$fieldName}'), but that Resource was not emitted "
+            ."into the SDK — the generated reference would dangle and break at the consumer. This "
+            ."usually means the Resource failed to scan or isn't reachable from a documented "
+            ."endpoint. Fix it, or generate-anyway to push through the broken state for inspection."
+        );
+    }
+
     public static function unsupportedResourceType(string $type): self
     {
         return new self(
