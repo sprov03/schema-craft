@@ -41,6 +41,41 @@ test('chart builder: pick a type → its knobs render (schemaField picker + sele
   assert.equal(overlay.querySelector('.qb-knob-text').value, '6', 'text knob carries the author default');
 });
 
+test('chart builder: a filter knob mounts the embedded builder and streams its tree into raw input', () => {
+  const root = mount();
+  let saved = null;
+  let mountedInto = null;
+  let streamTree = null; // capture the embedded builder's onChange so the test can drive it
+  const CAT = [{ type: 'TrendChart', label: 'Trend Chart', inputs: [
+    { key: 'bucket', label: 'Bucket', type: 'select', options: { month: 'Monthly' } },
+    { key: 'filter', label: 'Filter', type: 'filter' },
+  ] }];
+
+  initChartBuilder(root, {
+    catalog: CAT,
+    metadata: null,
+    // stand-in for the real query builder: records where it mounted, hands us its onChange.
+    mountFilter: (el, { onChange }) => { mountedInto = el; streamTree = onChange; },
+    onSave: (type, raw) => { saved = { type, raw }; },
+  });
+
+  root.querySelector('.qb-add-chart').click();
+  const overlay = document.querySelector('.qb-modal-overlay');
+  overlay.querySelector('.qb-combo-input').dispatchEvent(new globalThis.window.Event('focus'));
+  [...overlay.querySelectorAll('.qb-combo-item')].find((b) => b.textContent.includes('Trend Chart'))
+    .dispatchEvent(new globalThis.window.Event('mousedown'));
+
+  assert.ok(overlay.querySelector('.qb-knob-filter'), 'the filter knob renders a container');
+  assert.ok(mountedInto && overlay.contains(mountedInto), 'the embedded builder mounts inside the knob');
+
+  // the embedded builder edits → streams a tree back; it must land on raw.filter.
+  const tree = [{ type: 'condition', column: 'first_name', operator: '=', value: 'Bob', boolean: 'and', valueType: 'hardcoded' }];
+  streamTree(tree);
+
+  overlay.querySelector('.qb-modal-save').click();
+  assert.deepEqual(saved.raw.filter, tree, 'the chart carries its own filter tree');
+});
+
 test('chart builder: save emits the chosen type + raw knob input', () => {
   const root = mount();
   let saved = null;

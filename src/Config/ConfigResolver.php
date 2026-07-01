@@ -250,7 +250,16 @@ class ConfigResolver
         return base_path($path);
     }
 
-    private static function resolveViaComposerAutoload(string $namespace): ?string
+    /**
+     * Resolve a namespace to its absolute on-disk directory via Composer's PSR-4 map.
+     * Returns null when no registered prefix matches.
+     *
+     * Public because it is the single shared composer-aware lookup — ConnectionConfig's
+     * namespace→directory resolution delegates to this rather than keeping a second copy,
+     * so the two never drift (previously ConnectionConfig used a hardcoded heuristic that
+     * mis-resolved custom PSR-4 roots like a plain `Factories\` → `factories/`).
+     */
+    public static function resolveViaComposerAutoload(string $namespace): ?string
     {
         $autoloadPath = base_path('vendor/autoload.php');
         if (! file_exists($autoloadPath)) {

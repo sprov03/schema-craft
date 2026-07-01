@@ -18,7 +18,7 @@ function el(tag, attrs = {}, children = []) {
  * column}); `select`/`text` are plain inputs. Emits onSave(type, rawInput) — the host resolves + persists
  * it via the page's addChart. The chart classes (the catalog) stay the source of truth for the knobs.
  */
-export function initChartBuilder(host, { catalog = [], metadata = null, onSave = () => {} } = {}) {
+export function initChartBuilder(host, { catalog = [], metadata = null, mountFilter = null, onSave = () => {} } = {}) {
   // A clearly-labelled section so the entry point is unmistakable (not a bare button in the filter area).
   const section = el('div', { class: 'qb-chart-section' }, [
     el('div', { class: 'qb-chart-section-label', text: '📊 Charts' }),
@@ -68,6 +68,14 @@ export function initChartBuilder(host, { catalog = [], metadata = null, onSave =
         });
         row.appendChild(chip);
         row.appendChild(pick);
+      } else if (input.type === 'filter') {
+        // Embed the SAME query builder used at report level, scoped to the chart's base schema. Its
+        // serialized ConditionNode tree streams into raw[key]; an empty tree = no filter (backend skips it).
+        const container = el('div', { class: 'qb-knob-filter' });
+        if (mountFilter) {
+          mountFilter(container, { initialTree: [], onChange: (tree) => { raw[input.key] = tree; } });
+        }
+        row.appendChild(container);
       } else if (input.type === 'select') {
         const sel = el('select', { class: 'qb-knob-select' });
         Object.entries(input.options || {}).forEach(([val, label]) => sel.appendChild(el('option', { value: val, text: label })));

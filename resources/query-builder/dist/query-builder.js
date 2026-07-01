@@ -1305,7 +1305,7 @@ var SchemaCraftQueryBuilder = (() => {
     for (const child of children) node.appendChild(child);
     return node;
   }
-  function initChartBuilder(host, { catalog = [], metadata = null, onSave = () => {
+  function initChartBuilder(host, { catalog = [], metadata = null, mountFilter = null, onSave = () => {
   } } = {}) {
     const section = el3("div", { class: "qb-chart-section" }, [
       el3("div", { class: "qb-chart-section-label", text: "\u{1F4CA} Charts" })
@@ -1350,6 +1350,14 @@ var SchemaCraftQueryBuilder = (() => {
           });
           row.appendChild(chip);
           row.appendChild(pick);
+        } else if (input.type === "filter") {
+          const container = el3("div", { class: "qb-knob-filter" });
+          if (mountFilter) {
+            mountFilter(container, { initialTree: [], onChange: (tree) => {
+              raw[input.key] = tree;
+            } });
+          }
+          row.appendChild(container);
         } else if (input.type === "select") {
           const sel = el3("select", { class: "qb-knob-select" });
           Object.entries(input.options || {}).forEach(([val, label]) => sel.appendChild(el3("option", { value: val, text: label })));

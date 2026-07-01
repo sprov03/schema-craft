@@ -1104,6 +1104,7 @@
         .fp-file-badge.removed { background: color-mix(in srgb, #f87171 15%, transparent); color: #dc2626; }
         .fp-file-badge.changed { background: color-mix(in srgb, #fb923c 15%, transparent); color: #ea580c; }
         .fp-file-badge.unchanged { background: var(--bg-tertiary); color: var(--text-muted); }
+        .fp-file-badge.replaceable { background: var(--accent-dim); color: var(--accent); }
         .fp-filter-bar {
             display: flex; gap: 6px; padding: 8px 12px 4px;
             border-bottom: 1px solid var(--border); flex-wrap: wrap; flex-shrink: 0;
@@ -1139,6 +1140,15 @@
         }
         .fp-skip-btn:hover { background: var(--error-dim); color: var(--error); }
         .fp-skip-btn.skipped { background: var(--error-dim); color: var(--error); }
+        .fp-replace-btn {
+            padding: 2px 8px; border-radius: 10px; font-size: 10px;
+            font-weight: 600; text-transform: uppercase; flex-shrink: 0; margin-left: 4px;
+            background: var(--bg-tertiary); color: var(--text-muted); border: none;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .fp-replace-btn:hover { background: var(--warning-dim); color: var(--warning); }
+        .fp-replace-btn.replacing { background: var(--warning-dim); color: var(--warning); }
+        .fp-file-item.fp-replacing .fp-file-path { font-weight: 600; }
         .fp-ide-btn {
             flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
             width: 18px; height: 18px; border-radius: 3px; color: var(--text-muted);
@@ -6392,44 +6402,70 @@
         // exists === true, hiding real changes from the developer.
         // See: src/Visualizer/GeneratorController.php → preview() for the PHP side.
         // ─────────────────────────────────────────────────────────────────────────────
-        function showFilePreviewModal(files, confirmLabel, onConfirm, debugContext) {
+        function showFilePreviewModal(files, confirmLabel, onConfirm, debugContext, rePreview, preselect) {
             confirmLabel = confirmLabel || 'Write Files';
             var overlay = document.createElement('div');
             overlay.className = 'fp-overlay';
+
+            // rePreview(replacePaths) → Promise<files>: when provided, this flow supports the
+            // per-file "Replace" toggle for existing file-template targets. Toggling re-runs the
+            // preview with the chosen paths in forceReplace so the diff reflects disk → render.
+            // preselect { skip:[paths], replace:[paths] } restores toggle state across a re-preview.
+            var supportsReplace = typeof rePreview === 'function';
 
             // Classify each file into a filter category
             function getCategory(f) {
                 if (f.removed) { return 'deleted'; }
                 if (!f.exists) { return 'new'; }
                 if (f.existingContent != null && f.content !== f.existingContent) { return 'changed'; }
+                // Preserved file-template over an existing file — distinct from a genuinely
+                // unchanged inline file, because the user can choose to Replace it.
+                if (supportsReplace && f.type === 'file') { return 'replaceable'; }
                 return 'unchanged';
             }
 
-            var counts = { new: 0, changed: 0, unchanged: 0, deleted: 0 };
+            var counts = { new: 0, changed: 0, replaceable: 0, unchanged: 0, deleted: 0 };
             files.forEach(function(f) { counts[getCategory(f)]++; });
 
             // Show filter bar when more than one category has files
-            var categoryCount = ['new', 'changed', 'unchanged', 'deleted'].filter(function(k) { return counts[k] > 0; }).length;
+            var categoryCount = ['new', 'changed', 'replaceable', 'unchanged', 'deleted'].filter(function(k) { return counts[k] > 0; }).length;
             var showFilterBar = categoryCount > 1;
 
-            // Active filters: new/changed/deleted on, unchanged off by default
-            var activeFilters = { new: true, changed: true, deleted: true, unchanged: false };
+            // Active filters: actionable categories on; plain unchanged off by default
+            var activeFilters = { new: true, changed: true, replaceable: true, deleted: true, unchanged: false };
 
+            // Replace state (path → true) and skip state (idx → true), restorable from preselect
+            // so a re-preview reopen keeps the user's toggles.
+            var forceReplacePaths = {};
+            (preselect && preselect.replace || []).forEach(function(p) { forceReplacePaths[p] = true; });
             var skippedFiles = {};
+            var skipPathSet = {};
+            (preselect && preselect.skip || []).forEach(function(p) { skipPathSet[p] = true; });
+            files.forEach(function(f, idx) { if (skipPathSet[f.path]) { skippedFiles[idx] = true; } });
 
             var badgeMap = {
-                new:       '<span class="fp-file-badge new">New</span>',
-                changed:   '<span class="fp-file-badge changed">Changed</span>',
-                unchanged: '<span class="fp-file-badge unchanged">Unchanged</span>',
-                deleted:   '<span class="fp-file-badge removed">Removed</span>',
+                new:         '<span class="fp-file-badge new">New</span>',
+                changed:     '<span class="fp-file-badge changed">Changed</span>',
+                replaceable: '<span class="fp-file-badge replaceable">Replaceable</span>',
+                unchanged:   '<span class="fp-file-badge unchanged">Unchanged</span>',
+                deleted:     '<span class="fp-file-badge removed">Removed</span>',
             };
 
             var fileListHtml = files.map(function(f, idx) {
                 var cat = getCategory(f);
+                var isSkipped = !!skippedFiles[idx];
+                var isReplacing = !!forceReplacePaths[f.path];
                 var hidden = (showFilterBar && !activeFilters[cat]) ? ' fp-hidden' : '';
-                var skipLabel = f.removed ? 'Keep' : 'Skip';
+                var itemClasses = 'fp-file-item' + hidden + (isSkipped ? ' fp-skipped' : '') + (isReplacing ? ' fp-replacing' : '');
+                var skipLabel = f.removed ? (isSkipped ? 'Keeping' : 'Keep') : (isSkipped ? 'Skipped' : 'Skip');
                 var skipTitle = f.removed ? 'Keep this file (do not delete)' : 'Skip this file';
-                var skipBtn = '<button class="fp-skip-btn" data-fp-skip-idx="' + idx + '" title="' + skipTitle + '">' + skipLabel + '</button>';
+                var skipBtn = '<button class="fp-skip-btn' + (isSkipped ? ' skipped' : '') + '" data-fp-skip-idx="' + idx + '" title="' + skipTitle + '">' + skipLabel + '</button>';
+                // Replace toggle: only for an existing file-template target, only when the flow
+                // supports re-preview. Overwrites the existing file with the freshly rendered one.
+                var replaceBtn = '';
+                if (supportsReplace && f.type === 'file' && f.exists) {
+                    replaceBtn = '<button class="fp-replace-btn' + (isReplacing ? ' replacing' : '') + '" data-fp-replace-idx="' + idx + '" title="Replace the existing file with the freshly generated version">' + (isReplacing ? 'Replacing' : 'Replace') + '</button>';
+                }
                 var fileName = f.path.split('/').pop();
                 var absPath = (window.SCHEMA_CRAFT_BASE_PATH || '') + '/' + f.path;
                 var ideUrl = 'phpstorm://open?file=' + encodeURIComponent(absPath);
@@ -6437,12 +6473,12 @@
                     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
                     '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>' +
                     '<polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>';
-                return '<div class="fp-file-item' + hidden + '" data-fp-idx="' + idx + '" data-fp-category="' + cat + '" title="' + escapeHtml(f.path) + '">' +
-                    '<span class="fp-file-name-row">' + ideBtn + '<span class="fp-file-path">' + escapeHtml(fileName) + '</span></span>' + badgeMap[cat] + skipBtn + '</div>';
+                return '<div class="' + itemClasses + '" data-fp-idx="' + idx + '" data-fp-category="' + cat + '" title="' + escapeHtml(f.path) + '">' +
+                    '<span class="fp-file-name-row">' + ideBtn + '<span class="fp-file-path">' + escapeHtml(fileName) + '</span></span>' + badgeMap[cat] + skipBtn + replaceBtn + '</div>';
             }).join('');
 
-            var chipOrder = ['new', 'changed', 'deleted', 'unchanged'];
-            var chipLabels = { new: 'New', changed: 'Changed', deleted: 'Deleted', unchanged: 'Unchanged' };
+            var chipOrder = ['new', 'changed', 'replaceable', 'deleted', 'unchanged'];
+            var chipLabels = { new: 'New', changed: 'Changed', replaceable: 'Replaceable', deleted: 'Deleted', unchanged: 'Unchanged' };
             var filterBarHtml = '';
             if (showFilterBar) {
                 var chipsHtml = chipOrder.map(function(cat) {
@@ -6655,6 +6691,41 @@
                 });
             });
 
+            // Replace/Un-replace handling. Toggling re-runs the preview with the chosen paths in
+            // forceReplace so the cache — and therefore the diff — reflects disk → render. We reopen
+            // the modal with the fresh files, preserving skip/replace toggles by path via preselect.
+            overlay.querySelectorAll('.fp-replace-btn').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (!supportsReplace) { return; }
+                    var idx = parseInt(btn.dataset.fpReplaceIdx, 10);
+                    var file = files[idx];
+
+                    if (forceReplacePaths[file.path]) {
+                        delete forceReplacePaths[file.path];
+                    } else {
+                        forceReplacePaths[file.path] = true;
+                    }
+
+                    var replaceList = Object.keys(forceReplacePaths);
+                    var skipList = Object.keys(skippedFiles)
+                        .map(function(i) { return files[i] && files[i].path; })
+                        .filter(Boolean);
+
+                    btn.textContent = '…';
+                    btn.disabled = true;
+
+                    rePreview(replaceList).then(function(newFiles) {
+                        close();
+                        showFilePreviewModal(newFiles, confirmLabel, onConfirm, debugContext, rePreview, { skip: skipList, replace: replaceList });
+                    }).catch(function(err) {
+                        showToast('Preview error: ' + (err && err.message ? err.message : err), 'error');
+                        btn.disabled = false;
+                        btn.textContent = forceReplacePaths[file.path] ? 'Replacing' : 'Replace';
+                    });
+                });
+            });
+
             // View toggle (Diff / Full)
             overlay.querySelectorAll('.fp-view-btn').forEach(function(btn) {
                 btn.addEventListener('click', function() {
@@ -6701,7 +6772,10 @@
             overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
 
             overlay.querySelector('#fp-confirm').addEventListener('click', function() {
-                files.forEach(function(f, idx) { f.skip = !!skippedFiles[idx]; });
+                files.forEach(function(f, idx) {
+                    f.skip = !!skippedFiles[idx];
+                    f.forceReplace = !!forceReplacePaths[f.path];
+                });
                 close();
                 if (onConfirm) onConfirm(files);
             });
@@ -14209,28 +14283,48 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
 
         // ── Preview & Run ────────────────────────────────────────────────────────
 
-        function genPreview() {
-            fetch('/_schema-craft/api/generators/preview', {
+        // Single preview fetch, parameterised by the force-replace path set so the modal's
+        // Replace toggle can re-run it. Resolves with the full response; rejects on failure.
+        function genFetchPreview(forceReplace) {
+            return fetch('/_schema-craft/api/generators/preview', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                body: JSON.stringify({ generator: genWizard.generatorClass, accumulated: genWizard.accumulated }),
+                body: JSON.stringify({
+                    generator: genWizard.generatorClass,
+                    accumulated: genWizard.accumulated,
+                    forceReplace: forceReplace || [],
+                }),
             })
                 .then(handleResponse)
                 .then(function(data) {
-                    if (!data.success) { showToast(data.message || 'Preview failed.', 'error'); return; }
+                    if (!data.success) { throw new Error(data.message || 'Preview failed.'); }
+                    return data;
+                });
+        }
+
+        function genPreview() {
+            genFetchPreview([])
+                .then(function(data) {
+                    // rePreview lets the modal's Replace toggle re-run the preview with the chosen
+                    // paths, so the diff reflects the actual replace outcome (disk → render).
+                    var rePreview = function(replacePaths) {
+                        return genFetchPreview(replacePaths).then(function(d) { return d.files; });
+                    };
                     showFilePreviewModal(data.files, 'Generate Files', genRun, {
                         endpoint: 'POST /_schema-craft/api/generators/preview',
                         request: { generator: genWizard.generatorClass, accumulated: genWizard.accumulated },
                         response: data,
-                    });
+                    }, rePreview);
                 })
                 .catch(function(e) { showToast('Preview error: ' + e.message, 'error'); });
         }
 
         function genRun(confirmedFiles) {
-            var payload = { generator: genWizard.generatorClass, accumulated: genWizard.accumulated, force: false };
+            var payload = { generator: genWizard.generatorClass, accumulated: genWizard.accumulated };
             var skipFiles = (confirmedFiles || []).filter(function(f) { return f.skip; }).map(function(f) { return f.path; });
+            var forceReplace = (confirmedFiles || []).filter(function(f) { return f.forceReplace; }).map(function(f) { return f.path; });
             if (skipFiles.length > 0) { payload.skipFiles = skipFiles; }
+            if (forceReplace.length > 0) { payload.forceReplace = forceReplace; }
             fetch('/_schema-craft/api/generators/run', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -14241,6 +14335,7 @@ escapeHtml(registryShort) + '::' + escapeHtml(serviceMethod) + '()\n' +
                     if (!data.success) { showToast(data.message || 'Generation failed.', 'error'); return; }
                     var msg = data.message || 'Files generated.';
                     if (skipFiles.length > 0) { msg += ' ' + skipFiles.length + ' skipped.'; }
+                    if (forceReplace.length > 0) { msg += ' ' + forceReplace.length + ' replaced.'; }
                     showToast(msg, 'success');
 
                     // Modal launch (API Docs "Add Action"): close the modal and let the caller
