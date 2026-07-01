@@ -137,14 +137,24 @@ class FakerMethodMapperTest extends TestCase
     {
         $column = new ColumnDefinition(name: 'code', columnType: 'string', length: 50);
 
-        $this->assertEquals('$faker->word()', $this->mapper->map($column));
+        // text($length) caps output at the column length so it can never overflow the varchar.
+        $this->assertEquals('$faker->text(50)', $this->mapper->map($column));
     }
 
     public function test_long_string_column(): void
     {
         $column = new ColumnDefinition(name: 'subtitle', columnType: 'string', length: 255);
 
-        $this->assertEquals('$faker->sentence()', $this->mapper->map($column));
+        $this->assertEquals('$faker->text(255)', $this->mapper->map($column));
+    }
+
+    public function test_tiny_string_column_uses_lexify(): void
+    {
+        // Faker's text() throws below 5 chars, so tiny columns fall back to lexify —
+        // one random letter per '?', i.e. exactly $length characters.
+        $column = new ColumnDefinition(name: 'code', columnType: 'string', length: 3);
+
+        $this->assertEquals("\$faker->lexify('???')", $this->mapper->map($column));
     }
 
     public function test_text_column(): void
@@ -314,7 +324,7 @@ class FakerMethodMapperTest extends TestCase
     {
         $column = new ColumnDefinition(name: 'sku', columnType: 'string', length: 50, unique: true);
 
-        $this->assertEquals('$faker->unique()->word()', $this->mapper->map($column));
+        $this->assertEquals('$faker->unique()->text(50)', $this->mapper->map($column));
     }
 
     // ─── Enum cast ──────────────────────────────────────────────

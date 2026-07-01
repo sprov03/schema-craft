@@ -6643,9 +6643,17 @@
             }
 
             // Initialise: mark first visible active and render it
-            var firstVisibleEl = overlay.querySelector('.fp-file-item[data-fp-idx="' + firstVisibleIdx + '"]');
-            if (firstVisibleEl) { firstVisibleEl.classList.add('active'); }
-            showFile(firstVisibleIdx);
+            // Restore the file the user was viewing before a re-preview reopen (preselect.selectedPath)
+            // so toggling Replace doesn't yank them back to the top. Falls back to the first visible
+            // file on a fresh open or when that path is no longer in the set.
+            var initialIdx = firstVisibleIdx;
+            if (preselect && preselect.selectedPath) {
+                var savedIdx = files.findIndex(function(f) { return f.path === preselect.selectedPath; });
+                if (savedIdx !== -1) { initialIdx = savedIdx; }
+            }
+            var initialEl = overlay.querySelector('.fp-file-item[data-fp-idx="' + initialIdx + '"]');
+            if (initialEl) { initialEl.classList.add('active'); }
+            showFile(initialIdx);
             updateSummary();
 
             // Filter chip toggling
@@ -6712,12 +6720,17 @@
                         .map(function(i) { return files[i] && files[i].path; })
                         .filter(Boolean);
 
+                    // Snapshot the file being viewed NOW, before the async reopen — close() clears the
+                    // overlay's active state, so this must be read at click time, not inside the .then().
+                    var activeItem = overlay.querySelector('.fp-file-item.active');
+                    var selectedPath = activeItem ? (files[parseInt(activeItem.dataset.fpIdx, 10)] || {}).path : null;
+
                     btn.textContent = '…';
                     btn.disabled = true;
 
                     rePreview(replaceList).then(function(newFiles) {
                         close();
-                        showFilePreviewModal(newFiles, confirmLabel, onConfirm, debugContext, rePreview, { skip: skipList, replace: replaceList });
+                        showFilePreviewModal(newFiles, confirmLabel, onConfirm, debugContext, rePreview, { skip: skipList, replace: replaceList, selectedPath: selectedPath });
                     }).catch(function(err) {
                         showToast('Preview error: ' + (err && err.message ? err.message : err), 'error');
                         btn.disabled = false;

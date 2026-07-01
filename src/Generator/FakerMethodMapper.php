@@ -122,11 +122,15 @@ class FakerMethodMapper
     {
         $length = $column->length ?? 255;
 
-        if ($length > 100) {
-            return "\$faker{$unique}->sentence()";
+        // word()/sentence() ignore the column limit and overflow short varchars, breaking inserts.
+        // text($length) caps output at $length chars so it never overflows — but Faker throws below
+        // 5 chars ("text() can only generate text of at least 5 characters"). For those tiny columns
+        // lexify() emits exactly one random letter per '?', i.e. exactly $length characters.
+        if ($length < 5) {
+            return "\$faker{$unique}->lexify('".str_repeat('?', $length)."')";
         }
 
-        return "\$faker{$unique}->word()";
+        return "\$faker{$unique}->text({$length})";
     }
 
     private function numericExpression(ColumnDefinition $column): string
