@@ -1068,7 +1068,38 @@ use SchemaCraft\Attributes\Relations\MorphTo;
 public Model $commentable;           // creates commentable_type + commentable_id
 ```
 
-The argument to `#[MorphTo]` is the morph name.
+The argument to `#[MorphTo]` is the **morph name** — always a snake_case string, never a
+class. It drives the column names. The **property name** is the relationship name: it is
+what you call at runtime (`$model->commentable()->associate(...)`), and it may be camelCase
+while the morph name stays snake:
+
+```php
+#[MorphTo('in_the_care_of')]
+public Model $inTheCareOf;           // columns: in_the_care_of_type + in_the_care_of_id
+                                     // runtime: $model->inTheCareOf()->associate($record)
+```
+
+**Typing the property.** Three options, most to least specific:
+
+```php
+// 1. Union of the allowed targets — no interface needed. The union documents (and
+//    type-checks) exactly which models this morph can point at. Union types are only
+//    permitted on #[MorphTo] properties; nullable is written `A|B|null` (PHP forbids
+//    `?` on a union).
+#[MorphTo('in_the_care_of')]
+public LeadEntity|LeadContact|null $inTheCareOf;
+
+// 2. A shared interface — when the targets have common behavior you want to call,
+//    or you want instanceof enforcement.
+#[MorphTo('in_the_care_of')]
+public ?CareOf $inTheCareOf;
+
+// 3. Base Model — when the targets are open-ended.
+#[MorphTo('commentable')]
+public Model $commentable;
+```
+
+Nullability of the property drives nullability of both generated columns.
 
 ### Polymorphic: MorphOne / MorphMany
 
