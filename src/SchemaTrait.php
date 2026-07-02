@@ -229,8 +229,15 @@ trait SchemaTrait
                 $rel->localKey,
             ),
             'belongsToMany' => static::buildBelongsToMany($model, $rel),
+            // Same principle as belongsTo: $rel->name (the property, e.g. "inTheCareOf") is the
+            // relation name so associate()/reads/eager-loads share one cache key. Columns come
+            // from the morph name explicitly — Eloquent would otherwise snake-case the relation
+            // name to guess them, which breaks whenever morphName differs from the property.
             'morphTo' => $model->morphTo(
-                $rel->morphName ?? $rel->name,
+                $rel->name,
+                ($rel->morphName ?? $rel->name).'_type',
+                ($rel->morphName ?? $rel->name).'_id',
+                $rel->ownerKey,
             ),
             'morphOne' => $model->morphOne(
                 $rel->relatedModel,
