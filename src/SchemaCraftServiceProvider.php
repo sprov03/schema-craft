@@ -8,6 +8,7 @@ use SchemaCraft\Console\ExportModelsCommand;
 use SchemaCraft\Console\GenerateApiCommand;
 use SchemaCraft\Console\GenerateFilamentCommand;
 use SchemaCraft\Console\GenerateSdkCommand;
+use SchemaCraft\Console\IdeHelperCommand;
 use SchemaCraft\Console\InstallCommand;
 use SchemaCraft\Console\MakeSchemaCommand;
 use SchemaCraft\Console\PublishFilamentActionCommand;
@@ -100,6 +101,7 @@ class SchemaCraftServiceProvider extends ServiceProvider
                 GenerateApiCommand::class,
                 GenerateFilamentCommand::class,
                 GenerateSdkCommand::class,
+                IdeHelperCommand::class,
                 InstallCommand::class,
                 MakeSchemaCommand::class,
                 PublishFilamentActionCommand::class,
