@@ -3,6 +3,7 @@
 namespace SchemaCraft\Tests\Feature;
 
 use SchemaCraft\Tests\Fixtures\Schemas\CommentSchema;
+use SchemaCraft\Tests\Fixtures\Schemas\PostSchema;
 use SchemaCraft\Tests\TestCase;
 
 class IdeHelperCommandTest extends TestCase
@@ -50,6 +51,43 @@ class IdeHelperCommandTest extends TestCase
         $this->assertStringContainsString('@property string $commentable_type', $content);
         $this->assertStringContainsString('@property int $commentable_id', $content);
         $this->assertStringNotContainsString('@property string $body', $content);
+    }
+
+    public function test_to_many_relations_get_a_generic_collection_property(): void
+    {
+        // A to-many relation's @method types the builder call, but $model->rel (the loaded
+        // collection) needs a @property so `foreach ($model->rel as $item)` completes the element.
+        // Plain @property (not @property-read): these are the real, writable app models.
+        $this->artisan('schema:ide-helper', [
+            '--schemas' => PostSchema::class,
+            '--output' => $this->output,
+        ])->assertExitCode(0);
+
+        $content = file_get_contents($this->output);
+
+        // hasMany, belongsToMany, morphMany all get the generic Collection property.
+        $this->assertStringContainsString(
+            '@property \Illuminate\Database\Eloquent\Collection<int, \SchemaCraft\Tests\Fixtures\Models\Comment> $comments',
+            $content,
+        );
+        $this->assertStringContainsString(
+            '@property \Illuminate\Database\Eloquent\Collection<int, \SchemaCraft\Tests\Fixtures\Models\Tag> $tags',
+            $content,
+        );
+        $this->assertStringContainsString(
+            '@property \Illuminate\Database\Eloquent\Collection<int, \SchemaCraft\Tests\Fixtures\Models\Comment> $morphComments',
+            $content,
+        );
+
+        // The @method chaining form is still emitted alongside it.
+        $this->assertStringContainsString(
+            '@method \Illuminate\Database\Eloquent\Relations\HasMany|\SchemaCraft\Tests\Fixtures\Models\Comment comments()',
+            $content,
+        );
+
+        // To-one relations (belongsTo author/category) must NOT get a Collection property.
+        $this->assertStringNotContainsString('Collection<int, \SchemaCraft\Tests\Fixtures\Models\User>', $content);
+        $this->assertStringNotContainsString('Collection<int, \SchemaCraft\Tests\Fixtures\Models\Category>', $content);
     }
 
     public function test_union_typed_morph_to_targets_appear_in_method_return(): void

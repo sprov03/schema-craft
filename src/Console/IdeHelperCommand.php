@@ -32,6 +32,9 @@ class IdeHelperCommand extends Command
 
     protected $description = 'Generate IDE docblock stubs (relationship methods + synthesized columns) from schemas';
 
+    /** Relation types whose loaded value is a Collection — they get a generic @property. */
+    private const TO_MANY_TYPES = ['hasMany', 'belongsToMany', 'morphMany', 'morphToMany', 'hasManyThrough'];
+
     /** Maps RelationshipDefinition->type to the Eloquent relation class for @method return types. */
     private const RELATION_CLASSES = [
         'belongsTo' => '\Illuminate\Database\Eloquent\Relations\BelongsTo',
@@ -129,6 +132,14 @@ class IdeHelperCommand extends Command
         }
 
         foreach ($table->relationships as $rel) {
+            // For to-many relations, the @method types the builder call ($model->rel()->...), but
+            // $model->rel (the loaded collection) needs a generic @property so iterating it completes
+            // the element type. Plain @property — these are the real, writable app models.
+            if (in_array($rel->type, self::TO_MANY_TYPES, true)) {
+                $element = '\\'.ltrim($rel->relatedModel, '\\');
+                $lines[] = " * @property \\Illuminate\\Database\\Eloquent\\Collection<int, {$element}> \${$rel->name}";
+            }
+
             $lines[] = ' * @method '.$this->relationReturnType($rel, $reflection)." {$rel->name}()";
         }
 
