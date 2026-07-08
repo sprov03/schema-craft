@@ -4,6 +4,7 @@ namespace SchemaCraft\Generator\Sdk;
 
 use Illuminate\Support\Str;
 use SchemaCraft\Generator\Api\GeneratedFile;
+use SchemaCraft\Scanner\ColumnDefinition;
 use SchemaCraft\Scanner\RelationshipDefinition;
 use SchemaCraft\Scanner\SchemaResolver;
 use SchemaCraft\Scanner\TableDefinition;
@@ -166,11 +167,20 @@ class SdkModelGenerator
             $body .= "\n    protected \$casts = [\n{$lines}    ];\n";
         }
 
+        // @property-read lines for the class docblock — columns first, then relations. Attributes and
+        // relations are magic (__get), so without these the consuming IDE offers no completion.
+        $docProps = [];
+        foreach ($table->columns as $column) {
+            $docProps[] = '@property-read '.$this->columnDocType($column, $casts).' $'.$column->name;
+        }
+
         foreach ($table->relationships as $relation) {
             $method = $this->renderRelation($relation, $className, $modelsBase, $namespace, $modelRoot, $imports);
             if ($method !== null) {
                 $body .= "\n{$method}";
             }
+
+            $docProps[] = '@property-read '.$this->relationDocType($relation, $modelsBase, $namespace, $modelRoot, $imports).' $'.$relation->name;
         }
 
         $header = "<?php\n\nnamespace {$namespace};\n";
@@ -184,7 +194,16 @@ class SdkModelGenerator
             }
         }
 
-        $header .= "\nclass {$className} extends ReadOnlyModel\n{\n";
+        $header .= "\n";
+        if ($docProps !== []) {
+            $header .= "/**\n";
+            foreach ($docProps as $prop) {
+                $header .= " * {$prop}\n";
+            }
+            $header .= " */\n";
+        }
+
+        $header .= "class {$className} extends ReadOnlyModel\n{\n";
 
         return $header.$body."}\n";
     }
@@ -254,6 +273,72 @@ class SdkModelGenerator
         }
 
         return $casts;
+    }
+
+    /**
+     * Docblock type for a column property. Must match what the model actually RETURNS:
+     *  - a plain scalar phpType (int/string/float/bool/array) is used directly;
+     *  - a class-ish phpType is trusted only when we KEPT its cast (dates -> \Carbon\CarbonInterface);
+     *    a dropped custom cast (enum, DataSchema) means the raw column value is returned, so we fall
+     *    back to the underlying DB scalar — NOT the class the target project doesn't have;
+     *  - a null phpType (FK columns) falls back to the DB scalar too.
+     *
+     * @param  array<string, string>  $keptCasts  Output of nativeCasts() — the casts we actually emit.
+     */
+    private function columnDocType(ColumnDefinition $column, array $keptCasts): string
+    {
+        $prefix = $column->nullable ? '?' : '';
+        $phpType = $column->phpType;
+
+        if ($phpType !== null && ! str_contains($phpType, '\\')) {
+            return $prefix.$phpType;
+        }
+
+        if ($phpType !== null && isset($keptCasts[$column->name])) {
+            return $prefix.'\\'.ltrim($phpType, '\\');
+        }
+
+        return $prefix.$this->rawPhpType($column->columnType);
+    }
+
+    /**
+     * The PHP type a column returns with NO cast applied (raw DB value). Used for FK columns and
+     * dropped-cast columns. Date-ish types resolve to Carbon because Eloquent still date-casts
+     * created_at/updated_at/deleted_at via its timestamp handling.
+     */
+    private function rawPhpType(string $columnType): string
+    {
+        return match (true) {
+            in_array($columnType, ['integer', 'bigInteger', 'smallInteger', 'tinyInteger', 'unsignedBigInteger', 'unsignedInteger', 'unsignedSmallInteger', 'unsignedTinyInteger', 'year'], true) => 'int',
+            $columnType === 'boolean' => 'bool',
+            in_array($columnType, ['decimal', 'float', 'double'], true) => 'float',
+            in_array($columnType, ['timestamp', 'datetime', 'date'], true) => '\\Carbon\\CarbonInterface',
+            default => 'string',
+        };
+    }
+
+    /**
+     * Docblock type for a relation property. To-many relations become "Collection|Related[]" (and
+     * register the Collection import); to-one become "Related" (nullable-aware). morphTo has no
+     * concrete related class, so it documents the base Eloquent Model by FQCN (no import needed).
+     */
+    private function relationDocType(RelationshipDefinition $relation, string $modelsBase, string $currentNs, string $modelRoot, array &$imports): string
+    {
+        if ($relation->type === 'morphTo') {
+            return ($relation->nullable ? '?' : '').'\\Illuminate\\Database\\Eloquent\\Model';
+        }
+
+        $related = $this->ref($relation->relatedModel, $modelsBase, $currentNs, $modelRoot, $imports);
+
+        $toMany = in_array($relation->type, ['hasMany', 'belongsToMany', 'morphMany', 'hasManyThrough', 'morphToMany'], true);
+
+        if ($toMany) {
+            $imports['Collection'] = 'Illuminate\\Database\\Eloquent\\Collection';
+
+            return "Collection|{$related}[]";
+        }
+
+        return ($relation->nullable ? '?' : '').$related;
     }
 
     /**

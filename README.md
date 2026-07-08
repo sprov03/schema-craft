@@ -4,7 +4,72 @@ Define your database schema, Eloquent behavior, and migrations in one place — 
 
 ---
 
-## Quick Reference
+## Cheat Sheet
+
+**The whole idea in one card.** You declare everything ONCE on a schema class — typed
+properties + attributes — and columns, migrations, casts, relationships, validation, and IDE
+completion all fall out of that single declaration.
+
+```php
+// ─── Define a schema ─────────────────────────────────────────────────────
+// php artisan make:schema Post  →  app/Schemas/PostSchema.php + app/Models/Post.php
+class PostSchema extends Schema
+{
+    use TimestampsSchema;                               // created_at / updated_at
+
+    #[Primary] #[AutoIncrement]
+    public int $id;
+
+    public string $title;                               // varchar(255) NOT NULL
+    public ?string $subtitle;                           // nullable
+    public PostStatus $status = PostStatus::Draft;      // enum cast + default
+
+    #[BelongsTo(User::class)]
+    public User $author;                                // author_id FK  →  $post->author()
+
+    /** @var Collection<int, Comment> */
+    #[HasMany(Comment::class)]
+    public Collection $comments;                        // no column here →  $post->comments()
+
+    #[MorphTo('in_the_care_of')]                        // morph name (snake) drives the columns
+    public LeadEntity|LeadContact|null $inTheCareOf;    // union = the allowed targets, |null = nullable
+}
+
+// ─── Wire the model — relationships/casts/columns come FROM the schema ───
+class Post extends BaseModel                            // BaseModel extends SchemaModel
+{
+    protected static string $schema = PostSchema::class;   // MUST be static
+}
+
+class User extends Authenticatable                      // can't extend SchemaModel?
+{
+    use SchemaTrait;                                    // same engine, as a trait
+    protected static string $schema = UserSchema::class;
+}
+
+// The PROPERTY NAME is the relationship name: public User $author → $post->author().
+// The model always wins: declare a real method to override any schema relationship.
+
+// ─── Requests / validation — inferred from the schema ────────────────────
+PostSchema::createRules(['title', 'slug'])->toArray();  // rules for create
+PostSchema::updateRules(['title', 'slug'])->toArray();  // rules for update
+#[Rules('min:3', 'regex:/^[a-z]/')]                     // append custom rules per column
+public string $slug;
+
+// ─── Actions — typed operation classes (API endpoint + Filament form) ────
+#[ActionMeta(route: 'create', method: 'post', label: 'Create Post')]
+class CreatePostAction extends Action
+{
+    protected static string $schema = PostSchema::class;
+
+    public string $title;                               // becomes request param + form field
+    #[BelongsTo(User::class)] public ?User $author;     // FK param
+
+    public function run(mixed $post, array $mapped): Post { /* ... */ }
+}
+```
+
+### Commands
 
 ```
 php artisan schema-craft:install                     # publish BaseModel
@@ -13,6 +78,7 @@ php artisan make:schema Owner Dog Walk               # multiple at once
 php artisan make:schema Post --uuid --soft-deletes   # options apply to all
 php artisan schema:status                            # diff schemas vs database
 php artisan schema:migrate --run                     # generate + run migrations
+php artisan schema:ide-helper                        # IDE stubs for relations + synthesized columns
 
 # API Code Generation
 php artisan schema:generate PostSchema               # full API stack
@@ -86,6 +152,8 @@ public ?Carbon $verified_at;                  // SQL expression default
 #[HasMany(Comment::class)] public Collection $comments;       // no column on this table
 #[BelongsToMany(Tag::class)] public Collection $tags;         // creates pivot table
 #[MorphTo('commentable')] public Model $commentable;          // type + id columns
+#[MorphTo('in_the_care_of')]                                   // camel property + snake morph name OK
+public LeadEntity|LeadContact|null $inTheCareOf;               // union of targets (MorphTo only), |null = nullable
 #[HasManyThrough(Post::class, through: User::class)] public Collection $posts;
 
 // Inline key overrides (match Laravel's method signatures)
@@ -139,8 +207,78 @@ $schema->model->plural->kebab   // "user-profiles"
 
 ---
 
+## Setup
+
+<details>
+<summary><b>Integrate into a project + PhpStorm auto-regeneration</b> (click to expand)</summary>
+
+### Integrate into a new project
+
+```bash
+# 1. Require the package (path repository while developing it side-by-side):
+#    "repositories": [{"type": "path", "url": "../schema-craft"}]
+composer require schema-craft/schema-craft
+
+# 2. Publish BaseModel (all generated models extend it — put shared behavior there)
+php artisan schema-craft:install
+
+# 3. Optional: publish config (multi-API, per-connection namespaces)
+php artisan vendor:publish --tag=schema-craft
+
+# 4. First schema + model, then generate and run its migration
+php artisan make:schema Post
+php artisan schema:migrate --run
+```
+
+That's the whole loop: **declare on the schema → `schema:migrate` → done.** Columns, casts,
+relationships, and validation all come from the one declaration (see the Cheat Sheet above).
+
+### IDE support — `schema:ide-helper`
+
+Schemas imply things classes don't literally declare — relationship methods
+(`$post->author()`) and synthesized columns (`author_id`, `in_the_care_of_type`). One command
+generates docblock stubs so the IDE completes all of it, killing the old housekeeping of
+hand-written `@method` lines and explicit `_type`/`_id` properties:
+
+```bash
+php artisan schema:ide-helper                        # writes _ide_helper.schema-craft.php
+echo "_ide_helper.schema-craft.php" >> .gitignore    # generated output — never commit it
+```
+
+Optionally add a composer script so it's one word to rerun:
+
+```json
+"scripts": { "ide-helper": ["@php artisan schema:ide-helper"] }
+```
+
+### PhpStorm: regenerate automatically on save
+
+Settings → Tools → **File Watchers** → **+** → `<custom>`:
+
+| Field | Value |
+|---|---|
+| File type | PHP |
+| Scope | custom scope, pattern: `file:*Schema.php` |
+| Program | `php` |
+| Arguments | `artisan schema:ide-helper` |
+| Working directory | `$ProjectFileDir$` |
+| Advanced → Auto-save edited files to trigger | **uncheck** (fire on real save, not keystrokes) |
+| Show console | **On error** |
+
+The command is **fail-safe for exactly this workflow**: it builds every stub in memory first,
+and if *any* schema fails to scan (the one you're mid-edit on), it writes **nothing** — the
+previous helper file survives untouched and the command exits non-zero. With *Show console:
+On error*, PhpStorm stays silent on success and pops the watcher console only when something
+failed, showing which schema and why. Keep typing; the next clean save regenerates everything.
+
+</details>
+
+---
+
 ## Table of Contents
 
+- [Cheat Sheet](#cheat-sheet)
+- [Setup](#setup)
 - [Installation](#installation)
 - [Getting Started](#getting-started)
   - [Creating a Schema](#creating-a-schema)
