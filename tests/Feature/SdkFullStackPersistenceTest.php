@@ -375,8 +375,8 @@ class SdkFullStackPersistenceTest extends TestCase
         $this->assertTrue($dto->permissions->flags->READ);
         $this->assertFalse($dto->permissions->flags->EXECUTE);
 
-        // CollectionColumn → array of typed item DTOs
-        $this->assertIsArray($dto->price_history);
+        // CollectionColumn → typed DataCollection of item DTOs (foreach / [] / ->count())
+        $this->assertInstanceOf($this->dto('DataCollection'), $dto->price_history);
         $this->assertCount(2, $dto->price_history);
         $this->assertInstanceOf($this->dto('TestPricePointData'), $dto->price_history[0]);
         $this->assertEqualsWithDelta(45.00, 0.001, $dto->price_history[0]->amount);

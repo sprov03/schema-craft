@@ -54,11 +54,13 @@ use SchemaCraft\SchemaCraftServiceProvider;
  *
  *  4. Inner-DTO instantiation in fromArray:
  *     - JsonColumn field → typed `{Inner}Data` instance, not raw array
- *     - CollectionColumn field → typed `{Inner}Data[]`, not raw array
+ *     - CollectionColumn field → typed DataCollection<{Inner}Data>, not raw array
  *     - BitmaskColumn field → typed `{Inner}Data` (with .value + .flags DTO)
  *     - Singular relationship → typed `{Related}Data` instance
- *     - Collection relationship → typed `{Related}Data[]`
+ *     - Collection relationship → typed DataCollection<{Related}Data>
  *     — these are why consumers don't have to manually array-index nested data.
+ *     — collections are a real DataCollection object (foreach / [] / ->first() / ->count()),
+ *       not a bare array, so consumers get an explicit typed container with IDE support.
  *
  *  5. Missing-from-payload fields hydrate to `null` (no throw).
  *     — server may omit unset optional fields; SDK must accept partial payloads
@@ -329,7 +331,7 @@ class SdkDtoRuntimeTest extends TestCase
             ],
         ]);
 
-        $this->assertIsArray($data->price_history);
+        $this->assertInstanceOf($this->dto('DataCollection'), $data->price_history);
         $this->assertCount(3, $data->price_history);
 
         foreach ($data->price_history as $point) {
@@ -348,7 +350,7 @@ class SdkDtoRuntimeTest extends TestCase
             'price_history' => [],
         ]);
 
-        $this->assertIsArray($data->price_history);
+        $this->assertInstanceOf($this->dto('DataCollection'), $data->price_history);
         $this->assertCount(0, $data->price_history);
     }
 
@@ -401,7 +403,7 @@ class SdkDtoRuntimeTest extends TestCase
             ],
         ]);
 
-        $this->assertIsArray($data->variants);
+        $this->assertInstanceOf($this->dto('DataCollection'), $data->variants);
         $this->assertCount(2, $data->variants);
 
         foreach ($data->variants as $variant) {
@@ -416,11 +418,29 @@ class SdkDtoRuntimeTest extends TestCase
     {
         $data = ($this->dto('CatalogData'))::fromArray([
             'id' => 1, 'name' => 'Widget',
-            // brand and shipment omitted — both declared nullable on Resource
+            // brand and shipment omitted — both singular + declared nullable on Resource
         ]);
 
+        // Singular relations follow documented nullability → null when absent.
         $this->assertNull($data->brand);
         $this->assertNull($data->shipment);
+    }
+
+    public function test_absent_collection_hydrates_to_empty_data_collection_not_null(): void
+    {
+        // The API Resource always emits a to-many (empty at worst, never whenLoaded-gated), so the
+        // SDK never yields null for a collection field — an omitted collection becomes an EMPTY
+        // DataCollection. Nullability is ignored for collections; consumers can always foreach safely.
+        $data = ($this->dto('CatalogData'))::fromArray([
+            'id' => 1, 'name' => 'Widget',
+            // variants (collection relationship) and price_history (collection column) omitted
+        ]);
+
+        $this->assertInstanceOf($this->dto('DataCollection'), $data->variants);
+        $this->assertCount(0, $data->variants);
+
+        $this->assertInstanceOf($this->dto('DataCollection'), $data->price_history);
+        $this->assertCount(0, $data->price_history);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -497,7 +517,8 @@ class SdkDtoRuntimeTest extends TestCase
         $this->assertSame(7, $data->permissions->value);
         $this->assertTrue($data->permissions->flags->EXECUTE);
 
-        // CollectionColumn
+        // CollectionColumn — a real DataCollection, indexable + countable
+        $this->assertInstanceOf($this->dto('DataCollection'), $data->price_history);
         $this->assertCount(2, $data->price_history);
         $this->assertInstanceOf($this->dto('TestPricePointData'), $data->price_history[0]);
         $this->assertSame(45.00, $data->price_history[0]->amount);
@@ -507,9 +528,11 @@ class SdkDtoRuntimeTest extends TestCase
         $this->assertSame(7, $data->brand->id);
         $this->assertInstanceOf($this->dto('CatalogShipmentData'), $data->shipment);
 
-        // Collection relationships
+        // Collection relationships — DataCollection objects
+        $this->assertInstanceOf($this->dto('DataCollection'), $data->variants);
         $this->assertCount(1, $data->variants);
         $this->assertInstanceOf($this->dto('CatalogVariantData'), $data->variants[0]);
+        $this->assertInstanceOf($this->dto('DataCollection'), $data->reviews);
         $this->assertCount(1, $data->reviews);
         $this->assertInstanceOf($this->dto('CatalogReviewData'), $data->reviews[0]);
 

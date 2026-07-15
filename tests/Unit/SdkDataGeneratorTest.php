@@ -264,8 +264,14 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('/** @var CommentData[]|null */', $output);
+        // To-many relations are typed collections (non-nullable — always present, empty at worst),
+        // not bare arrays. An absent payload hydrates to an empty DataCollection, never null.
+        $this->assertStringContainsString('/** @var DataCollection<CommentData> */', $output);
         $this->assertStringContainsString('public $comments;', $output);
+        $this->assertStringContainsString(
+            "isset(\$data['comments']) ? new DataCollection(array_map(function (array \$item) { return CommentData::fromArray(\$item); }, \$data['comments'])) : new DataCollection()",
+            $output,
+        );
     }
 
     public function test_includes_belongs_to_many_relationship_as_nullable_array(): void
@@ -283,7 +289,7 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('/** @var TagData[]|null */', $output);
+        $this->assertStringContainsString('/** @var DataCollection<TagData> */', $output);
         $this->assertStringContainsString('public $tags;', $output);
     }
 

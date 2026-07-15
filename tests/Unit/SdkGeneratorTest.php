@@ -47,6 +47,28 @@ class SdkGeneratorTest extends TestCase
         $this->assertStringContainsString('class SdkConnector', $files['connector']->content);
     }
 
+    public function test_ships_data_collection_class(): void
+    {
+        // One dependency-free, generic collection shipped per package — the documented, typed
+        // container the SDK returns for to-many data (foreach + ->first()/->count() with completion).
+        $files = $this->generator->generate($this->makeSchemas(), 'acme/my-sdk', 'Acme\\Sdk', 'AcmeClient');
+
+        $this->assertArrayHasKey('data_collection', $files);
+        $this->assertSame('src/Data/DataCollection.php', $files['data_collection']->path);
+
+        $content = $files['data_collection']->content;
+        $this->assertStringContainsString('namespace Acme\\Sdk\\Data;', $content);
+        $this->assertStringContainsString('@template T', $content);
+        $this->assertStringContainsString('class DataCollection implements', $content);
+        $this->assertStringContainsString('IteratorAggregate', $content);
+        $this->assertStringContainsString('public function first()', $content);
+        $this->assertStringContainsString('public function all()', $content);
+        $this->assertStringContainsString('public function toArray()', $content);
+        // Must stay PHP 7.4-safe: offsetGet uses the ReturnTypeWillChange trick, not a `mixed` return type.
+        $this->assertStringContainsString('#[\\ReturnTypeWillChange]', $content);
+        $this->assertStringContainsString('public function offsetGet($offset)'."\n", $content);
+    }
+
     public function test_generates_data_dto_for_each_schema(): void
     {
         $schemas = $this->makeSchemas();
@@ -137,9 +159,9 @@ class SdkGeneratorTest extends TestCase
 
         $files = $this->generator->generate($schemas, 'acme/my-sdk', 'Acme\\Sdk', 'AcmeClient');
 
-        // composer.json + connector + exceptions (2) + (data + resource) * 2 schemas + client + readme
-        // = 1 + 1 + 2 + 4 + 1 + 1 = 10
-        $this->assertCount(10, $files);
+        // composer.json + connector + exceptions (2) + DataCollection + (data + resource) * 2 schemas + client + readme
+        // = 1 + 1 + 2 + 1 + 4 + 1 + 1 = 11
+        $this->assertCount(11, $files);
     }
 
     public function test_single_schema_generates_minimal_package(): void
@@ -160,8 +182,8 @@ class SdkGeneratorTest extends TestCase
 
         $files = $this->generator->generate($schemas, 'acme/my-sdk', 'Acme\\Sdk', 'AcmeClient');
 
-        // composer.json + connector + exceptions (2) + data_User + resource_User + client + readme = 8
-        $this->assertCount(8, $files);
+        // composer.json + connector + exceptions (2) + DataCollection + data_User + resource_User + client + readme = 9
+        $this->assertCount(9, $files);
         $this->assertArrayHasKey('data_User', $files);
         $this->assertArrayHasKey('resource_User', $files);
     }

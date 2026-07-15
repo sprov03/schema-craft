@@ -128,7 +128,9 @@ class SdkDataGenerator
         // future toArray() round-trips symmetrically.
         foreach ($columns as $col) {
             $phpType = $this->phpTypeForColumn($col, $dataClassName);
-            if ($col['nullable'] ?? false) {
+            // A collection field is never null (always a DataCollection, empty at worst) — its
+            // documented nullability is deliberately ignored.
+            if (($col['nullable'] ?? false) && empty($col['isCollection'])) {
                 $lines[] = "    /** @var {$phpType}|null */";
             } else {
                 $lines[] = "    /** @var {$phpType} */";
@@ -140,7 +142,8 @@ class SdkDataGenerator
         foreach ($relationships as $rel) {
             $relDataClass = SdkResourceNaming::dtoNameFromResourceFqcn($rel['relatedResource']);
             if ($rel['isCollection']) {
-                $lines[] = "    /** @var {$relDataClass}[]|null */";
+                // Non-nullable: to-many relations are always present as a collection.
+                $lines[] = '    /** @var '.$this->collectionDocType($relDataClass).' */';
             } else {
                 $lines[] = "    /** @var {$relDataClass}|null */";
             }
@@ -152,13 +155,14 @@ class SdkDataGenerator
         $lines[] = '    /**';
         foreach ($columns as $col) {
             $phpType = $this->phpTypeForColumn($col, $dataClassName);
-            $nullSuffix = ($col['nullable'] ?? false) ? '|null' : '';
+            $nullSuffix = (($col['nullable'] ?? false) && empty($col['isCollection'])) ? '|null' : '';
             $lines[] = "     * @param {$phpType}{$nullSuffix} \${$col['name']}";
         }
         foreach ($relationships as $rel) {
             $relDataClass = SdkResourceNaming::dtoNameFromResourceFqcn($rel['relatedResource']);
-            $colType = $rel['isCollection'] ? "{$relDataClass}[]" : $relDataClass;
-            $lines[] = "     * @param {$colType}|null \${$rel['name']}";
+            $colType = $rel['isCollection'] ? $this->collectionDocType($relDataClass) : $relDataClass;
+            $nullSuffix = $rel['isCollection'] ? '' : '|null';
+            $lines[] = "     * @param {$colType}{$nullSuffix} \${$rel['name']}";
         }
         $lines[] = '     */';
         $lines[] = '    public function __construct(';
@@ -178,10 +182,14 @@ class SdkDataGenerator
 
         $lines[] = '    ) {';
         foreach ($columns as $col) {
-            $lines[] = "        \$this->{$col['name']} = \${$col['name']};";
+            // Collection fields coalesce a null/omitted arg to an empty DataCollection so the
+            // property is always a collection, even on direct construction.
+            $suffix = ! empty($col['isCollection']) ? ' ?? new DataCollection()' : '';
+            $lines[] = "        \$this->{$col['name']} = \${$col['name']}{$suffix};";
         }
         foreach ($relationships as $rel) {
-            $lines[] = "        \$this->{$rel['name']} = \${$rel['name']};";
+            $suffix = $rel['isCollection'] ? ' ?? new DataCollection()' : '';
+            $lines[] = "        \$this->{$rel['name']} = \${$rel['name']}{$suffix};";
         }
         $lines[] = '    }';
 
@@ -207,7 +215,7 @@ class SdkDataGenerator
             if (! empty($col['innerDtoName'])) {
                 $dto = $col['innerDtoName'];
                 if (! empty($col['isCollection'])) {
-                    $assignments[] = "isset(\$data['{$key}']) ? array_map(function (array \$item) { return {$dto}::fromArray(\$item); }, \$data['{$key}']) : null";
+                    $assignments[] = $this->collectionFromArray($key, $dto);
                 } else {
                     $assignments[] = "isset(\$data['{$key}']) ? {$dto}::fromArray(\$data['{$key}']) : null";
                 }
@@ -220,7 +228,7 @@ class SdkDataGenerator
         foreach ($relationships as $rel) {
             $relDataClass = SdkResourceNaming::dtoNameFromResourceFqcn($rel['relatedResource']);
             if ($rel['isCollection']) {
-                $assignments[] = "isset(\$data['{$rel['name']}']) ? array_map(function (array \$item) { return {$relDataClass}::fromArray(\$item); }, \$data['{$rel['name']}']) : null";
+                $assignments[] = $this->collectionFromArray($rel['name'], $relDataClass);
             } else {
                 $assignments[] = "isset(\$data['{$rel['name']}']) ? {$relDataClass}::fromArray(\$data['{$rel['name']}']) : null";
             }
@@ -265,10 +273,14 @@ class SdkDataGenerator
         $lines[] = "class {$className}";
         $lines[] = '{';
 
-        // Property declarations — types are already resolved; names served verbatim.
+        // Property declarations — types are already resolved; names served verbatim. Collection
+        // field types ("{X}Data[]") are shown as DataCollection<{X}Data> in the docblock; the raw
+        // "[]" marker is kept internally for the fromArray/toArray detection below.
         foreach ($fields as $f) {
-            $type = $f['type'];
-            $lines[] = $f['nullable'] ? "    /** @var {$type}|null */" : "    /** @var {$type} */";
+            $type = $this->fieldDocType($f['type']);
+            // Collection fields are never null (always a DataCollection) — ignore their nullability.
+            $nullable = $f['nullable'] && ! $this->isCollectionType($f['type']);
+            $lines[] = $nullable ? "    /** @var {$type}|null */" : "    /** @var {$type} */";
             $lines[] = '    public $'.$f['name'].';';
             $lines[] = '';
         }
@@ -276,8 +288,8 @@ class SdkDataGenerator
         // Constructor PHPDoc + signature
         $lines[] = '    /**';
         foreach ($fields as $f) {
-            $nullSuffix = $f['nullable'] ? '|null' : '';
-            $lines[] = "     * @param {$f['type']}{$nullSuffix} \${$f['name']}";
+            $nullSuffix = ($f['nullable'] && ! $this->isCollectionType($f['type'])) ? '|null' : '';
+            $lines[] = '     * @param '.$this->fieldDocType($f['type']).$nullSuffix." \${$f['name']}";
         }
         $lines[] = '     */';
         $lines[] = '    public function __construct(';
@@ -293,7 +305,8 @@ class SdkDataGenerator
 
         $lines[] = '    ) {';
         foreach ($fields as $f) {
-            $lines[] = "        \$this->{$f['name']} = \${$f['name']};";
+            $suffix = $this->isCollectionType($f['type']) ? ' ?? new DataCollection()' : '';
+            $lines[] = "        \$this->{$f['name']} = \${$f['name']}{$suffix};";
         }
         $lines[] = '    }';
 
@@ -319,10 +332,10 @@ class SdkDataGenerator
             $type = $f['type'];
             $name = $f['name'];
 
-            // Collection of inner DTOs: "{X}Data[]"
+            // Collection of inner DTOs: "{X}Data[]" — hydrate each item and wrap in a DataCollection.
             if (str_ends_with($type, '[]') && str_ends_with(substr($type, 0, -2), 'Data')) {
                 $itemDto = substr($type, 0, -2);
-                $lines[] = "            isset(\$data['{$name}']) ? array_map(function (array \$item) { return {$itemDto}::fromArray(\$item); }, \$data['{$name}']) : null{$comma}";
+                $lines[] = '            '.$this->collectionFromArray($name, $itemDto).$comma;
 
                 continue;
             }
@@ -357,8 +370,10 @@ class SdkDataGenerator
             $type = $f['type'];
             $name = $f['name'];
 
+            // Collection field is a DataCollection (its own toArray serialises the items). Tolerate a
+            // raw array too, in case a consumer constructed the DTO with a plain array of items.
             if (str_ends_with($type, '[]') && str_ends_with(substr($type, 0, -2), 'Data')) {
-                $lines[] = "            '{$name}' => \$this->{$name} === null ? null : array_map(function (\$item) { return \$item->toArray(); }, \$this->{$name}),";
+                $lines[] = "            '{$name}' => \$this->{$name} === null ? null : (\$this->{$name} instanceof DataCollection ? \$this->{$name}->toArray() : array_map(function (\$item) { return \$item->toArray(); }, \$this->{$name})),";
 
                 continue;
             }
@@ -554,10 +569,33 @@ class SdkDataGenerator
     private function phpTypeForColumn(array $col, string $context): string
     {
         if (! empty($col['innerDtoName'])) {
-            return $col['innerDtoName'].(! empty($col['isCollection']) ? '[]' : '');
+            return ! empty($col['isCollection'])
+                ? $this->collectionDocType($col['innerDtoName'])
+                : $col['innerDtoName'];
         }
 
         return $this->resourcePhpType($col['type'], $context, $col['name']);
+    }
+
+    /**
+     * Convert an internal collection MARKER type ("{X}Data[]") to its docblock form
+     * (DataCollection<{X}Data>). Non-collection / scalar types pass through unchanged. Used where
+     * the internal "{X}Data[]" string must stay intact for `[]` detection but the emitted docblock
+     * should show the real collection type.
+     */
+    private function fieldDocType(string $type): string
+    {
+        if ($this->isCollectionType($type)) {
+            return $this->collectionDocType(substr($type, 0, -2));
+        }
+
+        return $type;
+    }
+
+    /** True when an internal field type string is the collection MARKER "{X}Data[]". */
+    private function isCollectionType(string $type): bool
+    {
+        return str_ends_with($type, '[]') && str_ends_with(substr($type, 0, -2), 'Data');
     }
 
     private function resourcePhpType(string $type, string $context, string $field): string
@@ -664,7 +702,8 @@ class SdkDataGenerator
             $type = $this->phpType($column, $dataClassName);
             $propName = $this->propertyName($column->name);
 
-            if ($column->nullable) {
+            // Collection columns are never null (always a DataCollection) — ignore their nullability.
+            if ($column->nullable && $column->collectionItemClass === null) {
                 $properties[] = "/** @var {$type}|null */\n    public \${$propName};";
             } else {
                 $properties[] = "/** @var {$type} */\n    public \${$propName};";
@@ -777,7 +816,7 @@ class SdkDataGenerator
 
             $type = $this->phpType($column, $dataClassName);
             $propName = $this->propertyName($column->name);
-            $nullSuffix = $column->nullable ? '|null' : '';
+            $nullSuffix = ($column->nullable && $column->collectionItemClass === null) ? '|null' : '';
             $params[] = "{$type}{$nullSuffix} \${$propName}";
         }
 
@@ -805,7 +844,7 @@ class SdkDataGenerator
             $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
             if (SdkRelationshipCardinality::isCollection($rel->type)) {
-                $params[] = "{$relatedDataClass}[]|null \${$rel->name}";
+                $params[] = $this->collectionDocType($relatedDataClass)." \${$rel->name}";
             } elseif (SdkRelationshipCardinality::isSingular($rel->type)) {
                 $params[] = "{$relatedDataClass}|null \${$rel->name}";
             } else {
@@ -834,7 +873,9 @@ class SdkDataGenerator
             }
 
             $propName = $this->propertyName($column->name);
-            $assignments[] = "\$this->{$propName} = \${$propName};";
+            // Collection columns coalesce null → empty DataCollection (never null).
+            $suffix = $column->collectionItemClass !== null ? ' ?? new DataCollection()' : '';
+            $assignments[] = "\$this->{$propName} = \${$propName}{$suffix};";
         }
 
         if ($table->hasTimestamps) {
@@ -860,7 +901,8 @@ class SdkDataGenerator
                 continue;
             }
 
-            $assignments[] = "\$this->{$rel->name} = \${$rel->name};";
+            $suffix = SdkRelationshipCardinality::isCollection($rel->type) ? ' ?? new DataCollection()' : '';
+            $assignments[] = "\$this->{$rel->name} = \${$rel->name}{$suffix};";
         }
 
         return $assignments;
@@ -889,7 +931,7 @@ class SdkDataGenerator
 
             if ($column->collectionItemClass !== null) {
                 $itemDtoName = class_basename($column->collectionItemClass).'Data';
-                $assignments[] = "isset(\$data['{$column->name}']) ? array_map(function (array \$item) { return {$itemDtoName}::fromArray(\$item); }, \$data['{$column->name}']) : null";
+                $assignments[] = $this->collectionFromArray($column->name, $itemDtoName);
 
                 continue;
             }
@@ -934,12 +976,36 @@ class SdkDataGenerator
         return $assignments;
     }
 
+    /**
+     * Docblock type for a to-many field: the typed wrapper DataCollection<XData>. The internal
+     * "{X}Data[]" form remains the collection MARKER used for detection elsewhere — this is only the
+     * shape we WRITE into @var/@param so consumers see a real collection type.
+     */
+    private function collectionDocType(string $elementDto): string
+    {
+        return "DataCollection<{$elementDto}>";
+    }
+
+    /**
+     * fromArray hydration for a to-many field: map each wire item through {Element}::fromArray, then
+     * wrap in a DataCollection so the property is a real typed collection object, not a bare array.
+     *
+     * A to-many field is NEVER null: the API Resource always emits the relation (empty at worst,
+     * never whenLoaded-gated — see SchemaCraftResource::toArray), so an absent/empty payload hydrates
+     * to an EMPTY DataCollection, not null. Nullability is intentionally ignored for this field type.
+     */
+    private function collectionFromArray(string $dataKey, string $elementDto): string
+    {
+        return "isset(\$data['{$dataKey}']) ? new DataCollection(array_map(function (array \$item) { return {$elementDto}::fromArray(\$item); }, \$data['{$dataKey}'])) : new DataCollection()";
+    }
+
     private function buildRelationshipPropertyDeclaration(RelationshipDefinition $rel): string
     {
         if (SdkRelationshipCardinality::isCollection($rel->type)) {
             $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
-            return "/** @var {$relatedDataClass}[]|null */\n    public \${$rel->name};";
+            // Non-nullable — a to-many relation is always a collection (empty at worst).
+            return '/** @var '.$this->collectionDocType($relatedDataClass)." */\n    public \${$rel->name};";
         }
 
         if (SdkRelationshipCardinality::isSingular($rel->type)) {
@@ -956,7 +1022,7 @@ class SdkDataGenerator
         $relatedDataClass = class_basename($rel->relatedModel).'Data';
 
         if (SdkRelationshipCardinality::isCollection($rel->type)) {
-            return "isset(\$data['{$rel->name}']) ? array_map(function (array \$item) { return {$relatedDataClass}::fromArray(\$item); }, \$data['{$rel->name}']) : null";
+            return $this->collectionFromArray($rel->name, $relatedDataClass);
         }
 
         if (SdkRelationshipCardinality::isSingular($rel->type)) {
@@ -1004,11 +1070,13 @@ class SdkDataGenerator
             );
         }
         if ($column->collectionItemClass !== null) {
-            return $this->guardTyped(
+            // Emit DataCollection<{X}Data> in the docblock (guardTyped still validates the raw
+            // "{X}Data[]" marker first). Detection in buildFromArrayAssignments uses collectionItemClass.
+            return $this->fieldDocType($this->guardTyped(
                 $this->shapeToPhpType(SdkShape::collectionOf($column->collectionItemClass)),
                 $context,
                 $column->name
-            );
+            ));
         }
 
         if ($column->castType !== null && class_exists($column->castType)) {
