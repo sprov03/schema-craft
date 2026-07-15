@@ -73,4 +73,22 @@ class SdkPreviewModelsTest extends TestCase
             'Expected the Post model. Got: '.implode(', ', $paths),
         );
     }
+
+    public function test_preview_warns_on_the_generation_page_when_schemas_filter_is_set(): void
+    {
+        // This API pins schemas => ['PostSchema'] (see defineEnvironment), so the generation-page
+        // preview must surface the model-export warning about a possibly-incomplete relation set.
+        $response = $this->postJson('/_schema-craft/api/sdk/preview', [
+            'api' => 'default',
+            'force' => true,
+        ]);
+
+        $response->assertSuccessful();
+
+        $messages = array_column($response->json('warnings') ?? [], 'message');
+        $this->assertNotEmpty(
+            array_filter($messages, fn ($m) => str_contains($m, "'schemas' filter is set")),
+            'Expected a schemas-filter warning in the preview response. Got: '.implode(' | ', $messages),
+        );
+    }
 }

@@ -376,7 +376,7 @@ class SdkFullStackPersistenceTest extends TestCase
         $this->assertFalse($dto->permissions->flags->EXECUTE);
 
         // CollectionColumn → typed DataCollection of item DTOs (foreach / [] / ->count())
-        $this->assertInstanceOf($this->dto('DataCollection'), $dto->price_history);
+        $this->assertInstanceOf(\Illuminate\Support\Collection::class, $dto->price_history);
         $this->assertCount(2, $dto->price_history);
         $this->assertInstanceOf($this->dto('TestPricePointData'), $dto->price_history[0]);
         $this->assertEqualsWithDelta(45.00, 0.001, $dto->price_history[0]->amount);

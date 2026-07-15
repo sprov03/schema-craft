@@ -56,7 +56,12 @@ class ExportModelsCommand extends Command
         // Shared orchestration with the visualizer SDK build (no drift). The source model-namespace
         // root is stripped so each model's relative sub-namespace is preserved under the SDK base —
         // this is what keeps same-named models from different databases out of each other's way.
-        $export = (new SdkModelExporter)->export($schemaClasses, $namespace, $apiConfig->modelNamespace);
+        $export = (new SdkModelExporter)->export(
+            $schemaClasses,
+            $namespace,
+            $apiConfig->modelNamespace,
+            schemasFilterActive: $apiConfig->schemas !== null,
+        );
 
         foreach ($export['warnings'] as $warning) {
             $this->components->warn($warning['message']);

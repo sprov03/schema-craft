@@ -1740,7 +1740,14 @@ class GenerateController
         // exports because it exists, not because it has a documented endpoint. Shared with the CLI
         // via SdkModelExporter (no drift). modelNamespace is the source root stripped to preserve
         // each model's relative sub-namespace under the SDK base.
-        $modelExport = (new SdkModelExporter)->export($schemaClasses, $sdkNamespace, $apiConfig->modelNamespace);
+        // Warn (on the generation page) if a `schemas` subset is pinned — it can leave a relation
+        // pointing at a model outside the export set. See SdkModelExporter::SCHEMAS_FILTER_WARNING.
+        $modelExport = (new SdkModelExporter)->export(
+            $schemaClasses,
+            $sdkNamespace,
+            $apiConfig->modelNamespace,
+            schemasFilterActive: $apiConfig->schemas !== null,
+        );
 
         return [
             'files' => array_merge($sdkFiles, $modelExport['files']),

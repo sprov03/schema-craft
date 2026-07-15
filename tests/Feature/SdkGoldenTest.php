@@ -212,9 +212,9 @@ class SdkGoldenTest extends TestCase
         $this->assertStringContainsString("/** @var TestBitmaskData */\n    public \$permissions;", $dto);
         // Scenario: JSON-DTO type -> typed object DTO backed by its DataSchema (TestSpec).
         $this->assertStringContainsString("/** @var TestSpecData */\n    public \$spec;", $dto);
-        // Scenario: collection type -> typed DataCollection-of-DTO (item DataSchema is TestPricePoint),
+        // Scenario: collection type -> typed Collection-of-DTO (item DataSchema is TestPricePoint),
         // served verbatim in snake_case.
-        $this->assertStringContainsString("/** @var DataCollection<TestPricePointData> */\n    public \$price_history;", $dto);
+        $this->assertStringContainsString("/** @var \Illuminate\Support\Collection<int, TestPricePointData> */\n    public \$price_history;", $dto);
         // Scenario: json column with a declared shape -> typed CatalogAttributesData (not bare array).
         $this->assertStringContainsString("/** @var CatalogAttributesData */\n    public \$attributes_json;", $dto);
     }
@@ -302,13 +302,13 @@ class SdkGoldenTest extends TestCase
         // Scenario: resource BelongsTo -> single nested DTO, nullable
         $this->assertStringContainsString("/** @var CatalogBrandData|null */\n    public \$brand;", $dto);
         // Scenario: resource HasMany -> array of DTOs, nullable
-        $this->assertStringContainsString("/** @var DataCollection<CatalogVariantData> */\n    public \$variants;", $dto);
+        $this->assertStringContainsString("/** @var \Illuminate\Support\Collection<int, CatalogVariantData> */\n    public \$variants;", $dto);
         // Scenario: resource HasOne -> single nested DTO, nullable
         $this->assertStringContainsString("/** @var CatalogShipmentData|null */\n    public \$shipment;", $dto);
 
         // fromArray hydration: collection maps each item; singles hydrate directly.
         $this->assertStringContainsString(
-            "isset(\$data['variants']) ? new DataCollection(array_map(function (array \$item) { return CatalogVariantData::fromArray(\$item); }, \$data['variants'])) : new DataCollection()",
+            "isset(\$data['variants']) ? collect(\$data['variants'])->map(function (array \$item) { return CatalogVariantData::fromArray(\$item); }) : collect()",
             $dto,
         );
         $this->assertStringContainsString(
@@ -345,7 +345,7 @@ class SdkGoldenTest extends TestCase
         $res = $this->file('src/Resources/CatalogResource.php');
 
         // Scenario: documented collection response (#[ApiResponse collection: true], GET no {id}).
-        $this->assertStringContainsString('     * @return Collection<int, CatalogData>', $res);
+        $this->assertStringContainsString('     * @return \Illuminate\Support\Collection<int, CatalogData>', $res);
         $this->assertStringContainsString('    public function getCollection()', $res);
         $this->assertStringContainsString("\$response = \$this->connector->get('api/catalog');", $res);
         $this->assertStringContainsString('return collect($response[\'data\'])->map(function (array $item) {', $res);
@@ -494,23 +494,23 @@ class SdkGoldenTest extends TestCase
         // Scenario: hasOne -> singular DTO
         $this->assertStringContainsString("/** @var CatalogShipmentData|null */\n    public \$shipment;", $dto);
         // Scenario: morphMany -> collection of DTOs
-        $this->assertStringContainsString("/** @var DataCollection<CatalogReviewData> */\n    public \$reviews;", $dto);
+        $this->assertStringContainsString("/** @var \Illuminate\Support\Collection<int, CatalogReviewData> */\n    public \$reviews;", $dto);
 
         // Scenario: belongsToMany — a COLLECTION in the shared cardinality rules (unchanged).
-        $this->assertStringContainsString("/** @var DataCollection<CatalogSupplierData> */\n    public \$suppliers;", $dto);
+        $this->assertStringContainsString("/** @var \Illuminate\Support\Collection<int, CatalogSupplierData> */\n    public \$suppliers;", $dto);
 
         // Scenario: hasManyThrough — a COLLECTION at the Resource layer via the shared
         // SdkRelationshipCardinality. DB-level cardinality (belongsToMany / hasManyThrough)
         // collapses to "collection of X" on the Resource side.
-        $this->assertStringContainsString("/** @var DataCollection<CatalogSupplierData> */\n    public \$brandSuppliers;", $dto);
+        $this->assertStringContainsString("/** @var \Illuminate\Support\Collection<int, CatalogSupplierData> */\n    public \$brandSuppliers;", $dto);
 
         // Hydration mirrors the declared shapes — both collections array_map their items.
         $this->assertStringContainsString(
-            "isset(\$data['suppliers']) ? new DataCollection(array_map(function (array \$item) { return CatalogSupplierData::fromArray(\$item); }, \$data['suppliers'])) : new DataCollection()",
+            "isset(\$data['suppliers']) ? collect(\$data['suppliers'])->map(function (array \$item) { return CatalogSupplierData::fromArray(\$item); }) : collect()",
             $dto,
         );
         $this->assertStringContainsString(
-            "isset(\$data['brandSuppliers']) ? new DataCollection(array_map(function (array \$item) { return CatalogSupplierData::fromArray(\$item); }, \$data['brandSuppliers'])) : new DataCollection()",
+            "isset(\$data['brandSuppliers']) ? collect(\$data['brandSuppliers'])->map(function (array \$item) { return CatalogSupplierData::fromArray(\$item); }) : collect()",
             $dto,
         );
     }

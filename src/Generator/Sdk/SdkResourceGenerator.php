@@ -154,6 +154,10 @@ class SdkResourceGenerator
         // Manual JsonResource: known to return a body but its shape is opaque (no DTO generated).
         // We surface the raw decoded data array rather than referencing a phantom XManualData class.
         $hasManualResponse = ! $hasResponse && isset($endpoint['responseManualResource']);
+        // Honor #[ApiResponse(..., collection: true)] — the response is a list of the resource, so the
+        // base of the response must hydrate a Collection, not a single DTO. Previously this flag was
+        // ignored and collection-ness was inferred only from route shape (GET without a path param).
+        $responseCollection = $endpoint['responseCollection'] ?? false;
         $parameters = $endpoint['parameters'] ?? $endpoint['actionParameters'] ?? null;
 
         // Bind every {placeholder} in the path to a leading method param named after it
@@ -164,6 +168,10 @@ class SdkResourceGenerator
         $isGet = $httpMethod === 'get';
         $bodyParams = $this->resolveBodyParamsFromAction($httpMethod, $parameters);
         $connectorPath = $this->buildConnectorPath($path);
+
+        // A response is a collection when the endpoint declares collection: true, OR (legacy inference)
+        // it's a GET index — a GET with no path {param}. The explicit flag covers every other method.
+        $returnsCollection = $responseCollection || ($isGet && ! str_contains($path, '{'));
 
         // Typed request fast-path: a POST/PUT/PATCH endpoint whose handler type-hints a
         // SchemaCraft\Request (or an Action) takes a single typed {X}RequestData $request and posts
@@ -184,7 +192,7 @@ class SdkResourceGenerator
             }
             $lines[] = "     * @param {$requestDtoName} \$request";
             if ($hasResponse) {
-                $lines[] = "     * @return {$endpointDataClass}";
+                $lines[] = '     * @return '.$this->responseReturnType($responseCollection, $endpointDataClass);
             } elseif ($hasManualResponse) {
                 $lines[] = '     * @return array';
             } else {
@@ -196,7 +204,9 @@ class SdkResourceGenerator
             if ($hasResponse) {
                 $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, \$request->toArray());";
                 $lines[] = '';
-                $lines[] = "        return {$endpointDataClass}::fromArray(\$response['data']);";
+                foreach ($this->responseReturnLines($responseCollection, $endpointDataClass) as $line) {
+                    $lines[] = $line;
+                }
             } elseif ($hasManualResponse) {
                 $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, \$request->toArray());";
                 $lines[] = '';
@@ -231,12 +241,8 @@ class SdkResourceGenerator
             $lines[] = "     * @param {$param['type']}{$nullSuffix} \${$param['name']}";
         }
 
-        if ($isGet && $hasResponse) {
-            $lines[] = str_contains($path, '{')
-                ? "     * @return {$endpointDataClass}"
-                : "     * @return Collection<int, {$endpointDataClass}>";
-        } elseif ($hasResponse) {
-            $lines[] = "     * @return {$endpointDataClass}";
+        if ($hasResponse) {
+            $lines[] = '     * @return '.$this->responseReturnType($returnsCollection, $endpointDataClass);
         } elseif ($hasManualResponse) {
             $lines[] = '     * @return array';
         } else {
@@ -250,12 +256,8 @@ class SdkResourceGenerator
         if ($isGet && $hasResponse) {
             $lines[] = "        \$response = \$this->connector->get({$connectorPath});";
             $lines[] = '';
-            if (str_contains($path, '{')) {
-                $lines[] = "        return {$endpointDataClass}::fromArray(\$response['data']);";
-            } else {
-                $lines[] = "        return collect(\$response['data'])->map(function (array \$item) {";
-                $lines[] = "            return {$endpointDataClass}::fromArray(\$item);";
-                $lines[] = '        });';
+            foreach ($this->responseReturnLines($returnsCollection, $endpointDataClass) as $line) {
+                $lines[] = $line;
             }
         } elseif ($hasResponse && ! empty($bodyParams)) {
             $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, [";
@@ -264,11 +266,15 @@ class SdkResourceGenerator
             }
             $lines[] = '        ]);';
             $lines[] = '';
-            $lines[] = "        return {$endpointDataClass}::fromArray(\$response['data']);";
+            foreach ($this->responseReturnLines($returnsCollection, $endpointDataClass) as $line) {
+                $lines[] = $line;
+            }
         } elseif ($hasResponse) {
             $lines[] = "        \$response = \$this->connector->{$httpMethod}({$connectorPath}, []);";
             $lines[] = '';
-            $lines[] = "        return {$endpointDataClass}::fromArray(\$response['data']);";
+            foreach ($this->responseReturnLines($returnsCollection, $endpointDataClass) as $line) {
+                $lines[] = $line;
+            }
         } elseif ($hasManualResponse) {
             // Opaque resource — return the decoded data array verbatim, no DTO hydration.
             if ($isGet) {
@@ -424,12 +430,43 @@ class SdkResourceGenerator
     /**
      * @return string[]
      */
+    /**
+     * The @return docblock type for a response: a real Illuminate\Support\Collection when the
+     * endpoint returns a list, otherwise the singular DTO. FQCN so no import is needed.
+     */
+    private function responseReturnType(bool $isCollection, string $endpointDataClass): string
+    {
+        return $isCollection
+            ? "\\Illuminate\\Support\\Collection<int, {$endpointDataClass}>"
+            : $endpointDataClass;
+    }
+
+    /**
+     * The return-statement line(s) for a response. Collection responses map each item through
+     * {X}Data::fromArray into a real Illuminate Collection (via collect()); singular responses
+     * hydrate one DTO. Callers have already assigned $response.
+     *
+     * @return string[]
+     */
+    private function responseReturnLines(bool $isCollection, string $endpointDataClass): array
+    {
+        if ($isCollection) {
+            return [
+                "        return collect(\$response['data'])->map(function (array \$item) {",
+                "            return {$endpointDataClass}::fromArray(\$item);",
+                '        });',
+            ];
+        }
+
+        return ["        return {$endpointDataClass}::fromArray(\$response['data']);"];
+    }
+
     private function buildListMethod(string $pluralSlug, string $dataClassName): array
     {
         return [
             '',
             '    /**',
-            "     * @return Collection<int, {$dataClassName}>",
+            "     * @return \\Illuminate\\Support\\Collection<int, {$dataClassName}>",
             '     */',
             '    public function list()',
             '    {',

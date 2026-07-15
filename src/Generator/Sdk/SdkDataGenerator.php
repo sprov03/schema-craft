@@ -184,11 +184,11 @@ class SdkDataGenerator
         foreach ($columns as $col) {
             // Collection fields coalesce a null/omitted arg to an empty DataCollection so the
             // property is always a collection, even on direct construction.
-            $suffix = ! empty($col['isCollection']) ? ' ?? new DataCollection()' : '';
+            $suffix = ! empty($col['isCollection']) ? ' ?? collect()' : '';
             $lines[] = "        \$this->{$col['name']} = \${$col['name']}{$suffix};";
         }
         foreach ($relationships as $rel) {
-            $suffix = $rel['isCollection'] ? ' ?? new DataCollection()' : '';
+            $suffix = $rel['isCollection'] ? ' ?? collect()' : '';
             $lines[] = "        \$this->{$rel['name']} = \${$rel['name']}{$suffix};";
         }
         $lines[] = '    }';
@@ -305,7 +305,7 @@ class SdkDataGenerator
 
         $lines[] = '    ) {';
         foreach ($fields as $f) {
-            $suffix = $this->isCollectionType($f['type']) ? ' ?? new DataCollection()' : '';
+            $suffix = $this->isCollectionType($f['type']) ? ' ?? collect()' : '';
             $lines[] = "        \$this->{$f['name']} = \${$f['name']}{$suffix};";
         }
         $lines[] = '    }';
@@ -370,10 +370,11 @@ class SdkDataGenerator
             $type = $f['type'];
             $name = $f['name'];
 
-            // Collection field is a DataCollection (its own toArray serialises the items). Tolerate a
-            // raw array too, in case a consumer constructed the DTO with a plain array of items.
+            // Collection field: serialise each item to its wire array. Collection::toArray() would
+            // NOT recurse into the DTOs (they aren't Arrayable), so map explicitly. collect(...)
+            // tolerates a raw array too, in case a consumer built the DTO with a plain array.
             if (str_ends_with($type, '[]') && str_ends_with(substr($type, 0, -2), 'Data')) {
-                $lines[] = "            '{$name}' => \$this->{$name} === null ? null : (\$this->{$name} instanceof DataCollection ? \$this->{$name}->toArray() : array_map(function (\$item) { return \$item->toArray(); }, \$this->{$name})),";
+                $lines[] = "            '{$name}' => \$this->{$name} === null ? null : collect(\$this->{$name})->map(function (\$item) { return \$item->toArray(); })->all(),";
 
                 continue;
             }
@@ -874,7 +875,7 @@ class SdkDataGenerator
 
             $propName = $this->propertyName($column->name);
             // Collection columns coalesce null → empty DataCollection (never null).
-            $suffix = $column->collectionItemClass !== null ? ' ?? new DataCollection()' : '';
+            $suffix = $column->collectionItemClass !== null ? ' ?? collect()' : '';
             $assignments[] = "\$this->{$propName} = \${$propName}{$suffix};";
         }
 
@@ -901,7 +902,7 @@ class SdkDataGenerator
                 continue;
             }
 
-            $suffix = SdkRelationshipCardinality::isCollection($rel->type) ? ' ?? new DataCollection()' : '';
+            $suffix = SdkRelationshipCardinality::isCollection($rel->type) ? ' ?? collect()' : '';
             $assignments[] = "\$this->{$rel->name} = \${$rel->name}{$suffix};";
         }
 
@@ -983,7 +984,10 @@ class SdkDataGenerator
      */
     private function collectionDocType(string $elementDto): string
     {
-        return "DataCollection<{$elementDto}>";
+        // Real Illuminate\Support\Collection (declared as a package dependency, resolved to the
+        // consuming Laravel app's own version) — full Collection contract, referenced by FQCN so no
+        // import management is needed in the generated DTOs.
+        return "\\Illuminate\\Support\\Collection<int, {$elementDto}>";
     }
 
     /**
@@ -992,11 +996,11 @@ class SdkDataGenerator
      *
      * A to-many field is NEVER null: the API Resource always emits the relation (empty at worst,
      * never whenLoaded-gated — see SchemaCraftResource::toArray), so an absent/empty payload hydrates
-     * to an EMPTY DataCollection, not null. Nullability is intentionally ignored for this field type.
+     * to an EMPTY Collection, not null. Nullability is intentionally ignored for this field type.
      */
     private function collectionFromArray(string $dataKey, string $elementDto): string
     {
-        return "isset(\$data['{$dataKey}']) ? new DataCollection(array_map(function (array \$item) { return {$elementDto}::fromArray(\$item); }, \$data['{$dataKey}'])) : new DataCollection()";
+        return "isset(\$data['{$dataKey}']) ? collect(\$data['{$dataKey}'])->map(function (array \$item) { return {$elementDto}::fromArray(\$item); }) : collect()";
     }
 
     private function buildRelationshipPropertyDeclaration(RelationshipDefinition $rel): string

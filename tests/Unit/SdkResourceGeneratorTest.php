@@ -189,6 +189,47 @@ class SdkResourceGeneratorTest extends TestCase
         $this->assertStringContainsString('posts/{$id}/publish', $output);
     }
 
+    public function test_typed_request_action_with_collection_response_hydrates_a_collection(): void
+    {
+        // Regression: an action documented #[ApiResponse(X, collection: true)] whose handler takes a
+        // typed Request hit the typed-request fast-path, which had NO collection branch and always
+        // emitted a singular fromArray. It must honor responseCollection and hydrate a collection.
+        $endpoints = [[
+            'method' => 'post',
+            'path' => 'posts/{post}/skip-trace',
+            'action' => 'skipTrace',
+            'responseModelName' => 'LeadSkipTrace',
+            'responseCollection' => true,
+            'requestDtoName' => 'SkipTraceLeadRequestData',
+        ]];
+
+        $output = $this->generator->generate($this->makeSimpleTable(), 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post', [], $endpoints);
+
+        $this->assertStringContainsString('@return \\Illuminate\\Support\\Collection<int, LeadSkipTraceData>', $output);
+        $this->assertStringContainsString("return collect(\$response['data'])->map(function (array \$item) {", $output);
+        $this->assertStringContainsString('return LeadSkipTraceData::fromArray($item);', $output);
+        // The buggy singular form must be gone.
+        $this->assertStringNotContainsString("return LeadSkipTraceData::fromArray(\$response['data']);", $output);
+    }
+
+    public function test_non_get_action_with_collection_response_hydrates_a_collection(): void
+    {
+        // Same bug on the general path (flat-body POST, no typed request) — collection: true ignored.
+        $endpoints = [[
+            'method' => 'post',
+            'path' => 'posts/skip-trace-all',
+            'action' => 'skipTraceAll',
+            'responseModelName' => 'LeadSkipTrace',
+            'responseCollection' => true,
+        ]];
+
+        $output = $this->generator->generate($this->makeSimpleTable(), 'MyApp\\Sdk\\Resources', 'MyApp\\Sdk\\Data', 'Post', [], $endpoints);
+
+        $this->assertStringContainsString("return collect(\$response['data'])->map(function (array \$item) {", $output);
+        $this->assertStringContainsString('return LeadSkipTraceData::fromArray($item);', $output);
+        $this->assertStringNotContainsString("return LeadSkipTraceData::fromArray(\$response['data']);", $output);
+    }
+
     public function test_custom_action_slug_converts_to_kebab_case(): void
     {
         $table = $this->makeSimpleTable();

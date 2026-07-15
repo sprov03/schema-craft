@@ -264,12 +264,12 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        // To-many relations are typed collections (non-nullable — always present, empty at worst),
-        // not bare arrays. An absent payload hydrates to an empty DataCollection, never null.
-        $this->assertStringContainsString('/** @var DataCollection<CommentData> */', $output);
+        // To-many relations are real Illuminate Collections (non-nullable — always present, empty at
+        // worst), not bare arrays. An absent payload hydrates to an empty collection, never null.
+        $this->assertStringContainsString('/** @var \Illuminate\Support\Collection<int, CommentData> */', $output);
         $this->assertStringContainsString('public $comments;', $output);
         $this->assertStringContainsString(
-            "isset(\$data['comments']) ? new DataCollection(array_map(function (array \$item) { return CommentData::fromArray(\$item); }, \$data['comments'])) : new DataCollection()",
+            "isset(\$data['comments']) ? collect(\$data['comments'])->map(function (array \$item) { return CommentData::fromArray(\$item); }) : collect()",
             $output,
         );
     }
@@ -289,7 +289,7 @@ class SdkDataGeneratorTest extends TestCase
 
         $output = $this->generator->generate($table, 'MyApp\\Sdk\\Data', 'Post');
 
-        $this->assertStringContainsString('/** @var DataCollection<TagData> */', $output);
+        $this->assertStringContainsString('/** @var \Illuminate\Support\Collection<int, TagData> */', $output);
         $this->assertStringContainsString('public $tags;', $output);
     }
 

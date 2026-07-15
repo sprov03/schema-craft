@@ -54,12 +54,12 @@ use SchemaCraft\SchemaCraftServiceProvider;
  *
  *  4. Inner-DTO instantiation in fromArray:
  *     - JsonColumn field → typed `{Inner}Data` instance, not raw array
- *     - CollectionColumn field → typed DataCollection<{Inner}Data>, not raw array
+ *     - CollectionColumn field → typed Collection<int, {Inner}Data>, not raw array
  *     - BitmaskColumn field → typed `{Inner}Data` (with .value + .flags DTO)
  *     - Singular relationship → typed `{Related}Data` instance
- *     - Collection relationship → typed DataCollection<{Related}Data>
+ *     - Collection relationship → typed Collection<int, {Related}Data>
  *     — these are why consumers don't have to manually array-index nested data.
- *     — collections are a real DataCollection object (foreach / [] / ->first() / ->count()),
+ *     — collections are a real Illuminate Collection (foreach / [] / ->first() / ->count()),
  *       not a bare array, so consumers get an explicit typed container with IDE support.
  *
  *  5. Missing-from-payload fields hydrate to `null` (no throw).
@@ -331,7 +331,7 @@ class SdkDtoRuntimeTest extends TestCase
             ],
         ]);
 
-        $this->assertInstanceOf($this->dto('DataCollection'), $data->price_history);
+        $this->assertInstanceOf(\Illuminate\Support\Collection::class, $data->price_history);
         $this->assertCount(3, $data->price_history);
 
         foreach ($data->price_history as $point) {
@@ -350,7 +350,7 @@ class SdkDtoRuntimeTest extends TestCase
             'price_history' => [],
         ]);
 
-        $this->assertInstanceOf($this->dto('DataCollection'), $data->price_history);
+        $this->assertInstanceOf(\Illuminate\Support\Collection::class, $data->price_history);
         $this->assertCount(0, $data->price_history);
     }
 
@@ -403,7 +403,7 @@ class SdkDtoRuntimeTest extends TestCase
             ],
         ]);
 
-        $this->assertInstanceOf($this->dto('DataCollection'), $data->variants);
+        $this->assertInstanceOf(\Illuminate\Support\Collection::class, $data->variants);
         $this->assertCount(2, $data->variants);
 
         foreach ($data->variants as $variant) {
@@ -436,10 +436,10 @@ class SdkDtoRuntimeTest extends TestCase
             // variants (collection relationship) and price_history (collection column) omitted
         ]);
 
-        $this->assertInstanceOf($this->dto('DataCollection'), $data->variants);
+        $this->assertInstanceOf(\Illuminate\Support\Collection::class, $data->variants);
         $this->assertCount(0, $data->variants);
 
-        $this->assertInstanceOf($this->dto('DataCollection'), $data->price_history);
+        $this->assertInstanceOf(\Illuminate\Support\Collection::class, $data->price_history);
         $this->assertCount(0, $data->price_history);
     }
 
@@ -518,7 +518,7 @@ class SdkDtoRuntimeTest extends TestCase
         $this->assertTrue($data->permissions->flags->EXECUTE);
 
         // CollectionColumn — a real DataCollection, indexable + countable
-        $this->assertInstanceOf($this->dto('DataCollection'), $data->price_history);
+        $this->assertInstanceOf(\Illuminate\Support\Collection::class, $data->price_history);
         $this->assertCount(2, $data->price_history);
         $this->assertInstanceOf($this->dto('TestPricePointData'), $data->price_history[0]);
         $this->assertSame(45.00, $data->price_history[0]->amount);
@@ -528,11 +528,11 @@ class SdkDtoRuntimeTest extends TestCase
         $this->assertSame(7, $data->brand->id);
         $this->assertInstanceOf($this->dto('CatalogShipmentData'), $data->shipment);
 
-        // Collection relationships — DataCollection objects
-        $this->assertInstanceOf($this->dto('DataCollection'), $data->variants);
+        // Collection relationships — Illuminate Collections
+        $this->assertInstanceOf(\Illuminate\Support\Collection::class, $data->variants);
         $this->assertCount(1, $data->variants);
         $this->assertInstanceOf($this->dto('CatalogVariantData'), $data->variants[0]);
-        $this->assertInstanceOf($this->dto('DataCollection'), $data->reviews);
+        $this->assertInstanceOf(\Illuminate\Support\Collection::class, $data->reviews);
         $this->assertCount(1, $data->reviews);
         $this->assertInstanceOf($this->dto('CatalogReviewData'), $data->reviews[0]);
 
