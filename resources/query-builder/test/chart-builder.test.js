@@ -187,3 +187,102 @@ test('chart form: the SAME component edits — locks the type, pre-fills knobs, 
   assert.equal(saved.raw.name, 'Calls over time');
   assert.equal(saved.raw.bucket, 'week');
 });
+
+const FUNNEL_CAT = [{ type: 'FunnelChart', label: 'Funnel', inputs: [
+  { key: 'name', label: 'Name', type: 'text', default: 'Funnel' },
+  { key: 'stages', label: 'Stages', type: 'filterList' },
+] }];
+
+test('filterList: a labeled repeater — each row = a name + one embedded filter builder; save emits [{label, criteria}]', () => {
+  const root = mount();
+  let saved = null;
+  const onChanges = []; // one embedded builder mounts per row; capture each row's onChange
+  initChartBuilder(root, {
+    catalog: FUNNEL_CAT,
+    metadata: null,
+    mountFilter: (el, { onChange }) => { onChanges.push(onChange); },
+    onSave: (type, raw) => { saved = { type, raw }; },
+  });
+
+  root.querySelector('.qb-add-chart').click();
+  const overlay = document.querySelector('.qb-modal-overlay');
+  overlay.querySelector('.qb-combo-input').dispatchEvent(new globalThis.window.Event('focus'));
+  [...overlay.querySelectorAll('.qb-combo-item')].find((b) => b.textContent.includes('Funnel'))
+    .dispatchEvent(new globalThis.window.Event('mousedown'));
+
+  assert.ok(overlay.querySelector('.qb-knob-filterlist'), 'filterList → a repeater container');
+  const addRow = overlay.querySelector('.qb-filterlist-add');
+  assert.ok(addRow, 'an add-row button');
+  assert.equal(overlay.querySelectorAll('.qb-filterlist-row').length, 0, 'starts with no rows');
+
+  addRow.click();
+  addRow.click();
+  assert.equal(overlay.querySelectorAll('.qb-filterlist-row').length, 2, 'two stage rows');
+  assert.equal(onChanges.length, 2, 'a filter builder mounted per row');
+
+  const labels = overlay.querySelectorAll('.qb-filterlist-label');
+  labels[0].value = 'Contacted'; labels[0].dispatchEvent(new globalThis.window.Event('input'));
+  labels[1].value = 'Engaged'; labels[1].dispatchEvent(new globalThis.window.Event('input'));
+  const t0 = [{ type: 'whereHas', relationship: 'communicationLogs', hasType: 'whereHas', children: [] }];
+  const t1 = [{ type: 'condition', column: 'duration_in_seconds', operator: '>=', value: 120 }];
+  onChanges[0](t0);
+  onChanges[1](t1);
+
+  overlay.querySelector('.qb-modal-save').click();
+  assert.deepEqual(saved.raw.stages, [
+    { label: 'Contacted', criteria: t0 },
+    { label: 'Engaged', criteria: t1 },
+  ], 'stages emit as an ordered list of {label, criteria}');
+});
+
+test('filterList: removing a row drops it from the emitted list', () => {
+  const root = mount();
+  let saved = null;
+  initChartBuilder(root, {
+    catalog: FUNNEL_CAT, metadata: null,
+    mountFilter: () => {},
+    onSave: (type, raw) => { saved = { type, raw }; },
+  });
+  root.querySelector('.qb-add-chart').click();
+  const overlay = document.querySelector('.qb-modal-overlay');
+  overlay.querySelector('.qb-combo-input').dispatchEvent(new globalThis.window.Event('focus'));
+  [...overlay.querySelectorAll('.qb-combo-item')].find((b) => b.textContent.includes('Funnel'))
+    .dispatchEvent(new globalThis.window.Event('mousedown'));
+
+  const addRow = overlay.querySelector('.qb-filterlist-add');
+  addRow.click(); addRow.click();
+  const labels = overlay.querySelectorAll('.qb-filterlist-label');
+  labels[0].value = 'Keep'; labels[0].dispatchEvent(new globalThis.window.Event('input'));
+  labels[1].value = 'Drop'; labels[1].dispatchEvent(new globalThis.window.Event('input'));
+
+  overlay.querySelectorAll('.qb-filterlist-remove')[1].click();
+  assert.equal(overlay.querySelectorAll('.qb-filterlist-row').length, 1);
+
+  overlay.querySelector('.qb-modal-save').click();
+  assert.equal(saved.raw.stages.length, 1);
+  assert.equal(saved.raw.stages[0].label, 'Keep');
+});
+
+test('filterList: edit seeds one row per stored stage — label pre-filled + its criteria seed the row builder', () => {
+  mount();
+  let saved = null;
+  const seededTrees = [];
+  const STAGE_TREE = [{ type: 'whereHas', relationship: 'communicationLogs', hasType: 'whereHas', children: [] }];
+
+  const form = chartForm({
+    catalog: FUNNEL_CAT,
+    mountFilter: (el, { initialTree }) => { seededTrees.push(initialTree); },
+    initialType: 'FunnelChart',
+    initialValues: { name: 'Funnel', stages: [{ label: 'Contacted', criteria: STAGE_TREE }] },
+    saveLabel: 'Save chart',
+    onSave: (type, raw) => { saved = { type, raw }; },
+  });
+  document.body.appendChild(form.el);
+
+  assert.equal(form.el.querySelectorAll('.qb-filterlist-row').length, 1, 'one row per stored stage');
+  assert.equal(form.el.querySelector('.qb-filterlist-label').value, 'Contacted', 'stage name pre-filled');
+  assert.deepEqual(seededTrees[0], STAGE_TREE, 'the row builder is seeded with the stage criteria');
+
+  form.el.querySelector('.qb-modal-save').click();
+  assert.deepEqual(saved.raw.stages, [{ label: 'Contacted', criteria: STAGE_TREE }]);
+});

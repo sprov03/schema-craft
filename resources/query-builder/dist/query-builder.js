@@ -1185,7 +1185,16 @@ var SchemaCraftQueryBuilder = (() => {
     combo.open();
     return { close, overlay };
   }
-  function openNavigator(metadata, { onSelect, onCancel, mode = "field" } = {}) {
+  var TYPE_GROUPS = {
+    date: ["date", "datetime", "timestamp", "time"],
+    numeric: ["number", "integer", "biginteger", "float", "double", "decimal", "unsignedinteger", "unsignedbiginteger", "unsignedsmallinteger", "unsignedtinyinteger", "tinyinteger", "smallinteger", "mediumminteger", "mediuminteger", "year"]
+  };
+  function columnMatchesAccept(col, accept) {
+    if (!accept || !accept.length) return true;
+    const t = (col.type || "").toLowerCase().replace(/[^a-z]/g, "");
+    return accept.some((group) => (TYPE_GROUPS[group] || []).includes(t));
+  }
+  function openNavigator(metadata, { onSelect, onCancel, mode = "field", accept = null } = {}) {
     const isRelMode = mode === "relationship";
     let relPath = [];
     const crumb = el2("div", { class: "qb-nav-crumb" });
@@ -1235,7 +1244,7 @@ var SchemaCraftQueryBuilder = (() => {
         }
       }
       if (!isRelMode) {
-        for (const col of level.columns) {
+        for (const col of level.columns.filter((c) => columnMatchesAccept(c, accept))) {
           const item = el2("button", { type: "button", class: "qb-nav-col", text: col.name });
           item.addEventListener("click", () => {
             if (onSelect) onSelect({ relationshipPath: [...relPath], column: col.name, type: col.type, options: col.options || null });
@@ -1336,6 +1345,7 @@ var SchemaCraftQueryBuilder = (() => {
         pick.addEventListener("click", () => {
           openNavigator(metadata, {
             mode: "field",
+            accept: input.accept || null,
             onSelect: (field2) => {
               const path = field2.relationshipPath || [];
               const relationship = path.length ? path[path.length - 1] : null;
@@ -1365,6 +1375,44 @@ var SchemaCraftQueryBuilder = (() => {
         });
         raw[input.key] = sel.value;
         row.appendChild(sel);
+      } else if (input.type === "filterList") {
+        const container = el3("div", { class: "qb-knob-filterlist" });
+        const rowsHost = el3("div", { class: "qb-filterlist-rows" });
+        const stages = Array.isArray(seed) ? seed.map((s) => ({ label: s.label || "", criteria: Array.isArray(s.criteria) ? s.criteria : [] })) : [];
+        raw[input.key] = stages;
+        const addStageRow = (stage) => {
+          const rowEl = el3("div", { class: "qb-filterlist-row" });
+          const labelInp = el3("input", { type: "text", class: "qb-filterlist-label", value: stage.label != null ? String(stage.label) : "", placeholder: "Stage name" });
+          labelInp.addEventListener("input", () => {
+            stage.label = labelInp.value;
+          });
+          const filterHost = el3("div", { class: "qb-filterlist-filter" });
+          if (mountFilter) {
+            mountFilter(filterHost, { initialTree: stage.criteria, onChange: (tree) => {
+              stage.criteria = tree;
+            } });
+          }
+          const removeBtn = el3("button", { type: "button", class: "qb-filterlist-remove", text: "\u2715" });
+          removeBtn.addEventListener("click", () => {
+            const i = stages.indexOf(stage);
+            if (i >= 0) stages.splice(i, 1);
+            rowEl.remove();
+          });
+          rowEl.appendChild(labelInp);
+          rowEl.appendChild(filterHost);
+          rowEl.appendChild(removeBtn);
+          rowsHost.appendChild(rowEl);
+        };
+        stages.forEach(addStageRow);
+        const addBtn = el3("button", { type: "button", class: "qb-filterlist-add", text: "+ Add stage" });
+        addBtn.addEventListener("click", () => {
+          const stage = { label: "", criteria: [] };
+          stages.push(stage);
+          addStageRow(stage);
+        });
+        container.appendChild(rowsHost);
+        container.appendChild(addBtn);
+        row.appendChild(container);
       } else {
         const initial = seed != null ? seed : input.default;
         const inp = el3("input", { type: "text", class: "qb-knob-text", value: initial != null ? String(initial) : "" });

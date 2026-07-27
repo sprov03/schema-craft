@@ -62,6 +62,8 @@ class InputDefinition
         /** For schemaSelector — when true, only offer schemas whose model class exists (excludes
          *  response-only/transient schemas that can't back a model action). */
         public readonly bool $modelBackedOnly = false,
+        /** For schemaField — restrict the navigator to columns of these type groups ('date', 'numeric'). Empty = no filter. */
+        public readonly array $accept = [],
     ) {}
 
     /**

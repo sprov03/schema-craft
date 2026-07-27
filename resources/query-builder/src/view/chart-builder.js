@@ -56,6 +56,7 @@ export function chartForm({
       pick.addEventListener('click', () => {
         openNavigator(metadata, {
           mode: 'field',
+          accept: input.accept || null,
           onSelect: (field) => {
             const path = field.relationshipPath || [];
             const relationship = path.length ? path[path.length - 1] : null;
@@ -83,6 +84,44 @@ export function chartForm({
       sel.addEventListener('change', () => { raw[input.key] = sel.value; });
       raw[input.key] = sel.value; // default to the first option (or the seeded value)
       row.appendChild(sel);
+    } else if (input.type === 'filterList') {
+      // A labeled REPEATER: N rows, each = a name + one instance of the SAME embedded filter builder the
+      // `filter` knob mounts. Each row emits {label, criteria}; the knob streams the ordered list into
+      // raw[key]. Used by the funnel (stages) and composition (segments) — separate named filter trees,
+      // not one AND-ed tree. Reuses the proven query builder; only the list-wrapper + per-row label is new.
+      const container = el('div', { class: 'qb-knob-filterlist' });
+      const rowsHost = el('div', { class: 'qb-filterlist-rows' });
+      const stages = Array.isArray(seed)
+        ? seed.map((s) => ({ label: s.label || '', criteria: Array.isArray(s.criteria) ? s.criteria : [] }))
+        : [];
+      raw[input.key] = stages; // same reference kept in sync as rows are added/edited/removed
+
+      const addStageRow = (stage) => {
+        const rowEl = el('div', { class: 'qb-filterlist-row' });
+        const labelInp = el('input', { type: 'text', class: 'qb-filterlist-label', value: stage.label != null ? String(stage.label) : '', placeholder: 'Stage name' });
+        labelInp.addEventListener('input', () => { stage.label = labelInp.value; });
+        const filterHost = el('div', { class: 'qb-filterlist-filter' });
+        if (mountFilter) {
+          mountFilter(filterHost, { initialTree: stage.criteria, onChange: (tree) => { stage.criteria = tree; } });
+        }
+        const removeBtn = el('button', { type: 'button', class: 'qb-filterlist-remove', text: '\u2715' });
+        removeBtn.addEventListener('click', () => {
+          const i = stages.indexOf(stage);
+          if (i >= 0) stages.splice(i, 1);
+          rowEl.remove();
+        });
+        rowEl.appendChild(labelInp);
+        rowEl.appendChild(filterHost);
+        rowEl.appendChild(removeBtn);
+        rowsHost.appendChild(rowEl);
+      };
+
+      stages.forEach(addStageRow); // edit: one row per stored stage, pre-filled
+      const addBtn = el('button', { type: 'button', class: 'qb-filterlist-add', text: '+ Add stage' });
+      addBtn.addEventListener('click', () => { const stage = { label: '', criteria: [] }; stages.push(stage); addStageRow(stage); });
+      container.appendChild(rowsHost);
+      container.appendChild(addBtn);
+      row.appendChild(container);
     } else {
       // Store the raw default/seed with its ORIGINAL type (a numeric default stays a number); only the
       // displayed value is stringified. User edits become strings (the backend casts), as before.
