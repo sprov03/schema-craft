@@ -12,6 +12,7 @@ use ReflectionClass;
 use ReflectionEnum;
 use ReflectionNamedType;
 use ReflectionProperty;
+use ReflectionUnionType;
 use RuntimeException;
 use SchemaCraft\Attributes\AutoIncrement;
 use SchemaCraft\Attributes\BigInt;
@@ -106,19 +107,27 @@ class SchemaScanner
 
         foreach ($this->getSchemaProperties($reflection) as $property) {
             $type = $property->getType();
+            $relationAttr = $this->getRelationAttribute($property);
 
-            if (! $type instanceof ReflectionNamedType) {
+            // Union types are allowed ONLY on morphTo properties, where the union is the honest
+            // documentation of the possible runtime targets (e.g. Record|Contact) and the scanner
+            // needs nothing from the type but nullability — the related model is polymorphic
+            // (hardcoded to Model) and the columns come from the morph name. Everywhere else the
+            // single named type drives column/model resolution, so unions remain fatal.
+            $isMorphToUnion = $type instanceof ReflectionUnionType && $relationAttr instanceof MorphTo;
+
+            if (! $type instanceof ReflectionNamedType && ! $isMorphToUnion) {
                 throw new RuntimeException(
-                    "Property [{$property->getName()}] on [{$this->schemaClass}] must have a single named type. Union and intersection types are not supported."
+                    "Property [{$property->getName()}] on [{$this->schemaClass}] must have a single named type. Union and intersection types are not supported (except a union of morph targets on a #[MorphTo] property)."
                 );
             }
 
-            $typeName = $type->getName();
+            // A union-typed morphTo property never reaches the scalar-column branch below, so a
+            // type name is only needed for named types.
+            $typeName = $type instanceof ReflectionNamedType ? $type->getName() : null;
             $isFillable = $this->hasAttribute($property, Fillable::class);
             $isHidden = $this->hasAttribute($property, Hidden::class);
             $isWith = $this->hasAttribute($property, With::class);
-
-            $relationAttr = $this->getRelationAttribute($property);
 
             if ($relationAttr !== null) {
                 $rel = $this->scanRelationship($property, $relationAttr, $type->allowsNull());

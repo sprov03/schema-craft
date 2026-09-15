@@ -47,6 +47,27 @@ class SdkGeneratorTest extends TestCase
         $this->assertStringContainsString('class SdkConnector', $files['connector']->content);
     }
 
+    public function test_composer_requires_illuminate_for_collections_and_models(): void
+    {
+        // Wide constraints so Composer resolves to the consuming Laravel app's own version (no conflict):
+        //  - illuminate/support: to-many data returns a real Illuminate\Support\Collection.
+        //  - illuminate/database: the exported read-only models extend Eloquent's Model.
+        $files = $this->generator->generate($this->makeSchemas(), 'acme/my-sdk', 'Acme\\Sdk', 'AcmeClient');
+
+        $this->assertStringContainsString('illuminate/support', $files['composer.json']->content);
+        $this->assertStringContainsString('illuminate/database', $files['composer.json']->content);
+    }
+
+    public function test_readme_documents_collections_and_read_only_models(): void
+    {
+        $files = $this->generator->generate($this->makeSchemas(), 'acme/my-sdk', 'Acme\\Sdk', 'AcmeClient');
+        $readme = $files['readme']->content;
+
+        // Consumers must know: to-many data is a real Collection, and exported models are read-only.
+        $this->assertStringContainsString('Illuminate\\Support\\Collection', $readme);
+        $this->assertStringContainsString('read-only', $readme);
+    }
+
     public function test_generates_data_dto_for_each_schema(): void
     {
         $schemas = $this->makeSchemas();

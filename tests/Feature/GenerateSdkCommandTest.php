@@ -234,7 +234,7 @@ class GenerateSdkCommandTest extends TestCase
         // Every Post endpoint is now documented (#[ApiResponse]) so methods carry typed returns:
         //   getCollection -> Collection<int, PostData>, the rest of the reads/writes -> PostData,
         //   delete/archive -> the structured ActionResultData (no longer void).
-        $this->assertStringContainsString('     * @return Collection<int, PostData>', $content);
+        $this->assertStringContainsString('     * @return \Illuminate\Support\Collection<int, PostData>', $content);
         $this->assertStringContainsString("return collect(\$response['data'])->map(function (array \$item) {", $content);
         $this->assertStringContainsString('return PostData::fromArray($item);', $content);
         $this->assertStringContainsString("return PostData::fromArray(\$response['data']);", $content);

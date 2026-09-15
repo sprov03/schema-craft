@@ -125,7 +125,7 @@ class SdkReadmeGenerator
             $lines[] = '';
             $lines[] = '```php';
             $lines[] = '// List all';
-            $lines[] = "\${$methodName} = \$client->{$methodName}()->list(); // {$dataClass}[]";
+            $lines[] = "\${$methodName} = \$client->{$methodName}()->list(); // Illuminate\\Support\\Collection<int, {$dataClass}>";
             $lines[] = '';
             $lines[] = '// Get one';
             $lines[] = "\${$methodName}Item = \$client->{$methodName}()->get(\$id); // {$dataClass}";
@@ -152,6 +152,32 @@ class SdkReadmeGenerator
             $lines[] = '```';
             $lines[] = '';
         }
+
+        // Working with the returned data — collections + read-only models
+        $lines[] = '## Working With the Data';
+        $lines[] = '';
+        $lines[] = '### Collections';
+        $lines[] = '';
+        $lines[] = 'Any to-many field (a list endpoint, or a `hasMany`/`belongsToMany` relation on a DTO) is a real `Illuminate\\Support\\Collection` of typed DTOs — never a bare array. Iterate it, index it, or use the full Collection API:';
+        $lines[] = '';
+        $lines[] = '```php';
+        $lines[] = '$posts = $client->posts()->list();   // Illuminate\\Support\\Collection<int, PostData>';
+        $lines[] = '';
+        $lines[] = 'foreach ($posts as $post) {';
+        $lines[] = '    echo $post->title;               // typed PostData, full IDE completion';
+        $lines[] = '}';
+        $lines[] = '';
+        $lines[] = '$first = $posts->first();            // ?PostData';
+        $lines[] = '$count = $posts->count();';
+        $lines[] = '$titles = $posts->pluck(\'title\');    // the usual Collection helpers';
+        $lines[] = '```';
+        $lines[] = '';
+        $lines[] = 'A to-many field is **always present** — an empty result is an empty Collection, never `null`, so you can iterate without null checks.';
+        $lines[] = '';
+        $lines[] = '### Read-only models';
+        $lines[] = '';
+        $lines[] = 'The exported Eloquent models under `Models/` are **read-only**: use them to read and traverse data, but perform all writes through this API client. Calling `save()`, `update()`, or `delete()` on an exported model throws.';
+        $lines[] = '';
 
         // Error Handling
         $lines[] = '## Error Handling';

@@ -635,7 +635,19 @@ export function openRelationshipSearch(adjacency, fromModel, { onSelect, onCance
 // The schema NAVIGATOR — browse, don't search. Walk into a relationship to see its model's fields,
 // breadcrumb back, pick a column → hand back the field-path so the host auto-builds the whereHas.
 // Lazy-friendly: it only ever asks levelAt() for the current level, never the whole graph.
-export function openNavigator(metadata, { onSelect, onCancel, mode = 'field' } = {}) {
+// Type groups for the accept filter on schemaField knobs.
+const TYPE_GROUPS = {
+  date: ['date', 'datetime', 'timestamp', 'time'],
+  numeric: ['number', 'integer', 'biginteger', 'float', 'double', 'decimal', 'unsignedinteger', 'unsignedbiginteger', 'unsignedsmallinteger', 'unsignedtinyinteger', 'tinyinteger', 'smallinteger', 'mediumminteger', 'mediuminteger', 'year'],
+};
+
+function columnMatchesAccept(col, accept) {
+  if (!accept || !accept.length) return true;
+  const t = (col.type || '').toLowerCase().replace(/[^a-z]/g, '');
+  return accept.some((group) => (TYPE_GROUPS[group] || []).includes(t));
+}
+
+export function openNavigator(metadata, { onSelect, onCancel, mode = 'field', accept = null } = {}) {
   const isRelMode = mode === 'relationship';
   let relPath = [];
   const crumb = el('div', { class: 'qb-nav-crumb' });
@@ -683,7 +695,7 @@ export function openNavigator(metadata, { onSelect, onCancel, mode = 'field' } =
     }
     // Columns are only selectable in field mode (relationship mode is picking a relationship endpoint).
     if (!isRelMode) {
-      for (const col of level.columns) {
+      for (const col of level.columns.filter((c) => columnMatchesAccept(c, accept))) {
         const item = el('button', { type: 'button', class: 'qb-nav-col', text: col.name });
         item.addEventListener('click', () => {
           if (onSelect) onSelect({ relationshipPath: [...relPath], column: col.name, type: col.type, options: col.options || null });

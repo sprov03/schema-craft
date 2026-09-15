@@ -317,6 +317,66 @@ class SdkModelGeneratorTest extends TestCase
         $this->assertStringContainsString("return \$this->hasOneThrough(Post::class, User::class, 'country_id', 'user_id', 'id', 'id');", $content);
     }
 
+    public function test_documents_properties_with_property_read_docblock(): void
+    {
+        // Eloquent attributes/relations are magic (__get), so the exported model needs a class-level
+        // @property-read block for IDE completion. Read-only models -> @property-read (not @property).
+        // The documented type must match what the model actually RETURNS: raw column type for
+        // dropped-cast columns (an enum cast we don't carry -> the underlying string), Carbon for
+        // kept date casts, int for FK columns whose phpType the scanner leaves null.
+        $schemas = [
+            'Post' => new SdkSchemaContext(
+                table: new TableDefinition(
+                    tableName: 'posts',
+                    schemaClass: 'App\\Schemas\\PostSchema',
+                    columns: [
+                        new ColumnDefinition(name: 'id', columnType: 'unsignedBigInteger', primary: true, autoIncrement: true, phpType: 'int'),
+                        new ColumnDefinition(name: 'title', columnType: 'string', phpType: 'string'),
+                        new ColumnDefinition(name: 'body', columnType: 'text', nullable: true, phpType: 'string'),
+                        new ColumnDefinition(name: 'published_at', columnType: 'timestamp', nullable: true, castType: 'datetime', phpType: 'Carbon\\CarbonInterface'),
+                        new ColumnDefinition(name: 'price', columnType: 'decimal', castType: 'decimal:2', phpType: 'float'),
+                        // enum cast dropped -> raw string, NOT the enum class
+                        new ColumnDefinition(name: 'status', columnType: 'string', castType: 'App\\Enums\\Status', phpType: 'App\\Enums\\Status'),
+                        // FK column: scanner leaves phpType null -> derive int from columnType
+                        new ColumnDefinition(name: 'author_id', columnType: 'unsignedBigInteger'),
+                    ],
+                    relationships: [
+                        new RelationshipDefinition(name: 'author', type: 'belongsTo', relatedModel: 'App\\Models\\User', foreignColumn: 'author_id'),
+                        new RelationshipDefinition(name: 'category', type: 'belongsTo', relatedModel: 'App\\Models\\Category', nullable: true, foreignColumn: 'category_id'),
+                        new RelationshipDefinition(name: 'comments', type: 'hasMany', relatedModel: 'App\\Models\\Comment'),
+                        new RelationshipDefinition(name: 'tags', type: 'belongsToMany', relatedModel: 'App\\Models\\Tag'),
+                    ],
+                ),
+            ),
+        ];
+
+        $content = $this->generator->generate($schemas, 'Acme\\Sdk')['model_Post']->content;
+
+        // Columns
+        $this->assertStringContainsString('@property-read int $id', $content);
+        $this->assertStringContainsString('@property-read string $title', $content);
+        $this->assertStringContainsString('@property-read ?string $body', $content);
+        $this->assertStringContainsString('@property-read ?\\Carbon\\CarbonInterface $published_at', $content);
+        $this->assertStringContainsString('@property-read float $price', $content);
+        $this->assertStringContainsString('@property-read string $status', $content);
+        $this->assertStringContainsString('@property-read int $author_id', $content);
+        // The dropped enum class must NOT surface as a property type.
+        $this->assertStringNotContainsString('@property-read App\\Enums\\Status', $content);
+
+        // Relations
+        $this->assertStringContainsString('@property-read User $author', $content);
+        $this->assertStringContainsString('@property-read ?Category $category', $content);
+        $this->assertStringContainsString('@property-read Collection|Comment[] $comments', $content);
+        $this->assertStringContainsString('@property-read Collection|Tag[] $tags', $content);
+
+        // Collection referenced in the docblock must be imported.
+        $this->assertStringContainsString('use Illuminate\\Database\\Eloquent\\Collection;', $content);
+
+        // The block is a real docblock attached to the class.
+        $this->assertStringContainsString("/**\n", $content);
+        $this->assertMatchesRegularExpression('/\*\/\nclass Post extends ReadOnlyModel/', $content);
+    }
+
     public function test_omits_casts_block_when_no_native_casts(): void
     {
         $content = $this->generator->generate($this->makeSchemas(), 'Acme\\Sdk')['model_Post']->content;

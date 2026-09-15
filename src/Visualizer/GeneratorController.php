@@ -236,13 +236,18 @@ class GeneratorController
         $request->validate([
             'generator' => ['required', 'string'],
             'accumulated' => ['sometimes', 'array'],
+            'forceReplace' => ['sometimes', 'array'],
+            'forceReplace.*' => ['string'],
         ]);
 
         $generator = $this->registry->resolve($request->input('generator'));
         $resolved = $this->resolveAccumulated($request->input('accumulated', []), $generator);
+        $forceReplace = $request->input('forceReplace', []);
 
         /** @var FileRunResult[] $results */
-        $results = $this->runner->run($generator, $resolved, writeResults: false);
+        // forceReplace lets the preview reflect the user's per-file "Replace" choice: the toggle
+        // re-runs preview with that path added here, so the returned diff shows disk → render.
+        $results = $this->runner->run($generator, $resolved, writeResults: false, forceReplace: $forceReplace);
 
         $files = array_map(fn (FileRunResult $result) => [
             'type' => $result->isTemplate ? 'file' : 'inline',
@@ -270,14 +275,17 @@ class GeneratorController
             'accumulated' => ['sometimes', 'array'],
             'skipFiles' => ['sometimes', 'array'],
             'skipFiles.*' => ['string'],
+            'forceReplace' => ['sometimes', 'array'],
+            'forceReplace.*' => ['string'],
         ]);
 
         $generator = $this->registry->resolve($request->input('generator'));
         $resolved = $this->resolveAccumulated($request->input('accumulated', []), $generator);
         $skipFiles = $request->input('skipFiles', []);
+        $forceReplace = $request->input('forceReplace', []);
 
         /** @var FileRunResult[] $results */
-        $results = $this->runner->run($generator, $resolved, writeResults: true, skipFiles: $skipFiles);
+        $results = $this->runner->run($generator, $resolved, writeResults: true, skipFiles: $skipFiles, forceReplace: $forceReplace);
 
         $resultFiles = [];
         $createdCount = 0;
@@ -308,7 +316,20 @@ class GeneratorController
                 continue;
             }
 
-            // Existing file, no inlines — unchanged, nothing written
+            // Existing file, no inlines. If its content changed (force-replaced) and it wasn't
+            // skipped, the runner overwrote it; otherwise it was preserved untouched.
+            if ($result->isModified() && ! in_array($result->path, $skipFiles, true)) {
+                $createdCount++;
+                $resultFiles[] = [
+                    'type' => 'file',
+                    'path' => $result->path,
+                    'replaced' => true,
+                    'message' => basename($result->path).' replaced.',
+                ];
+
+                continue;
+            }
+
             $resultFiles[] = [
                 'type' => 'file',
                 'path' => $result->path,

@@ -1185,7 +1185,16 @@ var SchemaCraftQueryBuilder = (() => {
     combo.open();
     return { close, overlay };
   }
-  function openNavigator(metadata, { onSelect, onCancel, mode = "field" } = {}) {
+  var TYPE_GROUPS = {
+    date: ["date", "datetime", "timestamp", "time"],
+    numeric: ["number", "integer", "biginteger", "float", "double", "decimal", "unsignedinteger", "unsignedbiginteger", "unsignedsmallinteger", "unsignedtinyinteger", "tinyinteger", "smallinteger", "mediumminteger", "mediuminteger", "year"]
+  };
+  function columnMatchesAccept(col, accept) {
+    if (!accept || !accept.length) return true;
+    const t = (col.type || "").toLowerCase().replace(/[^a-z]/g, "");
+    return accept.some((group) => (TYPE_GROUPS[group] || []).includes(t));
+  }
+  function openNavigator(metadata, { onSelect, onCancel, mode = "field", accept = null } = {}) {
     const isRelMode = mode === "relationship";
     let relPath = [];
     const crumb = el2("div", { class: "qb-nav-crumb" });
@@ -1235,7 +1244,7 @@ var SchemaCraftQueryBuilder = (() => {
         }
       }
       if (!isRelMode) {
-        for (const col of level.columns) {
+        for (const col of level.columns.filter((c) => columnMatchesAccept(c, accept))) {
           const item = el2("button", { type: "button", class: "qb-nav-col", text: col.name });
           item.addEventListener("click", () => {
             if (onSelect) onSelect({ relationshipPath: [...relPath], column: col.name, type: col.type, options: col.options || null });
@@ -1305,19 +1314,121 @@ var SchemaCraftQueryBuilder = (() => {
     for (const child of children) node.appendChild(child);
     return node;
   }
-  function initChartBuilder(host, { catalog = [], metadata = null, onSave = () => {
-  } } = {}) {
-    const section = el3("div", { class: "qb-chart-section" }, [
-      el3("div", { class: "qb-chart-section-label", text: "\u{1F4CA} Charts" })
-    ]);
-    const addBtn = el3("button", { type: "button", class: "qb-add-chart", text: "+ Add Chart" });
-    addBtn.addEventListener("click", openPanel);
-    section.appendChild(addBtn);
-    host.appendChild(section);
-    function openPanel() {
-      let currentType = null;
-      const raw = {};
-      const knobsHost = el3("div", { class: "qb-chart-knobs" });
+  function chartForm({
+    catalog = [],
+    metadata = null,
+    mountFilter = null,
+    initialType = null,
+    initialValues = {},
+    saveLabel = "Add chart",
+    onSave = () => {
+    },
+    onCancel = () => {
+    }
+  } = {}) {
+    const raw = {};
+    let currentType = initialType ? catalog.find((c) => c.type === initialType) || null : null;
+    const knobsHost = el3("div", { class: "qb-chart-knobs" });
+    function renderKnobs() {
+      knobsHost.innerHTML = "";
+      if (!currentType) return;
+      (currentType.inputs || []).forEach((input) => knobsHost.appendChild(renderKnob(input)));
+    }
+    function renderKnob(input) {
+      const row = el3("div", { class: "qb-knob" }, [el3("label", { class: "qb-knob-label", text: input.label })]);
+      const seed = initialValues[input.key];
+      if (input.type === "schemaField") {
+        const label = seed && seed.column ? (seed.relationship ? seed.relationship + "." : "") + seed.column : "(pick a column)";
+        const chip = el3("span", { class: "qb-knob-value", text: label });
+        if (seed && seed.column) raw[input.key] = { relationship: seed.relationship || null, column: seed.column };
+        const pick = el3("button", { type: "button", class: "qb-knob-pick", text: "Pick column" });
+        pick.addEventListener("click", () => {
+          openNavigator(metadata, {
+            mode: "field",
+            accept: input.accept || null,
+            onSelect: (field2) => {
+              const path = field2.relationshipPath || [];
+              const relationship = path.length ? path[path.length - 1] : null;
+              raw[input.key] = { relationship, column: field2.column };
+              chip.textContent = (relationship ? relationship + "." : "") + field2.column;
+            }
+          });
+        });
+        row.appendChild(chip);
+        row.appendChild(pick);
+      } else if (input.type === "filter") {
+        const container = el3("div", { class: "qb-knob-filter" });
+        const initialTree = Array.isArray(seed) ? seed : [];
+        if (initialTree.length) raw[input.key] = initialTree;
+        if (mountFilter) {
+          mountFilter(container, { initialTree, onChange: (tree) => {
+            raw[input.key] = tree;
+          } });
+        }
+        row.appendChild(container);
+      } else if (input.type === "select") {
+        const sel = el3("select", { class: "qb-knob-select" });
+        Object.entries(input.options || {}).forEach(([val, label]) => sel.appendChild(el3("option", { value: val, text: label })));
+        if (seed != null) sel.value = seed;
+        sel.addEventListener("change", () => {
+          raw[input.key] = sel.value;
+        });
+        raw[input.key] = sel.value;
+        row.appendChild(sel);
+      } else if (input.type === "filterList") {
+        const container = el3("div", { class: "qb-knob-filterlist" });
+        const rowsHost = el3("div", { class: "qb-filterlist-rows" });
+        const stages = Array.isArray(seed) ? seed.map((s) => ({ label: s.label || "", criteria: Array.isArray(s.criteria) ? s.criteria : [] })) : [];
+        raw[input.key] = stages;
+        const addStageRow = (stage) => {
+          const rowEl = el3("div", { class: "qb-filterlist-row" });
+          const labelInp = el3("input", { type: "text", class: "qb-filterlist-label", value: stage.label != null ? String(stage.label) : "", placeholder: "Stage name" });
+          labelInp.addEventListener("input", () => {
+            stage.label = labelInp.value;
+          });
+          const filterHost = el3("div", { class: "qb-filterlist-filter" });
+          if (mountFilter) {
+            mountFilter(filterHost, { initialTree: stage.criteria, onChange: (tree) => {
+              stage.criteria = tree;
+            } });
+          }
+          const removeBtn = el3("button", { type: "button", class: "qb-filterlist-remove", text: "\u2715" });
+          removeBtn.addEventListener("click", () => {
+            const i = stages.indexOf(stage);
+            if (i >= 0) stages.splice(i, 1);
+            rowEl.remove();
+          });
+          rowEl.appendChild(labelInp);
+          rowEl.appendChild(filterHost);
+          rowEl.appendChild(removeBtn);
+          rowsHost.appendChild(rowEl);
+        };
+        stages.forEach(addStageRow);
+        const addBtn = el3("button", { type: "button", class: "qb-filterlist-add", text: "+ Add stage" });
+        addBtn.addEventListener("click", () => {
+          const stage = { label: "", criteria: [] };
+          stages.push(stage);
+          addStageRow(stage);
+        });
+        container.appendChild(rowsHost);
+        container.appendChild(addBtn);
+        row.appendChild(container);
+      } else {
+        const initial = seed != null ? seed : input.default;
+        const inp = el3("input", { type: "text", class: "qb-knob-text", value: initial != null ? String(initial) : "" });
+        inp.addEventListener("input", () => {
+          raw[input.key] = inp.value;
+        });
+        if (initial != null) raw[input.key] = initial;
+        row.appendChild(inp);
+      }
+      return row;
+    }
+    let typeControl;
+    let openTypePicker = null;
+    if (initialType && currentType) {
+      typeControl = el3("div", { class: "qb-chart-type-fixed", text: currentType.label });
+    } else {
       const typeCombo = createCombobox({
         items: catalog.map((c) => ({ label: c.label, name: c.type })),
         placeholder: "choose a chart type\u2026",
@@ -1327,73 +1438,98 @@ var SchemaCraftQueryBuilder = (() => {
           renderKnobs();
         }
       });
-      function renderKnobs() {
-        knobsHost.innerHTML = "";
-        if (!currentType) return;
-        (currentType.inputs || []).forEach((input) => knobsHost.appendChild(renderKnob(input)));
-      }
-      function renderKnob(input) {
-        const row = el3("div", { class: "qb-knob" }, [el3("label", { class: "qb-knob-label", text: input.label })]);
-        if (input.type === "schemaField") {
-          const chip = el3("span", { class: "qb-knob-value", text: "(pick a column)" });
-          const pick = el3("button", { type: "button", class: "qb-knob-pick", text: "Pick column" });
-          pick.addEventListener("click", () => {
-            openNavigator(metadata, {
-              mode: "field",
-              onSelect: (field2) => {
-                const path = field2.relationshipPath || [];
-                const relationship = path.length ? path[path.length - 1] : null;
-                raw[input.key] = { relationship, column: field2.column };
-                chip.textContent = (relationship ? relationship + "." : "") + field2.column;
-              }
-            });
-          });
-          row.appendChild(chip);
-          row.appendChild(pick);
-        } else if (input.type === "select") {
-          const sel = el3("select", { class: "qb-knob-select" });
-          Object.entries(input.options || {}).forEach(([val, label]) => sel.appendChild(el3("option", { value: val, text: label })));
-          sel.addEventListener("change", () => {
-            raw[input.key] = sel.value;
-          });
-          raw[input.key] = sel.value;
-          row.appendChild(sel);
-        } else {
-          const inp = el3("input", { type: "text", class: "qb-knob-text", value: input.default != null ? String(input.default) : "" });
-          inp.addEventListener("input", () => {
-            raw[input.key] = inp.value;
-          });
-          if (input.default != null) raw[input.key] = input.default;
-          row.appendChild(inp);
-        }
-        return row;
-      }
-      const saveBtn = el3("button", { type: "button", class: "qb-modal-save", text: "Add chart" });
-      saveBtn.addEventListener("click", () => {
-        if (currentType) {
-          onSave(currentType.type, raw);
-          close();
-        }
+      typeControl = typeCombo.el;
+      openTypePicker = typeCombo.open || null;
+    }
+    const saveBtn = el3("button", { type: "button", class: "qb-modal-save", text: saveLabel });
+    saveBtn.addEventListener("click", () => {
+      if (currentType) onSave(currentType.type, raw);
+    });
+    const cancelBtn = el3("button", { type: "button", class: "qb-modal-cancel", text: "Cancel" });
+    cancelBtn.addEventListener("click", () => onCancel());
+    const root = el3("div", { class: "qb-chart-form" }, [
+      el3("div", { class: "qb-modal-title", text: initialType ? "Edit chart" : "Add a chart" }),
+      typeControl,
+      knobsHost,
+      el3("div", { class: "qb-modal-actions" }, [cancelBtn, saveBtn])
+    ]);
+    renderKnobs();
+    return { el: root, openTypePicker };
+  }
+  function initChartBuilder(host, { catalog = [], metadata = null, mountFilter = null, loadCharts = null, onSave = () => {
+  }, onUpdate = () => {
+  } } = {}) {
+    const toggle = el3("button", { type: "button", class: "qb-chart-toggle", text: "\u270E Edit" });
+    const section = el3("div", { class: "qb-chart-section" }, [
+      el3("div", { class: "qb-chart-section-head" }, [
+        el3("div", { class: "qb-chart-section-label", text: "\u{1F4CA} Charts" }),
+        toggle
+      ])
+    ]);
+    const listHost = el3("div", { class: "qb-chart-list" });
+    const addBtn = el3("button", { type: "button", class: "qb-add-chart", text: "+ Add Chart" });
+    addBtn.addEventListener("click", openAdd);
+    const body = el3("div", { class: "qb-chart-body qb-collapsed" }, [listHost, addBtn]);
+    toggle.addEventListener("click", () => body.classList.toggle("qb-collapsed"));
+    section.appendChild(body);
+    host.appendChild(section);
+    async function renderList() {
+      if (!loadCharts) return;
+      const charts = await loadCharts() || [];
+      listHost.innerHTML = "";
+      charts.forEach((chart) => {
+        const editBtn = el3("button", { type: "button", class: "qb-chart-edit", title: "Edit chart", text: "\u270E Edit" });
+        editBtn.addEventListener("click", () => openEdit(chart));
+        listHost.appendChild(el3("div", { class: "qb-chart-item" }, [
+          el3("span", { class: "qb-chart-item-name", text: chart.name || chart.label }),
+          editBtn
+        ]));
       });
-      const cancelBtn = el3("button", { type: "button", class: "qb-modal-cancel", text: "Cancel" });
-      cancelBtn.addEventListener("click", close);
-      const panel = el3("div", { class: "qb-modal qb-chart-builder-modal" }, [
-        el3("div", { class: "qb-modal-title", text: "Add a chart" }),
-        typeCombo.el,
-        knobsHost,
-        el3("div", { class: "qb-modal-actions" }, [cancelBtn, saveBtn])
-      ]);
-      const overlay = el3("div", { class: "qb-modal-overlay" }, [panel]);
+    }
+    function openForm(formOptions) {
+      const overlay = el3("div", { class: "qb-modal-overlay" });
+      const close = () => overlay.remove();
+      const form = chartForm({
+        catalog,
+        metadata,
+        mountFilter,
+        ...formOptions(close)
+      });
+      const panel = el3("div", { class: "qb-modal qb-chart-builder-modal" }, [form.el]);
+      overlay.appendChild(panel);
       overlay.addEventListener("click", (e) => {
         if (e.target === overlay) close();
       });
-      function close() {
-        overlay.remove();
-      }
       document.body.appendChild(overlay);
-      if (typeCombo.open) typeCombo.open();
+      return form;
     }
-    return { open: openPanel };
+    function openAdd() {
+      const form = openForm((close) => ({
+        saveLabel: "Add chart",
+        onSave: async (type, raw) => {
+          await onSave(type, raw);
+          close();
+          renderList();
+        },
+        onCancel: close
+      }));
+      if (form.openTypePicker) form.openTypePicker();
+    }
+    function openEdit(chart) {
+      openForm((close) => ({
+        initialType: chart.type,
+        initialValues: chart.raw || {},
+        saveLabel: "Save chart",
+        onSave: async (type, raw) => {
+          await onUpdate(chart.index, raw);
+          close();
+          renderList();
+        },
+        onCancel: close
+      }));
+    }
+    renderList();
+    return { open: openAdd, refresh: renderList };
   }
 
   // src/view/render.js

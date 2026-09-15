@@ -24,8 +24,8 @@ use SchemaCraft\Generator\Api\InlineGeneratedFile;
  *
  *  Pass 3 — One FileRunResult is built per file from the final cache state.
  *    • Preview caller: serialise results to JSON, no disk writes.
- *    • Run caller: write new files and inline-modified files to disk.
- *      Pass $force = true to also overwrite existing template files.
+ *    • Run caller: write new files, inline-modified files, and force-replaced
+ *      existing template files to disk.
  *
  * This design means both callers execute the same logic — the only difference is
  * what happens after run() returns, eliminating the divergence that previously caused
@@ -43,16 +43,18 @@ class GeneratorRunner
      *
      * @param  array<string, mixed>  $inputValues
      * @param  bool  $writeResults  When true, write new and modified files to disk.
-     * @param  bool  $force  When true and $writeResults is true, also overwrite existing
-     *                       template files with freshly rendered content (ignores inline state).
+     * @param  string[]  $skipFiles  Relative paths to exclude from writing (user opted out).
+     * @param  string[]  $forceReplace  Relative paths of existing file-template targets to
+     *                       overwrite with freshly rendered content. Without this, an existing
+     *                       file-template target is preserved (seeded from disk, render ignored).
      * @return FileRunResult[]
      */
     public function run(
         SchemaCraftGenerator $generator,
         array $inputValues,
         bool $writeResults = false,
-        bool $force = false,
         array $skipFiles = [],
+        array $forceReplace = [],
     ): array {
         $this->fileCache = [];
 
@@ -77,10 +79,16 @@ class GeneratorRunner
             $relativePaths[$absPath] = $generatedFile->path;
             $isTemplateFile[$absPath] = true;
 
-            if (! file_exists($absPath)) {
+            // File templates render the whole file. A new file's render IS its intended
+            // content. An existing file is PRESERVED by default (seed cache from disk, render
+            // ignored) so hand-customized files aren't clobbered. The render is written into
+            // the cache for an existing file only when the caller explicitly lists its path in
+            // $forceReplace (the UI's per-file "Replace" toggle). Either way the cache is the
+            // single source of truth — preview and write both act on whatever ends up here.
+            if (! file_exists($absPath) || in_array($generatedFile->path, $forceReplace, true)) {
                 $this->writeToFileCache($absPath, $generatedFile->content);
             } else {
-                $this->readFromFileCache($absPath); // seed from disk; return value unused here
+                $this->readFromFileCache($absPath); // preserve: seed from disk, render not applied
             }
         }
 

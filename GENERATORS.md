@@ -466,6 +466,90 @@ $schema->relationship('author') // Find relationship by name or null
 
 ---
 
+## Per-Connection Namespaces
+
+Output namespaces and directories are **config-driven, per DB connection** — don't hardcode them in a
+generator. Each `db_connections.<name>` entry in `config/schema-craft.php` carries an open-ended
+`namespaces` map:
+
+```php
+'db_connections' => [
+    'default' => [
+        'namespaces' => [
+            'schema'  => 'App\\Schemas',
+            'model'   => 'App\\Models',
+            'service' => 'App\\Models\\Services',
+            'actions' => 'App\\Models\\Actions',
+            'factory' => 'Database\\Factories',
+            'test'    => 'Tests\\Unit',
+            // Add ANY custom key you want to reference from a generator, e.g.:
+            // 'seeder' => 'Database\\Seeders',
+        ],
+        'connection' => 'default',
+    ],
+],
+```
+
+Resolve the connection for a schema, then read keys from it:
+
+```php
+use SchemaCraft\Config\ConfigResolver;
+use SchemaCraft\Config\ConnectionConfig;
+
+$conn = ConfigResolver::resolveForSchema($schema->schemaClass);
+
+$conn->namespace('factory');     // 'Database\Factories' — STRICT: throws a clear, actionable
+                                 // error if the key isn't configured for this connection
+$conn->hasNamespace('seeder');   // false — call before namespace() for genuinely optional keys
+ConnectionConfig::namespaceToDirectory($conn->namespace('factory'));
+                                 // 'database/factories' — composer-aware (consults the real PSR-4
+                                 // map, so a custom root like `Factories\` → `factories/`), base_path()-relative
+$conn->prefixedModelName('Task'); // applies the connection's model prefix (multi-DB projects)
+```
+
+**Strict by design.** `namespace($key)` throws instead of silently defaulting, so a missing config
+key surfaces immediately ("go add it to schema-craft.php") rather than a file quietly landing in the
+wrong place. Because generators call it inside `data()`, the error surfaces exactly when *that*
+generator runs — not for unrelated ones.
+
+**Canonical pattern** (from `FactoryGenerator`) — resolve namespace + output path in `data()`, then
+interpolate the path in `templates()` and use the namespace in the Blade:
+
+```php
+public function data(): array
+{
+    return [
+        'schema' => fn ($data) => Input::schemaSelector('Schema'),
+
+        'factory_namespace' => fn ($data) => isset($data['schema'])
+            ? ConfigResolver::resolveForSchema($data['schema']->schemaClass)->namespace('factory')
+            : null,
+
+        'factory_output' => fn ($data) => isset($data['factory_namespace'], $data['schema'])
+            ? ConnectionConfig::namespaceToDirectory($data['factory_namespace'])
+                .'/'.class_basename($data['schema']->modelClass).'Factory.php'
+            : null,
+    ];
+}
+
+public function templates(): array
+{
+    return [Template::file('[factory_output]', 'generators.factory.factory')];
+}
+```
+
+```blade
+{!! $phpOpenTag !!}
+
+namespace {!! $factory_namespace !!};
+```
+
+`GeneratorSchemaContext` pre-exposes the two most common ones eagerly — `$schema->actionsNamespace`
+and `$schema->actionsPath` — but for anything else (factory, test, or a custom key) resolve via
+`ConfigResolver` as above.
+
+---
+
 ## GeneratorColumn
 
 Every `GeneratorColumn` proxies all `ColumnDefinition` properties and adds code-generation helpers.
